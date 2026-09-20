@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="96" alt=""></p>
+
 # aliexpress-coin-collector
 
 Sammelt den täglichen Coin-Check-in der AliExpress-App automatisch ein. Ein Android-Gerät (altes Handy oder
@@ -50,14 +52,6 @@ Als root im Zielcontainer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh | bash
-```
-
-Das genügt. Wer das Skript vorher lesen will — es läuft als root und installiert Pakete — nimmt den Umweg über
-die Datei:
-
-```bash
-URL=https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh
-curl -fsSL $URL -o install.sh && less install.sh && bash install.sh
 ```
 
 Aus einem vorhandenen Checkout heraus genügt `./install.sh`.

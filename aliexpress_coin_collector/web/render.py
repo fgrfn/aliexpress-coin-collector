@@ -64,8 +64,8 @@ LOGO = (
     '<svg class="logo" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">'
     '<circle cx="12" cy="12" r="10" fill="var(--coin)"/>'
     '<circle cx="12" cy="12" r="7.5" fill="none" stroke="var(--coin-dark)" stroke-width="1.2"/>'
-    '<path d="M12 6.8v10.4M9.6 9.2h4a1.9 1.9 0 0 1 0 3.8h-4M9.6 13h4.4" fill="none" '
-    'stroke="var(--coin-dark)" stroke-width="1.6" stroke-linecap="round"/>'
+    '<path d="M15.7 8.3A5.2 5.2 0 1 0 15.7 15.7M7.6 11h6.8M7.6 13h6" fill="none" '
+    'stroke="var(--coin-dark)" stroke-width="1.5" stroke-linecap="round"/>'
     "</svg>"
 )
 
@@ -75,8 +75,8 @@ FAVICON = (
     "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
     "%3Ccircle cx='12' cy='12' r='10' fill='%23f0b429'/%3E"
     "%3Ccircle cx='12' cy='12' r='7.5' fill='none' stroke='%238a5a00' stroke-width='1.2'/%3E"
-    "%3Cpath d='M12 6.8v10.4M9.6 9.2h4a1.9 1.9 0 0 1 0 3.8h-4M9.6 13h4.4' fill='none' "
-    "stroke='%238a5a00' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"
+    "%3Cpath d='M15.7 8.3A5.2 5.2 0 1 0 15.7 15.7M7.6 11h6.8M7.6 13h6' fill='none' "
+    "stroke='%238a5a00' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E"
 )
 
 
