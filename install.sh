@@ -527,8 +527,25 @@ try_adb_connect() {
             ;;
         unauthorized)
             echo "    Verbunden, aber noch nicht freigegeben."
-            echo "    Bitte den Dialog auf dem Geraet mit \"Immer zulassen\" bestaetigen, danach:"
-            echo "      runuser -u $SVC_USER -- adb connect $serial"
+            echo "    Auf dem Geraet wartet jetzt ein Dialog. Bitte mit \"Immer zulassen\" bestaetigen."
+            if interactive; then
+                local answer=""
+                ask answer "    Bestaetigt? [Enter zum erneuten Pruefen, n zum Ueberspringen]: "
+                case "$answer" in
+                    n|N|nein|Nein) ;;
+                    *)
+                        runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
+                        sleep 2
+                        state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
+                        if [ "$state" = "device" ]; then
+                            echo "    Jetzt verbunden und freigegeben."
+                            return 0
+                        fi
+                        echo "    Immer noch nicht freigegeben."
+                        ;;
+                esac
+            fi
+            echo "    Spaeter nachholen mit: runuser -u $SVC_USER -- adb connect $serial"
             return 1
             ;;
         *)
@@ -539,6 +556,50 @@ try_adb_connect() {
             return 1
             ;;
     esac
+}
+
+
+SERIAL_VALUE=""
+
+# Sorgt dafuer, dass in der .env eine Geraete-Adresse steht, und legt sie in SERIAL_VALUE ab.
+# Bewusst unabhaengig davon, ob die .env neu angelegt wurde: eine bestehende Datei mit leerem
+# ADB_SERIAL ist der haeufigere Fall, etwa nach einem abgebrochenen ersten Versuch.
+ensure_serial() {
+    local serial="" tries=0
+    SERIAL_VALUE="$(grep -m1 '^ADB_SERIAL=' "$DEST/.env" 2>/dev/null | cut -d= -f2-)"
+    [ -n "$SERIAL_VALUE" ] && return 0
+
+    serial="${ADB_SERIAL:-}"
+    if [ -n "$serial" ] && ! valid_adb_serial "$serial"; then
+        echo "    WARNUNG: Die vorgegebene ADB_SERIAL ist ungueltig und wird nicht uebernommen."
+        serial=""
+    fi
+
+    if [ -z "$serial" ] && interactive; then
+        echo ""
+        echo "Das Geraet wird ueber seine Adresse im Netz angesprochen, zum Beispiel 192.168.1.50:5555."
+        echo "Die IP steht auf dem Geraet unter Einstellungen > WLAN, der Port ist ueblicherweise 5555."
+        echo "Vorher muss einmalig per USB 'adb tcpip 5555' gesetzt worden sein."
+        while [ -z "$serial" ] && [ "$tries" -lt 3 ]; do
+            tries=$((tries + 1))
+            ask serial "Geraete-Adresse (host:port) oder USB-Seriennummer: "
+            if [ -z "$serial" ]; then
+                echo "    Keine Eingabe."
+            elif ! valid_adb_serial "$serial"; then
+                echo "    Ungueltig: erwartet wird host:port (Port 1-65535) oder eine Seriennummer ohne Leerzeichen."
+                serial=""
+            fi
+        done
+    fi
+
+    if [ -n "$serial" ]; then
+        set_env_value ADB_SERIAL "$serial" "$DEST/.env"
+        chmod 600 "$DEST/.env"
+        SERIAL_VALUE="$serial"
+        echo "    Adresse in $DEST/.env eingetragen."
+    else
+        echo "    WARNUNG: ADB_SERIAL wurde nicht gesetzt, bitte in $DEST/.env eintragen."
+    fi
 }
 
 
@@ -673,40 +734,19 @@ echo "==> Konfiguration"
 if [ ! -f "$DEST/.env" ]; then
     cp "$DEST/.env.example" "$DEST/.env"
     chmod 600 "$DEST/.env"
-    serial="${ADB_SERIAL:-}"
     webhook="${DISCORD_WEBHOOK_URL:-}"
-    if [ -n "$serial" ] && ! valid_adb_serial "$serial"; then
-        echo "    WARNUNG: Die vorgegebene ADB_SERIAL ist ungueltig."
-        echo "             Erwartet wird host:port (Port 1-65535) oder eine USB-Seriennummer ohne Leerzeichen."
-        serial=""
-    fi
-    if interactive; then
-        tries=0
-        while [ -z "$serial" ] && [ "$tries" -lt 3 ]; do
-            tries=$((tries + 1))
-            ask serial "Geraete-Adresse (z. B. 192.168.1.50:5555) oder USB-Seriennummer: "
-            if [ -z "$serial" ]; then
-                echo "    Keine Eingabe."
-            elif ! valid_adb_serial "$serial"; then
-                echo "    Ungueltig: erwartet wird host:port (Port 1-65535) oder eine USB-Seriennummer ohne Leerzeichen."
-                serial=""
-            fi
-        done
-        if [ -z "$webhook" ]; then
-            ask webhook "Discord-Webhook-URL (leer lassen zum Ueberspringen): "
-        fi
-    fi
-    if [ -n "$serial" ]; then
-        set_env_value ADB_SERIAL "$serial" "$DEST/.env"
-    else
-        echo "    WARNUNG: ADB_SERIAL wurde nicht gesetzt, bitte in $DEST/.env eintragen (z. B. 192.168.1.50:5555)"
+    if [ -z "$webhook" ] && interactive; then
+        ask webhook "Discord-Webhook-URL fuer Meldungen (leer lassen zum Ueberspringen): "
     fi
     if [ -n "$webhook" ]; then
         set_env_value DISCORD_WEBHOOK_URL "$webhook" "$DEST/.env"
     fi
 else
-    echo "    .env existiert bereits, bleibt unveraendert"
+    echo "    .env existiert bereits, vorhandene Werte bleiben unveraendert"
 fi
+
+# Immer pruefen, nicht nur bei neuer .env: ohne Adresse startet spaeter nichts.
+ensure_serial
 chmod 600 "$DEST/.env"
 chown -R "$SVC_USER": "$DEST"
 
@@ -795,11 +835,17 @@ MSG
     fi
 fi
 
-# 'doctor' spricht ein echtes Geraet an, daher nur interaktiv und nur nach Zustimmung.
-if interactive && [ -x "$DEST/.venv/bin/python" ]; then
+# 'doctor' als Gegenprobe zum Schluss. Ohne Geraete-Adresse kann es nicht starten, dann wird es
+# auch nicht angeboten -- sonst folgte auf den Hinweis "ohne Adresse startet nichts" prompt das
+# Angebot, genau das zu starten.
+if interactive && [ -x "$DEST/.venv/bin/python" ] && [ -n "$configured_serial" ]; then
     echo ""
+    echo "Zum Schluss die Gegenprobe: 'doctor' prueft, ob adb und Tesseract vorhanden sind, ob die"
+    echo "Zeitzone plausibel ist, ob das Datenverzeichnis beschreibbar ist und ob das Geraet"
+    echo "antwortet. Dafuer macht es einen Screenshot und zeigt den heutigen Zeitplan."
+    echo "Es tippt nichts an und sammelt keine Coins ein."
     run_doctor=""
-    ask run_doctor "Jetzt 'doctor' ausfuehren? Das spricht das Geraet wirklich an. [j/N]: "
+    ask run_doctor "Jetzt 'doctor' ausfuehren? [j/N]: "
     case "$run_doctor" in
         j|J|ja|Ja|JA|y|Y|yes|Yes)
             echo "==> doctor"
