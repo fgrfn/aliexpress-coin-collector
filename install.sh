@@ -179,9 +179,9 @@ do_uninstall() {
     fi
 
     local answer=""
-    if [ -t 0 ]; then
+    if interactive; then
         echo "    In $DEST liegen .env (Zugangsdaten), data/ (Datenbank) und .android/ (ADB-Freigabe)."
-        read -r -p "    Dieses Verzeichnis mit allen Daten unwiderruflich loeschen? Nur 'JA' loescht: " answer || answer=""
+        ask answer "    Dieses Verzeichnis mit allen Daten unwiderruflich loeschen? Nur 'JA' loescht: "
     fi
     if [ "$answer" = "JA" ]; then
         rm -rf "$DEST"
@@ -470,6 +470,78 @@ do_update() {
 }
 
 
+# Kann der Nutzer antworten? Bei "curl ... | bash" ist stdin die Pipe mit dem Skript und nicht
+# das Terminal, "[ -t 0 ]" ist dann falsch. Das Terminal bleibt aber ueber /dev/tty erreichbar --
+# genau daraus lesen wir, sonst koennte der Einzeiler nie nach der Geraete-Adresse fragen.
+TTY_IN=""
+
+detect_tty() {
+    if [ -t 0 ]; then
+        TTY_IN="/dev/stdin"
+    elif [ -e /dev/tty ] && (exec 3<>/dev/tty) 2>/dev/null; then
+        TTY_IN="/dev/tty"
+    fi
+}
+
+interactive() {
+    [ -n "$TTY_IN" ]
+}
+
+# ask VARIABLE "Text": fragt nach und legt die Antwort in VARIABLE ab. 1, wenn nicht gefragt werden kann.
+ask() {
+    local __var="$1" __prompt="$2" __answer=""
+    interactive || return 1
+    if [ "$TTY_IN" = "/dev/tty" ]; then
+        printf '%s' "$__prompt" > /dev/tty
+    else
+        printf '%s' "$__prompt"
+    fi
+    IFS= read -r __answer < "$TTY_IN" || __answer=""
+    printf -v "$__var" '%s' "$__answer"
+}
+
+
+# Stellt die ADB-Verbindung her, solange der Nutzer noch davorsteht: auf dem Geraet erscheint
+# dabei der Freigabe-Dialog, der mit "Immer zulassen" bestaetigt werden muss. Bewusst als
+# Dienstbenutzer, damit der Schluessel in dessen ~/.android landet und der Dienst ihn spaeter hat.
+# "adb connect" weckt das Geraet nicht und tippt nicht darauf, es baut nur die Verbindung auf.
+try_adb_connect() {
+    local serial="$1" state=""
+    # Beide Faelle sind "keine Verbindung", nicht "in Ordnung": sonst meldete der Aufrufer Erfolg.
+    [ -n "$serial" ] || return 1
+    if ! command -v adb >/dev/null 2>&1; then
+        echo "==> adb ist nicht vorhanden, die Verbindung kann nicht hergestellt werden"
+        return 1
+    fi
+
+    echo "==> Verbindung zum Geraet herstellen"
+    echo "    Falls auf dem Geraet ein Dialog erscheint: mit \"Immer zulassen\" bestaetigen."
+    runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
+    sleep 2
+    state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
+
+    case "$state" in
+        device)
+            echo "    Verbunden und freigegeben."
+            return 0
+            ;;
+        unauthorized)
+            echo "    Verbunden, aber noch nicht freigegeben."
+            echo "    Bitte den Dialog auf dem Geraet mit \"Immer zulassen\" bestaetigen, danach:"
+            echo "      runuser -u $SVC_USER -- adb connect $serial"
+            return 1
+            ;;
+        *)
+            echo "    Keine Verbindung. Haeufigste Ursachen:"
+            echo "      - das Geraet ist aus oder nicht im Netz"
+            echo "      - nach einem Neustart fehlt 'adb tcpip 5555' (einmalig per USB setzen)"
+            echo "      - die Adresse in $DEST/.env stimmt nicht"
+            return 1
+            ;;
+    esac
+}
+
+
 cleanup_work() {
     [ -n "$WORK" ] && rm -rf "$WORK"
     return 0
@@ -498,6 +570,8 @@ resolve_src() {
 }
 
 main() {
+detect_tty
+
 ACTION="install"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -606,11 +680,11 @@ if [ ! -f "$DEST/.env" ]; then
         echo "             Erwartet wird host:port (Port 1-65535) oder eine USB-Seriennummer ohne Leerzeichen."
         serial=""
     fi
-    if [ -t 0 ]; then
+    if interactive; then
         tries=0
         while [ -z "$serial" ] && [ "$tries" -lt 3 ]; do
             tries=$((tries + 1))
-            read -r -p "Geraete-Adresse (z. B. 192.168.1.50:5555) oder USB-Seriennummer: " serial || serial=""
+            ask serial "Geraete-Adresse (z. B. 192.168.1.50:5555) oder USB-Seriennummer: "
             if [ -z "$serial" ]; then
                 echo "    Keine Eingabe."
             elif ! valid_adb_serial "$serial"; then
@@ -619,7 +693,7 @@ if [ ! -f "$DEST/.env" ]; then
             fi
         done
         if [ -z "$webhook" ]; then
-            read -r -p "Discord-Webhook-URL (leer lassen zum Ueberspringen): " webhook || webhook=""
+            ask webhook "Discord-Webhook-URL (leer lassen zum Ueberspringen): "
         fi
     fi
     if [ -n "$serial" ]; then
@@ -667,12 +741,50 @@ else
     echo "Fertig. $DEST wurde neu eingerichtet."
 fi
 
-cat <<MSG
+# Die naechsten Schritte richten sich danach, ob eine Geraete-Adresse eingetragen ist. Sie ohne
+# Pruefung auszugeben hiesse, Befehle zu empfehlen, die mit leerer ADB_SERIAL nur eine
+# Fehlermeldung erzeugen.
+configured_serial="$(grep -m1 '^ADB_SERIAL=' "$DEST/.env" 2>/dev/null | cut -d= -f2-)"
+
+adb_ready=0
+if [ -n "$configured_serial" ]; then
+    if try_adb_connect "$configured_serial"; then adb_ready=1; fi
+fi
+
+echo ""
+if [ -z "$configured_serial" ]; then
+    cat <<MSG
+ACHTUNG: In $DEST/.env ist noch keine Geraete-Adresse eingetragen.
+Ohne sie startet weder 'doctor' noch der Dienst.
 
 Naechste Schritte:
-  1. Geraet freigeben (Dialog auf dem Geraet mit "Immer zulassen" bestaetigen; bei einer
-     migrierten Installation ist das schon erledigt):
-       runuser -u $SVC_USER -- adb connect \$(grep ^ADB_SERIAL= $DEST/.env | cut -d= -f2-)
+  1. Adresse eintragen (Beispiel; eigene Adresse einsetzen):
+       sed -i 's|^ADB_SERIAL=.*|ADB_SERIAL=192.168.1.50:5555|' $DEST/.env
+  2. Geraet freigeben (Dialog auf dem Geraet mit "Immer zulassen" bestaetigen):
+       runuser -u $SVC_USER -- adb connect 192.168.1.50:5555
+  3. Installation pruefen:
+       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector doctor
+  4. Ersten echten Lauf machen:
+       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector once --force --no-notify
+  5. Wenn das klappt, Dienst starten:
+       systemctl enable --now $SERVICE
+MSG
+else
+    if [ "$adb_ready" = 1 ]; then
+        cat <<MSG
+Naechste Schritte:
+  1. Installation pruefen:
+       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector doctor
+  2. Ersten echten Lauf machen:
+       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector once --force --no-notify
+  3. Wenn das klappt, Dienst starten:
+       systemctl enable --now $SERVICE
+MSG
+    else
+        cat <<MSG
+Naechste Schritte:
+  1. Verbindung herstellen, sobald das Geraet erreichbar und freigegeben ist:
+       runuser -u $SVC_USER -- adb connect $configured_serial
   2. Installation pruefen:
        cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector doctor
   3. Ersten echten Lauf machen:
@@ -680,12 +792,14 @@ Naechste Schritte:
   4. Wenn das klappt, Dienst starten:
        systemctl enable --now $SERVICE
 MSG
+    fi
+fi
 
 # 'doctor' spricht ein echtes Geraet an, daher nur interaktiv und nur nach Zustimmung.
-if [ -t 0 ] && [ -x "$DEST/.venv/bin/python" ]; then
+if interactive && [ -x "$DEST/.venv/bin/python" ]; then
     echo ""
     run_doctor=""
-    read -r -p "Jetzt 'doctor' ausfuehren? Das spricht das Geraet wirklich an. [j/N]: " run_doctor || run_doctor=""
+    ask run_doctor "Jetzt 'doctor' ausfuehren? Das spricht das Geraet wirklich an. [j/N]: "
     case "$run_doctor" in
         j|J|ja|Ja|JA|y|Y|yes|Yes)
             echo "==> doctor"
