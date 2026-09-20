@@ -29,6 +29,15 @@ jobs:
         run: ruff format --check .
       - name: Tests
         run: python -m pytest -q
+      - name: shellcheck installieren
+        # Feste Version, damit lokal und in der CI dieselben Regeln gelten. Die Version aus dem
+        # Runner-Image wechselt sonst unangekuendigt und meldet plötzlich neue Befunde.
+        run: |
+          VER=v0.11.0
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${VER}/shellcheck-${VER}.linux.x86_64.tar.xz" \
+            | tar -xJ
+          sudo install -m 0755 "shellcheck-${VER}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
       - name: Installationsskript prüfen
         run: |
           bash -n install.sh

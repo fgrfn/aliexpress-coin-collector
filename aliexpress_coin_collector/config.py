@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from datetime import time
+from datetime import datetime, time
 from pathlib import Path
+
+from . import settings
 
 DEFAULT_URL = (
     "https://m.aliexpress.com/p/coin-index/index.html"
@@ -130,6 +132,9 @@ class Config:
     notify_on_already_done: bool
     data_dir: Path
     log_level: str
+    # Zeitpunkt der letzten Aenderung aus settings.json, None wenn es keine gibt.
+    # scheduler.decide nutzt ihn, damit eine Fensteraenderung keinen rueckwirkenden Lauf ausloest.
+    settings_changed_at: datetime | None = None
 
     @classmethod
     def load(cls, env_file: str | Path = ".env") -> Config:
@@ -145,16 +150,28 @@ class Config:
         if not labels:
             raise ConfigError("BUTTON_LABELS darf nicht leer sein")
 
+        data_dir = Path(get("DATA_DIR") or "./data")
+        # settings.json ueberschreibt die Fenster aus der .env. Bewusst hier und nicht erst im
+        # Dienst, damit CLI, Dienst und Weboberflaeche dieselben Zeiten anzeigen.
+        overrides = settings.load(data_dir)
+        windows = {
+            "morning_start": _time(get("MORNING_START") or "07:00"),
+            "morning_end": _time(get("MORNING_END") or "10:00"),
+            "evening_start": _time(get("EVENING_START") or "19:00"),
+            "evening_end": _time(get("EVENING_END") or "21:00"),
+        }
+        windows.update(overrides.windows)
+
         cfg = cls(
             adb_serial=serial,
             adb_path=get("ADB_PATH") or "adb",
             app_package=get("APP_PACKAGE") or "com.alibaba.aliexpresshd",
             coin_url=get("COIN_URL") or DEFAULT_URL,
             discord_webhook=(get("DISCORD_WEBHOOK_URL") or "").strip(),
-            morning_start=_time(get("MORNING_START") or "07:00"),
-            morning_end=_time(get("MORNING_END") or "10:00"),
-            evening_start=_time(get("EVENING_START") or "19:00"),
-            evening_end=_time(get("EVENING_END") or "21:00"),
+            morning_start=windows["morning_start"],
+            morning_end=windows["morning_end"],
+            evening_start=windows["evening_start"],
+            evening_end=windows["evening_end"],
             skip_if_awake=_bool(get("SKIP_IF_AWAKE") or "true"),
             busy_retry_min=_int("BUSY_RETRY_MIN", 15),
             busy_max_wait_min=_int("BUSY_MAX_WAIT_MIN", 120),
@@ -165,8 +182,9 @@ class Config:
             ocr_lang=_text("OCR_LANG", "deu"),
             notify_on_success=_bool(get("NOTIFY_ON_SUCCESS") or "true"),
             notify_on_already_done=_bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
-            data_dir=Path(get("DATA_DIR") or "./data"),
+            data_dir=data_dir,
             log_level=(get("LOG_LEVEL") or "INFO").strip().upper(),
+            settings_changed_at=overrides.changed_at,
         )
         cfg._validate()
         return cfg

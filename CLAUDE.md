@@ -38,6 +38,7 @@ python -m aliexpress_coin_collector once --force --no-notify   # ein Lauf (fasst
 python -m aliexpress_coin_collector ocr bild.png --text        # Erkennung an Screenshot testen
 python -m aliexpress_coin_collector status                     # letzte Läufe + Summen
 python -m aliexpress_coin_collector schedule                   # geplante Uhrzeiten der nächsten Tage
+python -m aliexpress_coin_collector.web                        # Weboberfläche (eigener Dienst)
 ```
 
 `once`, `doctor` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `--version` und die Tests brauchen kein Gerät.
@@ -57,8 +58,13 @@ aliexpress_coin_collector/
   store.py      SQLite (Tabelle runs)
   notify.py     Discord-Webhook (wirft nie)
   __main__.py   CLI: once | daemon | ocr | status | schedule | doctor
-tests/          test_config.py, test_runner.py, test_scheduler.py (Attrappen, kein Gerät nötig)
-install.sh      Installation in einem Debian/Ubuntu-LXC inkl. Migration der Vorgängerversion
+  settings.py   zur Laufzeit änderbare Fenster (data/settings.json)
+  web/          optionale Weboberfläche: data.py (Auswertung), render.py (HTML/SVG),
+                app.py (FastAPI), eigener Dienst, liest die Datenbank nur
+tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings.py,
+                test_web_data.py (Attrappen, kein Gerät nötig)
+install.sh      Installation/Update im LXC: lokaler Quellbaum oder Selbstdownload per curl,
+                Migration der Vorgängerversion, --update mit Rollback, --uninstall
 .github/workflows/ci.yml   CI: ruff, pytest (3.10/3.12), shellcheck
 docs/STATUS.md  Stand, Technikdetails, Stolpersteine, offene Punkte
 ```

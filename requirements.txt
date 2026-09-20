@@ -2,3 +2,8 @@ opencv-python-headless>=4.8
 numpy>=1.26
 pytesseract>=0.3.10
 requests>=2.31
+
+# Weboberflaeche (optionaler zweiter Dienst, siehe README)
+fastapi>=0.110
+uvicorn>=0.27
+python-multipart>=0.0.9
