@@ -1,0 +1,15 @@
+[Unit]
+Description=AliExpress Coin Collector (ADB + OCR)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coins
+WorkingDirectory=/opt/aliexpress-coin-collector
+ExecStart=/opt/aliexpress-coin-collector/.venv/bin/python -m aliexpress_coin_collector daemon
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
