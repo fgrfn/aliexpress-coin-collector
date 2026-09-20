@@ -12,6 +12,7 @@ OCR (Tesseract) gefunden. Ergebnisse gehen per Discord raus, jeder Lauf landet i
 - [Wie ein Lauf abläuft](#wie-ein-lauf-abläuft)
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
+- [Aktualisieren](#aktualisieren)
 - [Gerät einrichten](#gerät-einrichten)
 - [Erster Test](#erster-test)
 - [Betrieb](#betrieb)
@@ -45,7 +46,31 @@ Discord-Meldung mit Screenshot. Die Uhrzeiten hängen nur vom Datum ab und über
 
 ## Installation
 
-Das Projekt in den Container kopieren (z. B. per `scp`), dort als root:
+### Empfohlen: herunterladen, ansehen, ausführen
+
+Das Skript läuft als root und installiert Pakete. Deshalb lohnt sich der Blick hinein, bevor es startet:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/bootstrap.sh -o bootstrap.sh
+less bootstrap.sh
+bash bootstrap.sh
+```
+
+`bootstrap.sh` lädt die neueste veröffentlichte Version als Tarball, entpackt sie in ein temporäres Verzeichnis
+und startet das darin enthaltene `install.sh`. Weder `git` noch eine lokale Kopie sind nötig.
+
+### Kurzform
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/bootstrap.sh | bash
+```
+
+Das Skript ist gegen abgebrochene Downloads abgesichert: Der gesamte Code steht in Funktionen, die erst in der
+letzten Zeile aufgerufen werden. Bricht die Übertragung vorher ab, führt bash nichts aus.
+
+### Aus einer lokalen Kopie
+
+Projekt in den Container kopieren (z. B. per `scp`), dort als root:
 
 ```bash
 cd aliexpress-coin-collector
@@ -65,8 +90,21 @@ Dienst starten:
 systemctl enable --now aliexpress-coin-collector
 ```
 
-Ein erneuter Aufruf von `./install.sh` aktualisiert eine bestehende Installation und meldet das auch so; eine
-vorhandene `.env` bleibt dabei immer unverändert. `./install.sh --help` erklärt Aufruf und Umgebungsvariablen und
+### Aktualisieren
+
+```bash
+cd /opt/aliexpress-coin-collector && ./install.sh --update
+```
+
+Holt die neueste veröffentlichte Version von GitHub, sichert den alten Programmstand, tauscht die Dateien aus, baut
+die Python-Umgebung neu und prüft zum Schluss, ob `--version` noch läuft. Scheitert dieser Rauchtest, wird der
+vorherige Stand automatisch wiederhergestellt und der Dienst wieder gestartet, falls er vorher lief.
+
+**`.env`, `data/` und `.android/` werden dabei nie angefasst.** Mit `--ref v0.3.0` oder `--ref main` lässt sich ein
+bestimmter Stand erzwingen.
+
+Ein erneuter Aufruf von `./install.sh` ohne Argumente aktualisiert aus dem aktuellen Verzeichnis und meldet das auch
+so; eine vorhandene `.env` bleibt dabei immer unverändert. `./install.sh --help` erklärt Aufruf und Umgebungsvariablen und
 ändert nichts. `./install.sh --uninstall` stoppt den Dienst und entfernt die systemd-Unit; `.env`, `data/` und
 `.android/` bleiben erhalten, gelöscht wird nur nach ausdrücklicher Bestätigung mit `JA`.
 

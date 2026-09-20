@@ -58,7 +58,8 @@ aliexpress_coin_collector/
   notify.py     Discord-Webhook (wirft nie)
   __main__.py   CLI: once | daemon | ocr | status | schedule | doctor
 tests/          test_config.py, test_runner.py, test_scheduler.py (Attrappen, kein Gerät nötig)
-install.sh      Installation in einem Debian/Ubuntu-LXC inkl. Migration der Vorgängerversion
+install.sh      Installation/Update im LXC, Migration der Vorgängerversion, --update, --uninstall
+bootstrap.sh    Erstinstallation per curl: lädt den Tarball und startet install.sh daraus
 .github/workflows/ci.yml   CI: ruff, pytest (3.10/3.12), shellcheck
 docs/STATUS.md  Stand, Technikdetails, Stolpersteine, offene Punkte
 ```

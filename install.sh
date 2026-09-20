@@ -2,6 +2,7 @@
 # Installiert aliexpress-coin-collector in einem Debian/Ubuntu-LXC (als root ausfuehren).
 # Nicht-interaktiv moeglich: ADB_SERIAL=... DISCORD_WEBHOOK_URL=... ./install.sh
 # Erkennt eine aeltere Installation (aliexpress-coins) und uebernimmt .env, Datenbank und ADB-Freigabe.
+# Mit --update wird der Quelltext von GitHub geladen und eine bestehende Installation ersetzt.
 # Aufrufformen und Umgebungsvariablen erklaert ./install.sh --help
 set -euo pipefail
 
@@ -10,15 +11,35 @@ DEST="${INSTALL_DIR:-/opt/aliexpress-coin-collector}"
 OLD="${OLD_INSTALL_DIR:-/opt/aliexpress-coins}"
 SVC_USER="coins"
 SERVICE="aliexpress-coin-collector"
+OWNER="fgrfn"
+REPO="aliexpress-coin-collector"
+
+# Dateien und Verzeichnisse, die beim Kopieren nie angefasst werden (Zugangsdaten, Datenbank,
+# ADB-Freigabe, venv mit absoluten Pfaden und Arbeitsreste).
+KEEP_EXCLUDES=(--exclude .env --exclude data --exclude .venv --exclude .android
+    --exclude __pycache__ --exclude .pytest_cache --exclude .git)
 
 usage() {
     cat <<'USAGE'
 aliexpress-coin-collector - Installationsskript (als root ausfuehren)
 
 Aufruf:
-  ./install.sh              Installiert neu oder aktualisiert eine vorhandene Installation
-  ./install.sh --uninstall  Stoppt den Dienst und entfernt die systemd-Unit (Daten bleiben erhalten)
-  ./install.sh --help       Diese Hilfe anzeigen (veraendert nichts)
+  ./install.sh                     Installiert neu oder aktualisiert aus diesem Verzeichnis
+  ./install.sh --update            Laedt den Quelltext von GitHub und aktualisiert die
+                                   vorhandene Installation (mit Rauchtest und Rollback)
+  ./install.sh --update --ref X    Aktualisiert auf ein bestimmtes Tag oder einen Branch
+  ./install.sh --uninstall         Stoppt den Dienst und entfernt die systemd-Unit
+                                   (Daten bleiben erhalten)
+  ./install.sh --help              Diese Hilfe anzeigen (veraendert nichts)
+
+Ohne lokale Kopie installiert bootstrap.sh:
+  curl -fsSL <url>/bootstrap.sh | bash
+
+Ermittlung des Standes bei --update (in dieser Reihenfolge):
+  1. --ref bzw. die Umgebungsvariable REF, falls gesetzt
+  2. Neuestes Release-Tag ueber die GitHub-API
+  3. Hoechstes Tag der GitHub-API (sortiert nach Versionsnummer)
+  4. Branch 'main' (unveroeffentlichter Stand, mit deutlichem Hinweis)
 
 Umgebungsvariablen:
   INSTALL_DIR          Zielverzeichnis der Installation
@@ -28,15 +49,22 @@ Umgebungsvariablen:
                        Standard: /opt/aliexpress-coins
   ADB_SERIAL           Adresse des Geraets als host:port (z. B. 192.168.1.50:5555) oder
                        USB-Seriennummer ohne Leerzeichen. Ohne diese Variable wird in einer
-                       interaktiven Sitzung danach gefragt.
+                       interaktiven Sitzung danach gefragt. Bei --update wird nicht gefragt.
   DISCORD_WEBHOOK_URL  Discord-Webhook fuer Meldungen (leer = nur Log-Ausgabe). Ohne diese
                        Variable wird in einer interaktiven Sitzung danach gefragt.
+                       Bei --update wird nicht gefragt.
+  REF                  Tag oder Branch, der bei --update geladen wird (wie --ref)
+  CODELOAD_BASE_URL    Basis-URL fuer den Tarball
+                       Standard: https://codeload.github.com
+  GITHUB_API_URL       Basis-URL der GitHub-API
+                       Standard: https://api.github.com
 
 Beispiel (ohne Rueckfragen):
   ADB_SERIAL=192.168.1.50:5555 DISCORD_WEBHOOK_URL=https://... ./install.sh
 
-Eine vorhandene .env bleibt immer unveraendert. --uninstall loescht .env, data/ und
-.android/ nur nach ausdruecklicher Bestaetigung.
+Eine vorhandene .env bleibt immer unveraendert; .env, data/ und .android/ werden bei einer
+Aktualisierung nie ueberschrieben. --uninstall loescht diese Daten nur nach ausdruecklicher
+Bestaetigung.
 USAGE
 }
 
@@ -164,6 +192,282 @@ do_uninstall() {
     fi
 }
 
+# --- Quelltext von GitHub laden -----------------------------------------------------------------
+
+require_downloader() {
+    if command -v curl >/dev/null 2>&1; then return 0; fi
+    if command -v wget >/dev/null 2>&1; then return 0; fi
+    echo "Weder curl noch wget ist vorhanden, der Quelltext kann nicht geladen werden." >&2
+    echo "Bitte eines davon installieren, z. B.: apt-get update && apt-get install -y curl" >&2
+    return 1
+}
+
+# Laedt eine URL nach stdout. Fehler (auch HTTP-Fehler) fuehren zu einem Rueckgabewert != 0.
+fetch_stdout() {
+    local url="$1"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url"
+    else
+        wget -qO- "$url"
+    fi
+}
+
+# Laedt eine URL in eine Datei. Bei einem Fehler bleibt keine halbe Datei zurueck.
+download_to() {
+    local url="$1" target="$2"
+    # Fehlermeldungen des Werkzeugs bleiben aus: ein 404 gehoert hier zum Ablauf
+    # (erst wird ein Tag, dann ein Branch versucht). Scheitert beides, meldet der Aufrufer es.
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$target" "$url" 2>/dev/null && return 0
+    else
+        wget -q -O "$target" "$url" 2>/dev/null && return 0
+    fi
+    rm -f "$target"
+    return 1
+}
+
+# Erlaubt sind nur Zeichen, die in Tag- und Branchnamen vorkommen. Das haelt Sonderzeichen
+# aus der URL heraus.
+valid_ref() {
+    local value="$1"
+    [ -n "$value" ] || return 1
+    case "$value" in
+        -*|*..*) return 1 ;;
+    esac
+    case "$value" in
+        *[!A-Za-z0-9._/+-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# Liest den ersten Zeichenketten-Wert eines JSON-Feldes. Bewusst ohne jq, das ist nicht
+# vorausgesetzt. awk statt head, damit kein vorzeitig geschlossenes Pipe-Ende stoert.
+json_first_string() {
+    local key="$1" json="$2"
+    printf '%s' "$json" \
+        | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
+        | awk 'NR==1' \
+        | sed -e "s/.*:[[:space:]]*\"//" -e 's/"$//'
+}
+
+# Hoechstes Tag aus der Tag-Liste der GitHub-API, sortiert nach Versionsnummer.
+json_highest_tag() {
+    local json="$1"
+    printf '%s' "$json" \
+        | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | sed -e 's/.*:[[:space:]]*"//' -e 's/"$//' \
+        | sort -V \
+        | awk 'END { print }'
+}
+
+# Gibt den zu ladenden Stand auf stdout aus, Meldungen gehen nach stderr.
+resolve_ref() {
+    local api="${GITHUB_API_URL:-https://api.github.com}"
+    local wanted="${REF:-}" json tag
+    if [ -n "$wanted" ]; then
+        if ! valid_ref "$wanted"; then
+            echo "Ungueltiger Wert fuer --ref/REF. Erlaubt sind Tag- und Branchnamen." >&2
+            return 1
+        fi
+        echo "    Vorgegebener Stand: $wanted" >&2
+        printf '%s\n' "$wanted"
+        return 0
+    fi
+
+    json="$(fetch_stdout "$api/repos/$OWNER/$REPO/releases/latest" 2>/dev/null || true)"
+    tag="$(json_first_string tag_name "$json")"
+    if valid_ref "$tag"; then
+        echo "    Neueste Veroeffentlichung: $tag" >&2
+        printf '%s\n' "$tag"
+        return 0
+    fi
+
+    json="$(fetch_stdout "$api/repos/$OWNER/$REPO/tags" 2>/dev/null || true)"
+    tag="$(json_highest_tag "$json")"
+    if valid_ref "$tag"; then
+        echo "    Kein Release gefunden, hoechstes Tag: $tag" >&2
+        printf '%s\n' "$tag"
+        return 0
+    fi
+
+    echo "    HINWEIS: Weder eine Veroeffentlichung noch ein Tag war erreichbar." >&2
+    echo "             Es wird der Branch 'main' installiert, also ein UNVEROEFFENTLICHTER Stand." >&2
+    printf '%s\n' "main"
+}
+
+# Laedt den Tarball, entpackt ihn und gibt das Quellverzeichnis auf stdout aus.
+download_source() {
+    local work="$1" ref="$2"
+    local base="${CODELOAD_BASE_URL:-https://codeload.github.com}"
+    local tarball="$work/source.tar.gz"
+    local unpack="$work/unpack"
+    local kind url loaded=0 entry src=""
+
+    for kind in tags heads; do
+        url="$base/$OWNER/$REPO/tar.gz/refs/$kind/$ref"
+        if download_to "$url" "$tarball"; then
+            loaded=1
+            break
+        fi
+    done
+    if [ "$loaded" -ne 1 ]; then
+        echo "Der Quelltext konnte nicht geladen werden (weder als Tag noch als Branch: $ref)." >&2
+        echo "Moegliche Ursachen: das Repository ist privat (GitHub antwortet dann mit 404," >&2
+        echo "ohne auf fehlende Rechte hinzuweisen), der gewuenschte Stand existiert nicht," >&2
+        echo "oder es besteht keine Netzwerkverbindung." >&2
+        return 1
+    fi
+
+    mkdir -p "$unpack"
+    if ! tar -xzf "$tarball" -C "$unpack"; then
+        echo "Das Archiv konnte nicht entpackt werden." >&2
+        return 1
+    fi
+
+    # Der Tarball von GitHub hat genau ein Wurzelverzeichnis, dessen Name wird nicht geraten.
+    for entry in "$unpack"/*; do
+        [ -d "$entry" ] || continue
+        if [ -n "$src" ]; then
+            echo "Das Archiv enthaelt mehrere Wurzelverzeichnisse, das ist unerwartet." >&2
+            return 1
+        fi
+        src="$entry"
+    done
+    if [ -z "$src" ]; then
+        echo "Im Archiv wurde kein Quellverzeichnis gefunden." >&2
+        return 1
+    fi
+
+    if [ ! -f "$src/install.sh" ] || [ ! -d "$src/aliexpress_coin_collector" ]; then
+        echo "Der geladene Stand ist unvollstaendig (install.sh oder aliexpress_coin_collector fehlt)." >&2
+        echo "Es wurde nichts veraendert." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$src"
+}
+
+# --- Aktualisierung einer bestehenden Installation ------------------------------------------------
+
+# Version der installierten Fassung, niemals ein Abbruch: eine kaputte Installation soll die
+# Meldung nicht verhindern.
+read_installed_version() {
+    local out=""
+    if [ -x "$DEST/.venv/bin/python" ]; then
+        out="$( cd "$DEST" && "$DEST/.venv/bin/python" -m aliexpress_coin_collector --version 2>/dev/null || true )"
+    fi
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out" | awk 'NR==1'
+    else
+        printf '%s\n' "unbekannt"
+    fi
+}
+
+# Baut die venv auf und aktualisiert die Abhaengigkeiten.
+build_venv() {
+    [ -d "$DEST/.venv" ] || python3 -m venv "$DEST/.venv"
+    "$DEST/.venv/bin/pip" install -q --upgrade pip
+    "$DEST/.venv/bin/pip" install -q -r "$DEST/requirements.txt"
+}
+
+do_update() {
+    local was_active=0 work="" backup="" src="" ref=""
+    local version_before version_after
+
+    if [ ! -d "$DEST" ]; then
+        echo "In $DEST liegt keine Installation." >&2
+        echo "Bitte zuerst installieren, z. B. mit: curl -fsSL <url>/bootstrap.sh | bash" >&2
+        exit 1
+    fi
+
+    echo "==> Aktualisierung von $DEST"
+    echo "    .env, data/ und .android/ bleiben dabei unveraendert"
+
+    require_downloader
+    command -v tar >/dev/null 2>&1 || { echo "tar fehlt, bitte installieren." >&2; exit 1; }
+    if ! command -v rsync >/dev/null 2>&1; then
+        echo "==> rsync nachinstallieren"
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get install -y -qq rsync >/dev/null
+    fi
+
+    version_before="$(read_installed_version)"
+    echo "    Version vorher:  $version_before"
+
+    echo "==> Quelltext von GitHub laden"
+    ref="$(resolve_ref)"
+    work="$(mktemp -d)"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$work'" EXIT INT TERM
+    src="$(download_source "$work" "$ref")"
+    echo "    Stand $ref entpackt"
+
+    if [ "$HAVE_SYSTEMD" = 1 ]; then
+        if systemctl is-active --quiet "$SERVICE"; then was_active=1; fi
+        systemctl stop "$SERVICE" 2>/dev/null || true
+        if [ "$was_active" = 1 ]; then
+            echo "==> Dienst gestoppt (lief vorher, wird nachher wieder gestartet)"
+        else
+            echo "==> Dienst lief nicht, er wird nachher auch nicht gestartet"
+        fi
+    else
+        echo "==> systemd nicht verfuegbar, Dienst wurde weder gestoppt noch gestartet"
+    fi
+
+    # Sicherung des Programmstandes. .env, data/ und .android/ bleiben ohnehin liegen und
+    # werden deshalb bewusst nicht mitgesichert.
+    backup="$work/backup"
+    mkdir -p "$backup"
+    rsync -a "${KEEP_EXCLUDES[@]}" "$DEST/" "$backup/"
+    echo "==> Alter Programmstand gesichert"
+
+    echo "==> Dateien aktualisieren"
+    rsync -a "${KEEP_EXCLUDES[@]}" "$src/" "$DEST/"
+
+    echo "==> Python-Umgebung"
+    build_venv
+    chmod 600 "$DEST/.env" 2>/dev/null || true
+    chown -R "$SVC_USER": "$DEST" 2>/dev/null || true
+
+    if [ "$HAVE_SYSTEMD" = 1 ] && [ -f "$DEST/$SERVICE.service" ]; then
+        sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
+        systemctl daemon-reload
+    fi
+
+    echo "==> Rauchtest"
+    version_after="$(read_installed_version)"
+    if [ "$version_after" = "unbekannt" ]; then
+        echo "    FEHLER: '--version' schlug nach der Aktualisierung fehl, Rollback laeuft" >&2
+        rsync -a --delete "${KEEP_EXCLUDES[@]}" "$backup/" "$DEST/"
+        build_venv >/dev/null 2>&1 || true
+        chown -R "$SVC_USER": "$DEST" 2>/dev/null || true
+        if [ "$HAVE_SYSTEMD" = 1 ] && [ -f "$DEST/$SERVICE.service" ]; then
+            sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
+            systemctl daemon-reload
+        fi
+        if [ "$was_active" = 1 ]; then
+            systemctl start "$SERVICE" 2>/dev/null || true
+            echo "    Der vorherige Stand ist wiederhergestellt und der Dienst laeuft wieder." >&2
+        else
+            echo "    Der vorherige Stand ist wiederhergestellt." >&2
+        fi
+        echo "    .env, data/ und .android/ wurden zu keinem Zeitpunkt veraendert." >&2
+        exit 1
+    fi
+
+    rm -rf "$backup"
+    echo "    Version nachher: $version_after"
+
+    if [ "$was_active" = 1 ]; then
+        systemctl start "$SERVICE"
+        echo "==> Dienst wieder gestartet"
+    fi
+
+    echo ""
+    echo "Fertig. $DEST wurde auf $ref aktualisiert ($version_before -> $version_after)."
+    echo ".env, data/ und .android/ blieben unveraendert."
+}
+
 ACTION="install"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -173,6 +477,20 @@ while [ "$#" -gt 0 ]; do
             ;;
         --uninstall)
             ACTION="uninstall"
+            ;;
+        --update)
+            ACTION="update"
+            ;;
+        --ref)
+            if [ "$#" -lt 2 ]; then
+                echo "--ref erwartet einen Wert (Tag oder Branch)." >&2
+                exit 2
+            fi
+            REF="$2"
+            shift
+            ;;
+        --ref=*)
+            REF="${1#--ref=}"
             ;;
         *)
             printf 'Unbekanntes Argument: %s\n' "$1" >&2
@@ -191,6 +509,15 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then HAVE
 if [ "$ACTION" = "uninstall" ]; then
     do_uninstall
     exit 0
+fi
+
+if [ "$ACTION" = "update" ]; then
+    do_update
+    exit 0
+fi
+
+if [ -n "${REF:-}" ]; then
+    echo "    Hinweis: --ref/REF wirkt nur zusammen mit --update und wird hier ignoriert."
 fi
 
 # Vor der Migration merken, ob es schon eine Installation am Zielort gibt.
@@ -230,8 +557,7 @@ echo "==> Benutzer '$SVC_USER' und Verzeichnis $DEST"
 id "$SVC_USER" >/dev/null 2>&1 || useradd -r -m -d "$DEST" -s /usr/sbin/nologin "$SVC_USER"
 mkdir -p "$DEST"
 if [ "$SRC" != "$DEST" ]; then
-    rsync -a --exclude .env --exclude data --exclude .venv --exclude .android --exclude __pycache__ \
-        --exclude .pytest_cache --exclude .git "$SRC/" "$DEST/"
+    rsync -a "${KEEP_EXCLUDES[@]}" "$SRC/" "$DEST/"
 fi
 
 echo "==> Python-Umgebung"

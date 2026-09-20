@@ -29,7 +29,8 @@ jobs:
         run: ruff format --check .
       - name: Tests
         run: python -m pytest -q
-      - name: Installationsskript prüfen
+      - name: Installationsskripte prüfen
         run: |
           bash -n install.sh
-          shellcheck install.sh
+          bash -n bootstrap.sh
+          shellcheck install.sh bootstrap.sh
