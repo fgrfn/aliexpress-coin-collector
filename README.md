@@ -4,7 +4,7 @@ Sammelt den täglichen Coin-Check-in der AliExpress-App automatisch ein. Ein And
 Tablet) wird per ADB über WLAN gesteuert, die Coin-Seite per Deep-Link geöffnet und der "Sammeln"-Button per
 OCR (Tesseract) gefunden. Ergebnisse gehen per Discord raus, jeder Lauf landet in einer SQLite-Datenbank.
 
-> Version 0.2.0. Der "erledigt"-Zustand, der Münzstand und die Navigation sind auf echter Hardware getestet.
+> Version 0.3.0. Der "erledigt"-Zustand, der Münzstand und die Navigation sind auf echter Hardware getestet.
 > Der Tap auf "Sammeln" ist mit Attrappen getestet, auf dem Gerät aber noch offen (siehe [Status](#status)).
 
 ## Inhalt
