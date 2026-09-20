@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import time
 from pathlib import Path
@@ -9,6 +10,12 @@ DEFAULT_URL = (
     "https://m.aliexpress.com/p/coin-index/index.html"
     "?_immersiveMode=true&adc_manifest=coinindex&disableNav=true&from=newHp&wh_ttid=adc"
 )
+
+# Entweder host:port (TCP, der Normalfall) oder eine USB-Seriennummer ohne Leerzeichen.
+_SERIAL_RE = re.compile(r"^(?:[A-Za-z0-9.\-]+:\d{1,5}|[A-Za-z0-9._\-]+)$")
+# Eine Tesseract-Sprache oder mehrere mit "+" verbunden, z. B. "deu" oder "deu+eng".
+_OCR_LANG_RE = re.compile(r"^[A-Za-z_]{2,}(?:\+[A-Za-z_]{2,})*$")
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
 class ConfigError(RuntimeError):
@@ -52,6 +59,54 @@ def _int(name: str, default: int) -> int:
         raise ConfigError(f"{name} muss eine ganze Zahl sein, nicht {raw!r}") from exc
 
 
+def _text(name: str, default: str) -> str:
+    """Optionalen Textwert lesen: nicht gesetzt = Standard, leer gesetzt = Fehler."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip()
+    if not value:
+        raise ConfigError(f"{name} darf nicht leer sein, erwartet z. B. {default!r}")
+    return value
+
+
+def _check_min(name: str, value: int, minimum: int) -> None:
+    """Untergrenze eines Zahlenwerts pruefen."""
+    if value < minimum:
+        expected = "groesser als 0" if minimum == 1 else f"mindestens {minimum}"
+        raise ConfigError(f"{name} muss {expected} sein, nicht {value}")
+
+
+def _check_serial(serial: str) -> None:
+    """ADB_SERIAL auf host:port oder USB-Seriennummer pruefen."""
+    if not _SERIAL_RE.match(serial):
+        raise ConfigError(
+            f"ADB_SERIAL ist ungueltig: {serial!r}. Erwartet host:port (z. B. 192.168.1.50:5555) "
+            "oder eine USB-Seriennummer ohne Leerzeichen"
+        )
+    _host, sep, port = serial.rpartition(":")
+    if sep and not 1 <= int(port) <= 65535:
+        raise ConfigError(f"ADB_SERIAL enthaelt den ungueltigen Port {port}, erwartet 1-65535 (Wert: {serial!r})")
+
+
+def _check_data_dir(path: Path) -> None:
+    """DATA_DIR muss anlegbar und beschreibbar sein, sonst faellt es erst im Betrieb auf."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ConfigError(
+            f"DATA_DIR {path} laesst sich nicht anlegen ({exc.strerror}), erwartet ein beschreibbares Verzeichnis"
+        ) from exc
+    probe = path / ".write-test"
+    try:
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        raise ConfigError(
+            f"DATA_DIR {path} ist nicht beschreibbar ({exc.strerror}), Rechte des Dienstbenutzers pruefen"
+        ) from exc
+
+
 @dataclass(frozen=True)
 class Config:
     adb_serial: str
@@ -84,6 +139,7 @@ class Config:
         serial = (get("ADB_SERIAL") or "").strip()
         if not serial:
             raise ConfigError("ADB_SERIAL fehlt (z. B. 192.168.1.50:5555), siehe .env.example")
+        _check_serial(serial)
 
         labels = tuple(s.strip() for s in (get("BUTTON_LABELS") or "Sammeln,Collect,Claim").split(",") if s.strip())
         if not labels:
@@ -106,12 +162,46 @@ class Config:
             confirm_timeout_s=_int("CONFIRM_TIMEOUT_S", 25),
             launch_retries=_int("LAUNCH_RETRIES", 1),
             button_labels=labels,
-            ocr_lang=get("OCR_LANG") or "deu",
+            ocr_lang=_text("OCR_LANG", "deu"),
             notify_on_success=_bool(get("NOTIFY_ON_SUCCESS") or "true"),
             notify_on_already_done=_bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
             data_dir=Path(get("DATA_DIR") or "./data"),
-            log_level=(get("LOG_LEVEL") or "INFO").upper(),
+            log_level=(get("LOG_LEVEL") or "INFO").strip().upper(),
         )
-        if cfg.morning_end < cfg.morning_start or cfg.evening_end < cfg.evening_start:
-            raise ConfigError("Ende eines Zeitfensters liegt vor dessen Beginn")
+        cfg._validate()
         return cfg
+
+    def _validate(self) -> None:
+        """Alle Werte pruefen, damit eine falsche .env sofort beim Start auffaellt."""
+        _check_min("PAGE_TIMEOUT_S", self.page_timeout_s, 1)
+        _check_min("CONFIRM_TIMEOUT_S", self.confirm_timeout_s, 1)
+        _check_min("BUSY_RETRY_MIN", self.busy_retry_min, 1)
+        _check_min("BUSY_MAX_WAIT_MIN", self.busy_max_wait_min, 1)
+        _check_min("LAUNCH_RETRIES", self.launch_retries, 0)
+        if self.busy_retry_min >= self.busy_max_wait_min:
+            raise ConfigError(
+                f"BUSY_RETRY_MIN ({self.busy_retry_min}) muss kleiner als BUSY_MAX_WAIT_MIN "
+                f"({self.busy_max_wait_min}) sein, sonst wird nie erzwungen gestartet"
+            )
+
+        for name, start, end in (
+            ("Morgenfenster", self.morning_start, self.morning_end),
+            ("Abendfenster", self.evening_start, self.evening_end),
+        ):
+            if end < start:
+                raise ConfigError(f"Ende des {name}s ({end:%H:%M}) liegt vor dessen Beginn ({start:%H:%M})")
+        if self.morning_end > self.evening_start:
+            raise ConfigError(
+                f"MORNING_END ({self.morning_end:%H:%M}) muss vor oder auf EVENING_START "
+                f"({self.evening_start:%H:%M}) liegen, das Morgenfenster gehoert vor das Abendfenster"
+            )
+
+        _check_data_dir(self.data_dir)
+
+        if self.log_level not in _LOG_LEVELS:
+            raise ConfigError(f"LOG_LEVEL muss einer von {', '.join(_LOG_LEVELS)} sein, nicht {self.log_level!r}")
+        if not _OCR_LANG_RE.match(self.ocr_lang):
+            raise ConfigError(f"OCR_LANG ist ungueltig: {self.ocr_lang!r}, erwartet z. B. 'deu' oder 'deu+eng'")
+        if self.discord_webhook and not self.discord_webhook.startswith("https://"):
+            # Der Wert selbst ist ein Geheimnis und darf nicht in die Meldung.
+            raise ConfigError("DISCORD_WEBHOOK_URL muss mit 'https://' beginnen (oder leer bleiben)")

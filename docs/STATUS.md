@@ -72,6 +72,9 @@ können Anpassungen erfordern.
   legt Fehler-Screenshots in `data/shots/` ab (die letzten 30) und ergänzt beim Abendlauf den Hinweis, dass es der
   letzte Versuch des Tages war.
 - `daemon` prüft alle 30 s und ruft bei einer Entscheidung `run_once` auf.
+- `next_runs(day, cfg, days)` und `next_due(now, cfg, attempts)` sind reine Hilfsfunktionen für die Anzeige:
+  die geplanten Uhrzeiten der nächsten Tage und der nächste noch ausstehende Lauf. Sie treffen keine
+  Entscheidung und werden vom `schedule`-Befehl und von `doctor` genutzt.
 
 > Der Seed in `scheduler._SEED` ist bewusst der historische Wert `aliexpress-coins`. Ändert man ihn, verschieben sich
 > alle geplanten Uhrzeiten.

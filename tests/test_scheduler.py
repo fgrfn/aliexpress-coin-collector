@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
 
-from aliexpress_coin_collector.scheduler import decide, plan_for
+import pytest
+
+from aliexpress_coin_collector.scheduler import decide, next_due, next_runs, plan_for
 from aliexpress_coin_collector.store import Attempt
 
 DAY = date(2026, 9, 21)
@@ -63,3 +65,46 @@ def test_evening_runs_even_if_morning_never_happened(cfg):
     plan = plan_for(DAY, cfg)
     d = decide(plan.evening_at + timedelta(minutes=1), plan, [], cfg)
     assert d and d.kind == "evening"
+
+
+def test_next_runs_is_stable_and_starts_at_the_given_day(cfg):
+    rows = next_runs(DAY, cfg, 5)
+    assert [d for d, _ in rows] == [DAY + timedelta(days=i) for i in range(5)]
+    assert rows == next_runs(DAY, cfg, 5)
+    assert rows[0][1] == plan_for(DAY, cfg)
+
+
+def test_next_runs_rejects_an_empty_range(cfg):
+    with pytest.raises(ValueError):
+        next_runs(DAY, cfg, 0)
+
+
+def test_next_due_is_todays_morning_before_it(cfg):
+    plan = plan_for(DAY, cfg)
+    assert next_due(plan.morning_at - timedelta(hours=1), cfg, []) == plan.morning_at
+
+
+def test_next_due_is_todays_evening_after_a_failed_morning(cfg):
+    plan = plan_for(DAY, cfg)
+    failed = att(plan.morning_at, "morning", "not_found")
+    assert next_due(plan.morning_at + timedelta(minutes=1), cfg, [failed]) == plan.evening_at
+
+
+def test_next_due_skips_to_tomorrow_after_a_success(cfg):
+    plan = plan_for(DAY, cfg)
+    claimed = att(plan.morning_at, "morning", "claimed")
+    due = next_due(plan.morning_at + timedelta(minutes=1), cfg, [claimed])
+    assert due == plan_for(DAY + timedelta(days=1), cfg).morning_at
+
+
+def test_next_due_skips_to_tomorrow_when_both_runs_are_spent(cfg):
+    plan = plan_for(DAY, cfg)
+    spent = [att(plan.morning_at, "morning", "not_found"), att(plan.evening_at, "evening", "unconfirmed")]
+    due = next_due(plan.evening_at + timedelta(minutes=1), cfg, spent)
+    assert due == plan_for(DAY + timedelta(days=1), cfg).morning_at
+
+
+def test_next_due_ignores_busy_attempts(cfg):
+    plan = plan_for(DAY, cfg)
+    busy = att(plan.morning_at - timedelta(minutes=10), "morning", "busy")
+    assert next_due(plan.morning_at - timedelta(minutes=5), cfg, [busy]) == plan.morning_at

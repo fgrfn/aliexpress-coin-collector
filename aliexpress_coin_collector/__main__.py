@@ -4,13 +4,14 @@ import argparse
 import logging
 import shutil
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import __version__, ocr
 from .adb import Adb, AdbError
 from .config import Config, ConfigError
 from .runner import run_once
-from .scheduler import daemon, describe, handle_result
+from .scheduler import daemon, describe, handle_result, next_due, next_runs, plan_for
 from .store import Store
 
 
@@ -66,9 +67,65 @@ def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schedule(cfg: Config, args: argparse.Namespace) -> int:
+    now = datetime.now()
+    store = Store(cfg.data_dir)
+    by_day = {now.date(): store.for_day(now.date())}
+
+    print(
+        f"Fenster: morgens {cfg.morning_start:%H:%M}-{cfg.morning_end:%H:%M}, "
+        f"abends {cfg.evening_start:%H:%M}-{cfg.evening_end:%H:%M}"
+    )
+    print(f"{'Datum':12} {'Morgenlauf':11} {'Abendlauf':11} Stand")
+    for day, plan in next_runs(now.date(), cfg, max(1, args.n)):
+        attempts = by_day.get(day, [])
+        if attempts:
+            stand = ", ".join(f"{a.kind}={a.outcome}" for a in attempts)
+        else:
+            stand = "heute noch offen" if day == now.date() else ""
+        print(f"{day:%Y-%m-%d}   {plan.morning_at:%H:%M}       {plan.evening_at:%H:%M}       {stand}")
+
+    due = next_due(now, cfg, by_day[now.date()])
+    if due is None:
+        print("\nKein weiterer Lauf im Planungshorizont.")
+    else:
+        rest = due - now
+        hours, minutes = divmod(int(rest.total_seconds()) // 60, 60)
+        print(f"\nNaechster Lauf: {due:%Y-%m-%d %H:%M} (in {hours} h {minutes} min)")
+    print("Der Abendlauf startet nur, wenn morgens nichts geklappt hat.")
+    return 0
+
+
 def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     ok = True
     print(f"aliexpress-coin-collector {__version__}")
+
+    env_file = Path(args.env)
+    if env_file.is_file():
+        print(f"OK  Konfiguration: {env_file}")
+    else:
+        # Kein Fehler: alle Werte koennen auch aus echten Umgebungsvariablen kommen (z. B. im Dienst).
+        print(f"HINW {env_file} nicht gefunden, es gelten nur die Umgebungsvariablen")
+
+    now = datetime.now().astimezone()
+    tzname = now.tzname() or "unbekannt"
+    if now.utcoffset() == timedelta(0):
+        # Die Zeitfenster gelten in Serverzeit. Laeuft der Container in UTC, greifen sie zur falschen Stunde.
+        print(f"WARN Zeitzone {tzname}: die Zeitfenster gelten in Serverzeit, das ist vermutlich nicht gewollt")
+        print("     Korrektur: timedatectl set-timezone Europe/Berlin")
+    else:
+        print(f"OK  Zeitzone {tzname} (UTC{now.strftime('%z')})")
+
+    try:
+        cfg.data_dir.mkdir(parents=True, exist_ok=True)
+        probe = cfg.data_dir / ".doctor-probe"
+        probe.write_bytes(b"")
+        probe.unlink()
+        print(f"OK  Datenverzeichnis beschreibbar: {cfg.data_dir}")
+    except OSError as exc:
+        print(f"FEHLT Datenverzeichnis {cfg.data_dir} nicht beschreibbar: {exc}")
+        ok = False
+
     for tool in (cfg.adb_path, "tesseract"):
         found = shutil.which(tool)
         print(f"{'OK ' if found else 'FEHLT'} {tool}: {found or 'nicht im PATH'}")
@@ -97,6 +154,23 @@ def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     except AdbError as exc:
         print(f"FEHLT ADB: {exc}")
         ok = False
+
+    plan = plan_for(now.date(), cfg)
+    print(f"     Heute geplant: Morgenlauf {plan.morning_at:%H:%M}, Abendlauf {plan.evening_at:%H:%M}")
+    try:
+        store = Store(cfg.data_dir)
+        today = store.for_day(now.date())
+        last = store.recent(1)
+        if last:
+            a = last[0]
+            print(f"     Letzter Lauf: {a.ts:%Y-%m-%d %H:%M} {a.kind} -> {a.outcome}")
+        else:
+            print("     Letzter Lauf: noch keiner gespeichert")
+        due = next_due(datetime.now(), cfg, today)
+        print(f"     Naechster Lauf: {due:%Y-%m-%d %H:%M}" if due else "     Naechster Lauf: keiner im Horizont")
+    except Exception as exc:  # noqa: BLE001 - doctor darf an der Datenbank nicht scheitern
+        print(f"WARN Datenbank nicht lesbar: {exc}")
+
     return 0 if ok else 1
 
 
@@ -123,6 +197,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("status", help="Letzte Laeufe und Summen anzeigen")
     p.add_argument("-n", type=int, default=14)
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("schedule", help="Geplante Uhrzeiten der naechsten Tage anzeigen")
+    p.add_argument("-n", type=int, default=7, help="Anzahl Tage (Standard 7)")
+    p.set_defaults(func=cmd_schedule)
 
     p = sub.add_parser("doctor", help="Installation und Geraeteverbindung pruefen")
     p.set_defaults(func=cmd_doctor)
