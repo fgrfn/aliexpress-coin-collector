@@ -46,15 +46,21 @@ Discord-Meldung mit Screenshot. Die Uhrzeiten hängen nur vom Datum ab und über
 
 ## Installation
 
-Als root im Zielcontainer. Das Skript läuft mit vollen Rechten und installiert Pakete — der Blick hinein vor dem
-Start ist deshalb die empfohlene Variante:
+Als root im Zielcontainer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh | bash
+```
+
+Das genügt. Wer das Skript vorher lesen will — es läuft als root und installiert Pakete — nimmt den Umweg über
+die Datei:
 
 ```bash
 URL=https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh
-curl -fsSL $URL -o install.sh && less install.sh && bash install.sh   # empfohlen
-curl -fsSL $URL | bash                                               # Kurzform
-./install.sh                                                         # aus einem Checkout
+curl -fsSL $URL -o install.sh && less install.sh && bash install.sh
 ```
+
+Aus einem vorhandenen Checkout heraus genügt `./install.sh`.
 
 `install.sh` erkennt selbst, woraus es installiert: Liegt ein Quellbaum daneben, nimmt es den; sonst lädt es die
 neueste veröffentlichte Version als Tarball. `git` ist nie nötig. Gegen abgebrochene Downloads ist es abgesichert —
