@@ -65,6 +65,11 @@ Dienst starten:
 systemctl enable --now aliexpress-coin-collector
 ```
 
+Ein erneuter Aufruf von `./install.sh` aktualisiert eine bestehende Installation und meldet das auch so; eine
+vorhandene `.env` bleibt dabei immer unverändert. `./install.sh --help` erklärt Aufruf und Umgebungsvariablen und
+ändert nichts. `./install.sh --uninstall` stoppt den Dienst und entfernt die systemd-Unit; `.env`, `data/` und
+`.android/` bleiben erhalten, gelöscht wird nur nach ausdrücklicher Bestätigung mit `JA`.
+
 ## Gerät einrichten
 
 1. Entwickleroptionen aktivieren, **USB-Debugging** einschalten, Bildschirmsperre auf "Keine" stellen.
