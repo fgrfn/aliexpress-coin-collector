@@ -354,7 +354,7 @@ download_source() {
 read_installed_version() {
     local out=""
     if [ -x "$DEST/.venv/bin/python" ]; then
-        out="$( cd "$DEST" && "$DEST/.venv/bin/python" -m aliexpress_coin_collector --version 2>/dev/null || true )"
+        out="$( cd "$DEST" && "$DEST/.venv/bin/python" -m aliexpress_coin_collector --version 2>/dev/null )" || out=""
     fi
     if [ -n "$out" ]; then
         printf '%s\n' "$out" | awk 'NR==1'
