@@ -27,6 +27,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   Pipe ohne Quellbaum, Installation aus einem lokalen Checkout, `--update`, Rollback bei fehlgeschlagenem
   Rauchtest, unveränderte `.env`/`data/`/`.android/` sowie abgebrochene Downloads an sechs Stellen.
   **Gegen das echte GitHub und mit laufendem systemd ungetestet**, ebenso der apt- und der venv-Teil.
+- Weboberfläche: Anmeldung, Umleitung ohne Sitzung, Pfad-Ausbruch beim Screenshot-Abruf, Speichern und
+  Ablehnen von Zeitfenstern, Knopf-Leitplanken und das Anlegen der Auftragsdatei wurden gegen einen echt
+  laufenden Server geprüft. Die Unit selbst und `CAP_NET_BIND_SERVICE` auf Port 80 sind **ungetestet**,
+  weil hier kein systemd läuft.
 - Verhalten bei abgelaufenem Login oder Popups: unbekannt, endet vermutlich als `not_found`.
 
 ## 2. Ablauf eines Laufs (`runner.run_once`)

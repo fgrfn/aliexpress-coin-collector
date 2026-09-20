@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
-from . import notify
+from . import notify, settings
 from .adb import Adb
 from .config import Config
 from .runner import SUCCESS, Outcome, RunResult, run_once
@@ -16,6 +16,8 @@ from .store import Attempt, Store
 log = logging.getLogger(__name__)
 
 SUCCESS_VALUES = {o.value for o in SUCCESS}
+HEARTBEAT_FILE = "heartbeat"
+REQUEST_FILE = "run-requested"
 _SEED = "aliexpress-coins"  # historischer Wert, damit sich die Uhrzeiten pro Datum durch die Umbenennung nicht aendern
 
 
@@ -89,10 +91,45 @@ def decide(now: datetime, plan: Plan, attempts: list[Attempt], cfg: Config) -> D
     else:
         return None
 
+    # Wurde das Zeitfenster geaendert, nachdem diese Uhrzeit bereits verstrichen war, gilt sie fuer
+    # heute als verpasst. Sonst loeste eine Einstellungsaenderung rueckwirkend einen Lauf aus.
+    if cfg.settings_changed_at is not None and base < cfg.settings_changed_at:
+        return None
+
     if busy and now < busy[-1].ts + timedelta(minutes=cfg.busy_retry_min):
         return None
     force = now >= base + timedelta(minutes=cfg.busy_max_wait_min)
     return Decision(kind, force)
+
+
+def touch_heartbeat(cfg: Config) -> None:
+    """Lebenszeichen fuer die Weboberflaeche. Ein Fehler hier darf den Dienst nie stoppen."""
+    try:
+        cfg.data_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.data_dir / HEARTBEAT_FILE).write_text(f"{datetime.now():%Y-%m-%dT%H:%M:%S}\n", encoding="utf-8")
+    except OSError as exc:
+        log.warning("Herzschlag konnte nicht geschrieben werden: %s", exc)
+
+
+def take_request(cfg: Config) -> bool:
+    """True, wenn die Weboberflaeche einen Lauf angefordert hat. Die Anforderung wird dabei verbraucht."""
+    path = cfg.data_dir / REQUEST_FILE
+    try:
+        if not path.is_file():
+            return False
+        path.unlink()
+    except OSError as exc:
+        log.warning("Auftragsdatei nicht verarbeitbar: %s", exc)
+        return False
+    return True
+
+
+def with_current_settings(cfg: Config) -> Config:
+    """Fenster aus settings.json nachladen, damit eine Aenderung ohne Neustart ankommt."""
+    overrides = settings.load(cfg.data_dir)
+    if overrides.empty:
+        return cfg
+    return replace(cfg, **overrides.windows, settings_changed_at=overrides.changed_at)
 
 
 def describe(kind: str, result: RunResult) -> str:
@@ -150,8 +187,17 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30) -> None:
         cfg.evening_end,
     )
     announced: date | None = None
+    base_cfg = cfg
     while True:
         now = datetime.now()
+        cfg = with_current_settings(base_cfg)
+        touch_heartbeat(cfg)
+
+        if take_request(cfg):
+            log.info("Lauf ueber die Weboberflaeche angefordert")
+            result = run_once(cfg, adb, force=True)
+            handle_result(cfg, store, "manual", result)
+
         plan = plan_for(now.date(), cfg)
         if announced != now.date():
             log.info(

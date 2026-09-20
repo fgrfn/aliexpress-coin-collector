@@ -16,6 +16,7 @@ OCR (Tesseract) gefunden. Ergebnisse gehen per Discord raus, jeder Lauf landet i
 - [Gerät einrichten](#gerät-einrichten)
 - [Erster Test](#erster-test)
 - [Betrieb](#betrieb)
+- [Weboberfläche](#weboberfläche)
 - [Konfiguration](#konfiguration)
 - [Ergebnisse und Fehlersuche](#ergebnisse-und-fehlersuche)
 - [Status](#status)
@@ -166,6 +167,34 @@ journalctl -u aliexpress-coin-collector -f
 
 Alle Befehle als `python -m aliexpress_coin_collector <befehl>`.
 
+## Weboberfläche
+
+Optional, als **zweiter** Dienst. `install.sh` legt die Unit an, startet sie aber nicht — der tägliche
+Check-in soll nicht von ihr abhängen.
+
+```bash
+# WEB_PASSWORD in der .env setzen, dann:
+systemctl enable --now aliexpress-coin-collector-web
+```
+
+Danach erreichbar unter `http://<container-ip>/`. Die Seite zeigt einen Statuskopf (letzter Lauf,
+nächster Lauf, Münzstand, abgeleitete Streak, ob der Dienst läuft), den Münzverlauf als Diagramm und
+die Historie der letzten Läufe mit anklickbaren Fehler-Screenshots. Die Zeitfenster lassen sich dort
+ändern; eine Änderung gilt sofort, aber nicht rückwirkend — liegt die neu ausgewürfelte Uhrzeit schon
+in der Vergangenheit, läuft an diesem Tag nichts mehr.
+
+**Ohne `WEB_PASSWORD` startet der Dienst nicht.** Die Seite kann einen Lauf auf dem Gerät auslösen,
+deshalb ist die Anmeldung Pflicht und nicht abschaltbar. Sie gehört ins LAN und nicht ins Internet.
+
+Der Knopf „Lauf jetzt starten" fasst das Gerät **nicht** selbst an: Er legt nur eine Datei
+`data/run-requested` an, die der Sammel-Dienst beim nächsten Takt abholt. Damit bleibt genau ein
+Besitzer des Geräts, und zwei gleichzeitige Läufe sind bauartbedingt ausgeschlossen. Der Knopf ist
+gesperrt, wenn heute schon erfolgreich eingecheckt wurde, wenn bereits ein Auftrag offen ist oder
+wenn der Dienst kein Lebenszeichen mehr gibt.
+
+Die abgeleitete Streak zählt aufeinanderfolgende Tage mit Erfolg aus der Datenbank. Tage, die vor dem
+ersten Lauf des Dienstes von Hand gesammelt wurden, kennt sie nicht — dafür gibt es `STREAK_OFFSET`.
+
 ## Konfiguration
 
 Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen haben Vorrang.
@@ -187,6 +216,9 @@ Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen hab
 | `NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE` | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |
+| `WEB_PASSWORD` | – | Pflicht für die Weboberfläche, ohne sie startet der Webdienst nicht |
+| `WEB_PORT` | `80` | Port der Weboberfläche |
+| `STREAK_OFFSET` | `0` | Tage, die vor dem ersten Lauf von Hand gesammelt wurden |
 | `COIN_URL`, `APP_PACKAGE`, `ADB_PATH` | siehe `.env.example` | Nur ändern, wenn AliExpress die Adresse der Coin-Seite ändert |
 
 ## Ergebnisse und Fehlersuche

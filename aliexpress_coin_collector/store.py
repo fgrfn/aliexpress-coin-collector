@@ -35,13 +35,29 @@ class Attempt:
 
 
 class Store:
-    def __init__(self, data_dir: Path) -> None:
-        data_dir.mkdir(parents=True, exist_ok=True)
+    """Zugriff auf die Laufhistorie.
+
+    Mit read_only=True wird nur gelesen und nichts angelegt. Die Weboberflaeche nutzt das: so bleibt
+    der Dienst der einzige Schreiber, und es kann keine Sperrkonflikte auf der Datei geben.
+    """
+
+    def __init__(self, data_dir: Path, read_only: bool = False) -> None:
         self.path = data_dir / "coins.sqlite3"
+        self.read_only = read_only
+        if read_only:
+            uri = f"file:{self.path}?mode=ro"
+            self._conn = sqlite3.connect(uri, uri=True)
+            return
+        data_dir.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path)
         self._conn.executescript(SCHEMA)
 
     def add(self, attempt: Attempt) -> None:
+        if self.read_only:
+            raise RuntimeError("Store wurde schreibgeschuetzt geoeffnet")
+        self._add(attempt)
+
+    def _add(self, attempt: Attempt) -> None:
         with self._conn:
             self._conn.execute(
                 "INSERT INTO runs (ts, day, kind, outcome, coins_before, coins_after, message, duration_s)"

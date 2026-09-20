@@ -639,6 +639,12 @@ chown -R "$SVC_USER": "$DEST"
 echo "==> systemd-Dienst"
 if [ "$HAVE_SYSTEMD" = 1 ]; then
     sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
+    if [ -f "$DEST/$SERVICE-web.service" ]; then
+        # Weboberflaeche: Unit wird angelegt, aber bewusst nicht gestartet. Sie ist optional,
+        # und der taeglich wichtige Check-in soll nicht von ihr abhaengen.
+        sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE-web.service" \
+            > "/etc/systemd/system/$SERVICE-web.service"
+    fi
     systemctl daemon-reload
     if [ "$IS_UPDATE" = 1 ]; then
         echo "    Dienstdatei aktualisiert. Laeuft der Dienst schon, wirkt die neue Version erst nach:"
