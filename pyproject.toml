@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aliexpress-coin-collector"
+version = "0.2.0"
+description = "Sammelt den taeglichen AliExpress-Coin-Check-in automatisch ein (Android per ADB + OCR)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "opencv-python-headless>=4.8",
+    "numpy>=1.26",
+    "pytesseract>=0.3.10",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/fgrfn/aliexpress-coin-collector"
+Issues = "https://github.com/fgrfn/aliexpress-coin-collector/issues"
+
+[project.scripts]
+aliexpress-coin-collector = "aliexpress_coin_collector.__main__:main"
+
+[tool.setuptools]
+packages = ["aliexpress_coin_collector"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# damit auch ein blosses "pytest" das Paket findet, nicht nur "python -m pytest"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

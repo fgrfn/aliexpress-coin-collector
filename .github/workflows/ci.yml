@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Abhaengigkeiten
+        # ruff ist fest gepinnt, damit neue Regeln einer neueren Version die CI nicht unangekündigt rot machen
+        run: pip install -r requirements.txt "pytest>=8" "ruff==0.15.8"
+      - name: Codeprüfung (ruff)
+        run: ruff check .
+      - name: Formatierung (ruff)
+        run: ruff format --check .
+      - name: Tests
+        run: python -m pytest -q
+      - name: Installationsskript prüfen
+        run: |
+          bash -n install.sh
+          shellcheck install.sh
