@@ -37,6 +37,7 @@ python -m aliexpress_coin_collector doctor                     # Installation + 
 python -m aliexpress_coin_collector once --force --no-notify   # ein Lauf (fasst das Gerät an!)
 python -m aliexpress_coin_collector ocr bild.png --text        # Erkennung an Screenshot testen
 python -m aliexpress_coin_collector status                     # letzte Läufe + Summen
+python -m aliexpress_coin_collector schedule                   # geplante Uhrzeiten der nächsten Tage
 ```
 
 `once`, `doctor` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `--version` und die Tests brauchen kein Gerät.
@@ -52,11 +53,11 @@ aliexpress_coin_collector/
   adb.py        ADB-Wrapper (connect, screenshot, tap, wake/sleep, Deep-Link)
   ocr.py        Screenshot -> PageState (Button, erledigt, Münzstand)
   runner.py     ein Lauf: Outcome-Logik, Wartezeiten, Wiederholung, Bestätigung
-  scheduler.py  Zeitplan (plan_for), Entscheidung (decide), Dienstschleife (daemon), Meldungen
+  scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen
   store.py      SQLite (Tabelle runs)
   notify.py     Discord-Webhook (wirft nie)
-  __main__.py   CLI: once | daemon | ocr | status | doctor
-tests/          test_runner.py, test_scheduler.py (Attrappen, kein Gerät nötig)
+  __main__.py   CLI: once | daemon | ocr | status | schedule | doctor
+tests/          test_config.py, test_runner.py, test_scheduler.py (Attrappen, kein Gerät nötig)
 install.sh      Installation in einem Debian/Ubuntu-LXC inkl. Migration der Vorgängerversion
 .github/workflows/ci.yml   CI: ruff, pytest (3.10/3.12), shellcheck
 docs/STATUS.md  Stand, Technikdetails, Stolpersteine, offene Punkte

@@ -92,7 +92,7 @@ runuser -u coins -- .venv/bin/python -m aliexpress_coin_collector once --force -
 runuser -u coins -- .venv/bin/python -m aliexpress_coin_collector status
 ```
 
-`doctor` prüft Installation, Tesseract-Sprache und die Verbindung zum Gerät. Ist heute schon eingecheckt, meldet der
+`doctor` prüft Installation, Tesseract-Sprache und die Verbindung zum Gerät, dazu die Umgebung: ob eine `.env` gefunden wurde, ob die Zeitzone plausibel ist (bei UTC gibt es eine Warnung, denn die Zeitfenster gelten in Serverzeit), ob das Datenverzeichnis beschreibbar ist, sowie den heutigen Plan und den letzten Lauf. Ist heute schon eingecheckt, meldet der
 Lauf `already_done`; sonst tippt er auf "Sammeln". Bei einem Fehler liegt der letzte Screenshot in
 `data/last_failure.png`, mit `LOG_LEVEL=DEBUG` sieht man die Erkennung pro Screenshot.
 
@@ -117,6 +117,7 @@ journalctl -u aliexpress-coin-collector -f
 | `daemon` | Dauerbetrieb mit Zeitplan (das startet der Dienst) |
 | `ocr <bild.png> [--text]` | Erkennung an einem Screenshot testen |
 | `status [-n 14]` | Letzte Läufe mit Dauer und Summen aus der Datenbank |
+| `schedule [-n 7]` | Geplante Uhrzeiten der nächsten Tage und wann der nächste Lauf ansteht |
 | `--version` | Version anzeigen |
 
 Alle Befehle als `python -m aliexpress_coin_collector <befehl>`.

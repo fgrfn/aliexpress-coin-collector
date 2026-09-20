@@ -47,6 +47,32 @@ def plan_for(day: date, cfg: Config) -> Plan:
     )
 
 
+def next_runs(day: date, cfg: Config, days: int = 7) -> list[tuple[date, Plan]]:
+    """Plaene fuer 'days' Tage ab 'day' (einschliesslich)."""
+    if days < 1:
+        raise ValueError("days muss mindestens 1 sein")
+    return [(day + timedelta(days=i), plan_for(day + timedelta(days=i), cfg)) for i in range(days)]
+
+
+def next_due(now: datetime, cfg: Config, today_attempts: list[Attempt], horizon_days: int = 8) -> datetime | None:
+    """Naechster geplanter Lauf, der noch aussteht. None, wenn im Horizont keiner mehr faellig ist.
+
+    Beruecksichtigt fuer heute den Stand aus der Datenbank: nach einem Erfolg steht heute nichts mehr an, und
+    eine Art (morning/evening), die bereits einen echten Versuch hatte, wird nicht erneut geplant.
+    """
+    for offset in range(max(1, horizon_days)):
+        day = now.date() + timedelta(days=offset)
+        plan = plan_for(day, cfg)
+        attempts = today_attempts if offset == 0 else []
+        if any(a.outcome in SUCCESS_VALUES for a in attempts):
+            continue  # an diesem Tag ist nichts mehr zu tun
+        done_kinds = {a.kind for a in attempts if a.outcome != Outcome.BUSY.value}
+        for kind, at in (("morning", plan.morning_at), ("evening", plan.evening_at)):
+            if at > now and kind not in done_kinds:
+                return at
+    return None
+
+
 def decide(now: datetime, plan: Plan, attempts: list[Attempt], cfg: Config) -> Decision | None:
     """Reine Entscheidungslogik: soll jetzt ein Lauf starten, und welcher?"""
     if any(a.outcome in SUCCESS_VALUES for a in attempts):
