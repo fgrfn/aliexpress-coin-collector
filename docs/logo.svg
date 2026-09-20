@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120"
+     role="img" aria-label="aliexpress-coin-collector">
+  <title>aliexpress-coin-collector</title>
+  <defs>
+    <linearGradient id="coin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#e5a115"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Muenze. Goldton bewusst so gewaehlt, dass er auf hellem und dunklem Hintergrund traegt. -->
+  <circle cx="60" cy="60" r="52" fill="url(#coin)"/>
+  <circle cx="60" cy="60" r="52" fill="none" stroke="#8a5a00" stroke-width="4"/>
+  <circle cx="60" cy="60" r="39" fill="none" stroke="#8a5a00" stroke-width="3" opacity="0.55"/>
+
+  <!-- Euro-Zeichen -->
+  <path d="M78.4 41.6A26 26 0 1 0 78.4 78.4M40 54h34M40 66h30"
+        fill="none" stroke="#8a5a00" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- Haken: der taegliche Check-in ist erledigt -->
+  <circle cx="93" cy="93" r="23" fill="#1a7f4b" stroke="#ffffff" stroke-width="4"/>
+  <path d="M83 93.5l7 7 14-14" fill="none" stroke="#ffffff" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
