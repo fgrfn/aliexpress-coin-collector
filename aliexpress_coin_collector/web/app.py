@@ -25,7 +25,7 @@ from pathlib import Path
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
-from .. import settings
+from .. import __version__, settings
 from ..config import Config, ConfigError
 from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for
 from ..store import Attempt, Store
@@ -95,13 +95,13 @@ def create_app(cfg: Config, password: str) -> FastAPI:
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form() -> HTMLResponse:
-        return HTMLResponse(render.login_page())
+        return HTMLResponse(render.login_page(version=__version__))
 
     @app.post("/login")
     def login(password_field: str = Form(alias="password", default="")) -> Response:
         if not hmac.compare_digest(password_field, password):
             time_mod.sleep(FAILED_LOGIN_DELAY_S)  # bremst Durchprobieren, mehr ist hier nicht verhaeltnismaessig
-            return HTMLResponse(render.login_page("Passwort stimmt nicht."), status_code=401)
+            return HTMLResponse(render.login_page("Passwort stimmt nicht.", __version__), status_code=401)
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=30 * 24 * 3600)
         return response
@@ -138,7 +138,7 @@ def create_app(cfg: Config, password: str) -> FastAPI:
         )
         plan = plan_for(now.date(), active)
 
-        body = f"""<h1>AliExpress Coin Collector</h1>
+        body = f"""<h1>{render.LOGO}AliExpress Coin Collector</h1>
         {banner}
         <div class="card">
           {
@@ -192,7 +192,7 @@ def create_app(cfg: Config, password: str) -> FastAPI:
         </div>
 
         <form method="post" action="/logout"><button class="secondary" type="submit">Abmelden</button></form>"""
-        return HTMLResponse(render.page("Coin Collector", body))
+        return HTMLResponse(render.page("Coin Collector", body, __version__))
 
     @app.post("/run")
     def request_run(request: Request) -> Response:
@@ -230,7 +230,9 @@ def create_app(cfg: Config, password: str) -> FastAPI:
             _check_windows(windows)
         except ValueError as exc:
             return HTMLResponse(
-                render.page("Ungültige Eingabe", f'<div class="card banner">{exc}</div><a href="/">Zurück</a>'),
+                render.page(
+                    "Ungültige Eingabe", f'<div class="card banner">{exc}</div><a href="/">Zurück</a>', __version__
+                ),
                 status_code=400,
             )
         settings.save(cfg.data_dir, windows)

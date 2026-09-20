@@ -12,7 +12,6 @@ OCR (Tesseract) gefunden. Ergebnisse gehen per Discord raus, jeder Lauf landet i
 - [Wie ein Lauf abläuft](#wie-ein-lauf-abläuft)
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
-- [Aktualisieren](#aktualisieren)
 - [Gerät einrichten](#gerät-einrichten)
 - [Erster Test](#erster-test)
 - [Betrieb](#betrieb)
@@ -47,68 +46,42 @@ Discord-Meldung mit Screenshot. Die Uhrzeiten hängen nur vom Datum ab und über
 
 ## Installation
 
-### Empfohlen: herunterladen, ansehen, ausführen
-
-Das Skript läuft als root und installiert Pakete. Deshalb lohnt sich der Blick hinein, bevor es startet:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh -o install.sh
-less install.sh
-bash install.sh
-```
-
-Findet `install.sh` neben sich keinen Quellbaum, lädt es die neueste veröffentlichte Version selbst als Tarball
-und installiert daraus. Weder `git` noch eine lokale Kopie sind nötig. Liegt dagegen ein Checkout daneben, wird
-dieser verwendet — es ist dasselbe Skript für beide Wege.
-
-### Kurzform
+Als root im Zielcontainer. Das Skript läuft mit vollen Rechten und installiert Pakete — der Blick hinein vor dem
+Start ist deshalb die empfohlene Variante:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh | bash
+URL=https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh
+curl -fsSL $URL -o install.sh && less install.sh && bash install.sh   # empfohlen
+curl -fsSL $URL | bash                                               # Kurzform
+./install.sh                                                         # aus einem Checkout
 ```
 
-Das Skript ist gegen abgebrochene Downloads abgesichert: Der gesamte Code steht in Funktionen, die erst in der
-letzten Zeile aufgerufen werden. Bricht die Übertragung vorher ab, führt bash nichts aus.
+`install.sh` erkennt selbst, woraus es installiert: Liegt ein Quellbaum daneben, nimmt es den; sonst lädt es die
+neueste veröffentlichte Version als Tarball. `git` ist nie nötig. Gegen abgebrochene Downloads ist es abgesichert —
+aller Code steht in Funktionen, die erst in der letzten Zeile aufgerufen werden.
 
-### Aus einer lokalen Kopie
-
-Projekt in den Container kopieren (z. B. per `scp`), dort als root:
-
-```bash
-cd aliexpress-coin-collector
-./install.sh
-```
-
-Das Skript installiert `adb`, Tesseract mit deutschem Sprachpaket und die Python-Abhängigkeiten, legt den Benutzer
-`coins` und `/opt/aliexpress-coin-collector` an, fragt nach Geräte-Adresse und Webhook und installiert den
-systemd-Dienst, **startet ihn aber noch nicht**. Nicht-interaktiv:
+Installiert werden `adb`, Tesseract mit deutschem Sprachpaket und die Python-Abhängigkeiten; angelegt werden der
+Benutzer `coins`, `/opt/aliexpress-coin-collector` und die systemd-Units — **gestartet wird nichts**. Ohne Rückfragen:
 `ADB_SERIAL=192.168.1.50:5555 DISCORD_WEBHOOK_URL=... ./install.sh`.
-
-**Update von der Vorgängerversion (`aliexpress-coins`):** `./install.sh` erkennt `/opt/aliexpress-coins`, stoppt den
-alten Dienst und verschiebt das Verzeichnis samt `.env`, Datenbank und ADB-Freigabe an den neuen Ort. Danach den neuen
-Dienst starten:
 
 ```bash
 systemctl enable --now aliexpress-coin-collector
 ```
 
-### Aktualisieren
+| Aufruf | Wirkung |
+|---|---|
+| `./install.sh` | Neuinstallation oder Aktualisierung aus dem aktuellen Verzeichnis |
+| `./install.sh --update [--ref v0.3.0]` | Holt die neueste Veröffentlichung von GitHub, mit Rauchtest und Rollback |
+| `./install.sh --uninstall` | Stoppt den Dienst, entfernt die Unit. Daten bleiben, Löschen nur nach Eingabe von `JA` |
+| `./install.sh --help` | Erklärt Aufruf und Umgebungsvariablen, verändert nichts |
 
-```bash
-cd /opt/aliexpress-coin-collector && ./install.sh --update
-```
+**`.env`, `data/` und `.android/` werden nie überschrieben** — weder beim Update noch bei einer erneuten Installation.
 
-Holt die neueste veröffentlichte Version von GitHub, sichert den alten Programmstand, tauscht die Dateien aus, baut
-die Python-Umgebung neu und prüft zum Schluss, ob `--version` noch läuft. Scheitert dieser Rauchtest, wird der
-vorherige Stand automatisch wiederhergestellt und der Dienst wieder gestartet, falls er vorher lief.
+Scheitert nach einem `--update` der abschließende Rauchtest, stellt das Skript den vorherigen Stand selbst wieder her
+und startet den Dienst neu, falls er vorher lief.
 
-**`.env`, `data/` und `.android/` werden dabei nie angefasst.** Mit `--ref v0.3.0` oder `--ref main` lässt sich ein
-bestimmter Stand erzwingen.
-
-Ein erneuter Aufruf von `./install.sh` ohne Argumente aktualisiert aus dem aktuellen Verzeichnis und meldet das auch
-so; eine vorhandene `.env` bleibt dabei immer unverändert. `./install.sh --help` erklärt Aufruf und Umgebungsvariablen und
-ändert nichts. `./install.sh --uninstall` stoppt den Dienst und entfernt die systemd-Unit; `.env`, `data/` und
-`.android/` bleiben erhalten, gelöscht wird nur nach ausdrücklicher Bestätigung mit `JA`.
+**Update von der Vorgängerversion `aliexpress-coins`:** wird erkannt, der alte Dienst gestoppt und das Verzeichnis
+samt `.env`, Datenbank und ADB-Freigabe an den neuen Ort verschoben.
 
 ## Gerät einrichten
 
@@ -247,6 +220,8 @@ umschaltet.
 | Tap auf "Sammeln" und Bestätigung | Ablauf mit Attrappen getestet, **auf dem Gerät ausstehend** |
 | Discord-Meldungen | Testnachricht getestet |
 | Dauerbetrieb (systemd, Zeitplan) | läuft, Ergebnis mehrerer Tage ausstehend |
+| Installation, `--update` und Rollback | gegen einen lokalen Stellvertreter für GitHub geprüft, gegen das echte GitHub ausstehend |
+| Weboberfläche | gegen einen laufenden Server geprüft; systemd-Unit und Port 80 ausstehend |
 
 Getestete Geräte: Samsung SM-J330FN (Android 9, 720×1280, Standard-Dichte 320, langsam: ca. 30 s bis zur geladenen
 Seite) und ein Android-Tablet (1200×1920, Dichte 280).

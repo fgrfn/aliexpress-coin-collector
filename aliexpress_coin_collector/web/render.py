@@ -16,18 +16,22 @@ STYLE = """
 :root {
   --bg: #f6f7f9; --card: #ffffff; --text: #1a1d21; --muted: #6b7280; --line: #e3e6ea;
   --ok: #1a7f4b; --warn: #a76a00; --bad: #b3261e; --accent: #2b5fd9;
+  --coin: #f0b429; --coin-dark: #8a5a00;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14171a; --card: #1d2125; --text: #e7eaee; --muted: #9aa3ad; --line: #2c3238;
     --ok: #4ac07e; --warn: #e0a33a; --bad: #f2695e; --accent: #7ba2f5;
+    --coin: #f5c451; --coin-dark: #5c3d00;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
   font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 .wrap { max-width: 900px; margin: 0 auto; }
-h1 { font-size: 1.25rem; margin: 0 0 16px; }
+h1 { font-size: 1.25rem; margin: 0 0 16px; display: flex; align-items: center; gap: 10px; }
+.logo { flex: none; }
+footer { color: var(--muted); font-size: .8rem; text-align: center; padding: 8px 0 16px; }
 h2 { font-size: 1rem; margin: 0 0 12px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
   padding: 16px; margin-bottom: 16px; }
@@ -54,25 +58,49 @@ svg { width: 100%; height: auto; display: block; }
 """
 
 
+# Muenze als Inline-SVG: kein Bild im Repo, keine externe Quelle, skaliert verlustfrei
+# und nimmt die Farben der Oberflaeche an.
+LOGO = (
+    '<svg class="logo" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">'
+    '<circle cx="12" cy="12" r="10" fill="var(--coin)"/>'
+    '<circle cx="12" cy="12" r="7.5" fill="none" stroke="var(--coin-dark)" stroke-width="1.2"/>'
+    '<path d="M12 6.8v10.4M9.6 9.2h4a1.9 1.9 0 0 1 0 3.8h-4M9.6 13h4.4" fill="none" '
+    'stroke="var(--coin-dark)" stroke-width="1.6" stroke-linecap="round"/>'
+    "</svg>"
+)
+
+# Dasselbe Motiv als Favicon. Als data-URI eingebettet, damit keine zweite Anfrage noetig ist.
+FAVICON = (
+    "data:image/svg+xml,"
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
+    "%3Ccircle cx='12' cy='12' r='10' fill='%23f0b429'/%3E"
+    "%3Ccircle cx='12' cy='12' r='7.5' fill='none' stroke='%238a5a00' stroke-width='1.2'/%3E"
+    "%3Cpath d='M12 6.8v10.4M9.6 9.2h4a1.9 1.9 0 0 1 0 3.8h-4M9.6 13h4.4' fill='none' "
+    "stroke='%238a5a00' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"
+)
+
+
 def _e(value: object) -> str:
     return escape(str(value), quote=True)
 
 
-def page(title: str, body: str) -> str:
+def page(title: str, body: str, version: str = "") -> str:
+    footer = f"<footer>aliexpress-coin-collector {_e(version)}</footer>" if version else ""
     return (
         "<!doctype html>\n"
         '<html lang="de"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'<link rel="icon" href="{FAVICON}">'
         f"<title>{_e(title)}</title><style>{STYLE}</style></head>"
-        f'<body><div class="wrap">{body}</div></body></html>'
+        f'<body><div class="wrap">{body}{footer}</div></body></html>'
     )
 
 
-def login_page(error: str = "") -> str:
+def login_page(error: str = "", version: str = "") -> str:
     warning = f'<p class="bad">{_e(error)}</p>' if error else ""
     return page(
         "Anmeldung",
-        f"""<h1>AliExpress Coin Collector</h1>
+        f"""<h1>{LOGO}AliExpress Coin Collector</h1>
         <div class="card">
           {warning}
           <form method="post" action="/login">
@@ -82,6 +110,7 @@ def login_page(error: str = "") -> str:
             </div>
           </form>
         </div>""",
+        version,
     )
 
 
