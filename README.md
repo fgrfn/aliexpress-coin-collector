@@ -51,18 +51,19 @@ Discord-Meldung mit Screenshot. Die Uhrzeiten hängen nur vom Datum ab und über
 Das Skript läuft als root und installiert Pakete. Deshalb lohnt sich der Blick hinein, bevor es startet:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/bootstrap.sh -o bootstrap.sh
-less bootstrap.sh
-bash bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh -o install.sh
+less install.sh
+bash install.sh
 ```
 
-`bootstrap.sh` lädt die neueste veröffentlichte Version als Tarball, entpackt sie in ein temporäres Verzeichnis
-und startet das darin enthaltene `install.sh`. Weder `git` noch eine lokale Kopie sind nötig.
+Findet `install.sh` neben sich keinen Quellbaum, lädt es die neueste veröffentlichte Version selbst als Tarball
+und installiert daraus. Weder `git` noch eine lokale Kopie sind nötig. Liegt dagegen ein Checkout daneben, wird
+dieser verwendet — es ist dasselbe Skript für beide Wege.
 
 ### Kurzform
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/fgrfn/aliexpress-coin-collector/main/install.sh | bash
 ```
 
 Das Skript ist gegen abgebrochene Downloads abgesichert: Der gesamte Code steht in Funktionen, die erst in der

@@ -6,7 +6,8 @@
 # Aufrufformen und Umgebungsvariablen erklaert ./install.sh --help
 set -euo pipefail
 
-SRC="$(cd "$(dirname "$0")" && pwd)"
+SRC=""            # wird von resolve_src gesetzt: lokaler Quellbaum oder geladener Tarball
+WORK=""           # temporaeres Verzeichnis, wird von cleanup_work aufgeraeumt
 DEST="${INSTALL_DIR:-/opt/aliexpress-coin-collector}"
 OLD="${OLD_INSTALL_DIR:-/opt/aliexpress-coins}"
 SVC_USER="coins"
@@ -24,6 +25,8 @@ usage() {
 aliexpress-coin-collector - Installationsskript (als root ausfuehren)
 
 Aufruf:
+  curl -fsSL <url>/install.sh | bash   Installiert die neueste Veroeffentlichung
+                                   (laedt den Quelltext selbst, kein Checkout noetig)
   ./install.sh                     Installiert neu oder aktualisiert aus diesem Verzeichnis
   ./install.sh --update            Laedt den Quelltext von GitHub und aktualisiert die
                                    vorhandene Installation (mit Rauchtest und Rollback)
@@ -32,10 +35,10 @@ Aufruf:
                                    (Daten bleiben erhalten)
   ./install.sh --help              Diese Hilfe anzeigen (veraendert nichts)
 
-Ohne lokale Kopie installiert bootstrap.sh:
-  curl -fsSL <url>/bootstrap.sh | bash
+Ohne lokale Kopie laedt das Skript den Quelltext selbst. Liegt daneben ein Quellbaum,
+wird dieser verwendet.
 
-Ermittlung des Standes bei --update (in dieser Reihenfolge):
+Ermittlung des Standes bei --update und beim Selbstdownload (in dieser Reihenfolge):
   1. --ref bzw. die Umgebungsvariable REF, falls gesetzt
   2. Neuestes Release-Tag ueber die GitHub-API
   3. Hoechstes Tag der GitHub-API (sortiert nach Versionsnummer)
@@ -371,12 +374,12 @@ build_venv() {
 }
 
 do_update() {
-    local was_active=0 work="" backup="" src="" ref=""
+    local was_active=0 backup="" src="" ref=""
     local version_before version_after
 
     if [ ! -d "$DEST" ]; then
         echo "In $DEST liegt keine Installation." >&2
-        echo "Bitte zuerst installieren, z. B. mit: curl -fsSL <url>/bootstrap.sh | bash" >&2
+        echo "Bitte zuerst installieren, z. B. mit: curl -fsSL <url>/install.sh | bash" >&2
         exit 1
     fi
 
@@ -396,10 +399,8 @@ do_update() {
 
     echo "==> Quelltext von GitHub laden"
     ref="$(resolve_ref)"
-    work="$(mktemp -d)"
-    # shellcheck disable=SC2064
-    trap "rm -rf '$work'" EXIT INT TERM
-    src="$(download_source "$work" "$ref")"
+    WORK="$(mktemp -d)"
+    src="$(download_source "$WORK" "$ref")"
     echo "    Stand $ref entpackt"
 
     if [ "$HAVE_SYSTEMD" = 1 ]; then
@@ -416,7 +417,7 @@ do_update() {
 
     # Sicherung des Programmstandes. .env, data/ und .android/ bleiben ohnehin liegen und
     # werden deshalb bewusst nicht mitgesichert.
-    backup="$work/backup"
+    backup="$WORK/backup"
     mkdir -p "$backup"
     rsync -a "${KEEP_EXCLUDES[@]}" "$DEST/" "$backup/"
     echo "==> Alter Programmstand gesichert"
@@ -468,6 +469,35 @@ do_update() {
     echo ".env, data/ und .android/ blieben unveraendert."
 }
 
+
+cleanup_work() {
+    [ -n "$WORK" ] && rm -rf "$WORK"
+    return 0
+}
+
+# Legt fest, woraus installiert wird. Liegt neben diesem Skript ein vollstaendiger Quellbaum,
+# wird dieser genommen. Sonst wurde das Skript per "curl ... | bash" gestartet, es gibt dann kein
+# Quellverzeichnis, und der Quelltext wird von GitHub geladen.
+resolve_src() {
+    local self_dir="" ref=""
+    if [ -f "$0" ] && [ -r "$0" ]; then
+        self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || self_dir=""
+    fi
+    if [ -n "$self_dir" ] && [ -f "$self_dir/install.sh" ] && [ -d "$self_dir/aliexpress_coin_collector" ]; then
+        SRC="$self_dir"
+        return 0
+    fi
+
+    echo "==> Kein Quellverzeichnis neben dem Skript, Quelltext wird von GitHub geladen"
+    require_downloader
+    command -v tar >/dev/null 2>&1 || { echo "tar fehlt, bitte installieren." >&2; exit 1; }
+    ref="$(resolve_ref)"
+    WORK="$(mktemp -d)"
+    SRC="$(download_source "$WORK" "$ref")"
+    echo "    Stand $ref entpackt"
+}
+
+main() {
 ACTION="install"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -506,6 +536,8 @@ done
 HAVE_SYSTEMD=0
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then HAVE_SYSTEMD=1; fi
 
+trap cleanup_work EXIT INT TERM
+
 if [ "$ACTION" = "uninstall" ]; then
     do_uninstall
     exit 0
@@ -516,9 +548,7 @@ if [ "$ACTION" = "update" ]; then
     exit 0
 fi
 
-if [ -n "${REF:-}" ]; then
-    echo "    Hinweis: --ref/REF wirkt nur zusammen mit --update und wird hier ignoriert."
-fi
+resolve_src
 
 # Vor der Migration merken, ob es schon eine Installation am Zielort gibt.
 IS_UPDATE=0
@@ -661,3 +691,6 @@ if [ -t 0 ] && [ -x "$DEST/.venv/bin/python" ]; then
             ;;
     esac
 fi
+}
+
+main "$@"
