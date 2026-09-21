@@ -506,8 +506,8 @@ ask() {
 # Dienstbenutzer, damit der Schluessel in dessen ~/.android landet und der Dienst ihn spaeter hat.
 # "adb connect" weckt das Geraet nicht und tippt nicht darauf, es baut nur die Verbindung auf.
 try_adb_connect() {
-    local serial="$1" state=""
-    # Beide Faelle sind "keine Verbindung", nicht "in Ordnung": sonst meldete der Aufrufer Erfolg.
+    local serial="$1" state="" answer="" attempt=0
+    # Ein Fehlschlag ist "keine Verbindung", nicht "in Ordnung": sonst meldete der Aufrufer Erfolg.
     [ -n "$serial" ] || return 1
     if ! command -v adb >/dev/null 2>&1; then
         echo "==> adb ist nicht vorhanden, die Verbindung kann nicht hergestellt werden"
@@ -515,47 +515,51 @@ try_adb_connect() {
     fi
 
     echo "==> Verbindung zum Geraet herstellen"
-    echo "    Falls auf dem Geraet ein Dialog erscheint: mit \"Immer zulassen\" bestaetigen."
-    runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
-    sleep 2
-    state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
 
-    case "$state" in
-        device)
+    # Schleife statt einmaligem Versuch: in beiden Fehlerfaellen muss der Nutzer etwas am Geraet
+    # tun -- Dialog bestaetigen, Geraet einschalten, 'adb tcpip 5555' setzen. Danach will er
+    # denselben Befehl noch einmal, nicht einen Hinweis fuer spaeter.
+    while [ "$attempt" -lt 5 ]; do
+        attempt=$((attempt + 1))
+        runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
+        state="$(wait_for_state "$serial")"
+
+        if [ "$state" = "device" ]; then
             echo "    Verbunden und freigegeben."
             return 0
-            ;;
-        unauthorized)
+        fi
+
+        if [ "$state" = "unauthorized" ]; then
             echo "    Verbunden, aber noch nicht freigegeben."
-            echo "    Auf dem Geraet wartet jetzt ein Dialog. Bitte mit \"Immer zulassen\" bestaetigen."
-            if interactive; then
-                local answer=""
-                ask answer "    Bestaetigt? [Enter zum erneuten Pruefen, n zum Ueberspringen]: "
-                case "$answer" in
-                    n|N|nein|Nein) ;;
-                    *)
-                        runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
-                        sleep 2
-                        state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
-                        if [ "$state" = "device" ]; then
-                            echo "    Jetzt verbunden und freigegeben."
-                            return 0
-                        fi
-                        echo "    Immer noch nicht freigegeben."
-                        ;;
-                esac
+            echo "    Auf dem Geraet wartet ein Dialog. Bitte mit \"Immer zulassen\" bestaetigen."
+            answer=""
+            if ! interactive; then break; fi
+            ask answer "    Bestaetigt? [Enter = erneut versuchen, n = ueberspringen]: "
+        else
+            if [ "$attempt" = 1 ]; then
+                echo "    Keine Verbindung. Haeufigste Ursachen:"
+                echo "      - das Geraet ist aus, im Ruhezustand oder nicht im Netz"
+                echo "      - nach einem Neustart des Geraets fehlt 'adb tcpip 5555' (einmalig per USB setzen)"
+                echo "      - die Adresse $serial stimmt nicht (steht in $DEST/.env)"
+                echo "      - auf dem Geraet ist USB-Debugging nicht aktiv"
+            else
+                echo "    Weiterhin keine Verbindung."
             fi
-            echo "    Spaeter nachholen mit: runuser -u $SVC_USER -- adb connect $serial"
-            return 1
-            ;;
-        *)
-            echo "    Keine Verbindung. Haeufigste Ursachen:"
-            echo "      - das Geraet ist aus oder nicht im Netz"
-            echo "      - nach einem Neustart fehlt 'adb tcpip 5555' (einmalig per USB setzen)"
-            echo "      - die Adresse in $DEST/.env stimmt nicht"
-            return 1
-            ;;
-    esac
+            answer=""
+            if ! interactive; then break; fi
+            ask answer "    Geraet bereit oder Dialog bestaetigt? [Enter = erneut versuchen, n = ueberspringen]: "
+        fi
+
+        case "$answer" in
+            n|N|nein|Nein|NEIN) break ;;
+        esac
+    done
+
+    if [ "$attempt" -ge 5 ]; then
+        echo "    Nach mehreren Versuchen keine Verbindung."
+    fi
+    echo "    Spaeter nachholen mit: runuser -u $SVC_USER -- adb connect $serial"
+    return 1
 }
 
 
@@ -600,6 +604,81 @@ ensure_serial() {
     else
         echo "    WARNUNG: ADB_SERIAL wurde nicht gesetzt, bitte in $DEST/.env eintragen."
     fi
+}
+
+
+# Ergaenzt eine bestehende .env um Schluessel, die in .env.example dazugekommen sind. Bestehende
+# Werte werden nie angefasst. Ohne das kennt eine .env aus einer aelteren Version neue Optionen
+# gar nicht und faellt still auf die eingebauten Vorgaben zurueck.
+merge_env_defaults() {
+    local example="$DEST/.env.example" target="$DEST/.env"
+    local line key block="" added=""
+    [ -f "$example" ] || return 0
+    [ -f "$target" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "#"*|"")
+                block="$block$line
+"
+                continue
+                ;;
+        esac
+        key="${line%%=*}"
+        case "$key" in
+            ""|*[!A-Za-z0-9_]*)
+                block=""
+                continue
+                ;;
+        esac
+        if ! grep -q "^${key}=" "$target"; then
+            added="$added$block$line
+"
+        fi
+        block=""
+    done < "$example"
+
+    [ -n "$added" ] || return 0
+    {
+        printf '\n# --- Neu hinzugekommen (Standardwerte aus .env.example) ---\n'
+        printf '%s' "$added"
+    } >> "$target"
+    chmod 600 "$target"
+    echo "    Neue Einstellungen in die .env uebernommen:"
+    printf '%s' "$added" | grep -oE '^[A-Za-z0-9_]+=' | tr -d '=' | sed 's/^/      /'
+}
+
+# Wartet, bis das Geraet einen brauchbaren Zustand meldet. Zwei Sekunden reichen nicht: nach
+# "adb connect" braucht der Transport gelegentlich laenger, und ein zu frueher Blick meldet
+# faelschlich "keine Verbindung".
+wait_for_state() {
+    local serial="$1" state="" waited=0
+    while [ "$waited" -lt 12 ]; do
+        state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
+        case "$state" in
+            device|unauthorized)
+                printf '%s' "$state"
+                return 0
+                ;;
+        esac
+        sleep 1
+        waited=$((waited + 1))
+    done
+    printf '%s' "$state"
+}
+
+
+# Adresse, unter der die Weboberflaeche im LAN erreichbar ist. Ohne ermittelbare Adresse
+# wird der Hostname genommen -- besser als eine erfundene IP.
+web_url() {
+    local host="" port=""
+    port="$(grep -m1 '^WEB_PORT=' "$DEST/.env" 2>/dev/null | cut -d= -f2-)"
+    [ -n "$port" ] || port=80
+    host="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
+    [ -n "$host" ] || host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    [ -n "$host" ] || host="$(hostname 2>/dev/null)"
+    [ -n "$host" ] || host="<Adresse-des-Containers>"
+    if [ "$port" = "80" ]; then printf 'http://%s' "$host"; else printf 'http://%s:%s' "$host" "$port"; fi
 }
 
 
@@ -745,29 +824,54 @@ else
     echo "    .env existiert bereits, vorhandene Werte bleiben unveraendert"
 fi
 
+# Neue Schluessel aus .env.example nachziehen, bevor nach Werten gefragt wird.
+merge_env_defaults
+
 # Immer pruefen, nicht nur bei neuer .env: ohne Adresse startet spaeter nichts.
 ensure_serial
 chmod 600 "$DEST/.env"
 chown -R "$SVC_USER": "$DEST"
 
-echo "==> systemd-Dienst"
+echo "==> systemd-Dienste"
+WEB_RUNNING=0
 if [ "$HAVE_SYSTEMD" = 1 ]; then
     sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
     if [ -f "$DEST/$SERVICE-web.service" ]; then
-        # Weboberflaeche: Unit wird angelegt, aber bewusst nicht gestartet. Sie ist optional,
-        # und der taeglich wichtige Check-in soll nicht von ihr abhaengen.
         sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE-web.service" \
             > "/etc/systemd/system/$SERVICE-web.service"
     fi
     systemctl daemon-reload
+
+    # Der Sammel-Dienst bleibt bewusst aus: er weckt das Geraet und tippt darauf. Das soll erst
+    # laufen, wenn 'doctor' und ein erster Lauf von Hand geklappt haben.
     if [ "$IS_UPDATE" = 1 ]; then
-        echo "    Dienstdatei aktualisiert. Laeuft der Dienst schon, wirkt die neue Version erst nach:"
+        echo "    Dienstdatei aktualisiert. Laeuft der Sammel-Dienst schon, wirkt die neue Version erst nach:"
         echo "      systemctl restart $SERVICE"
     else
-        echo "    Dienst installiert, aber noch NICHT gestartet"
+        echo "    Sammel-Dienst installiert, aber noch NICHT gestartet (er fasst das Geraet an)"
+    fi
+
+    # Die Weboberflaeche fasst weder ADB noch das Geraet an -- sie liest die Datenbank und legt
+    # allenfalls einen Auftrag ab. Sie darf deshalb sofort laufen. Das Passwort wird beim ersten
+    # Aufruf der Seite vergeben, es gibt hier nichts vorzukonfigurieren.
+    if [ -f "/etc/systemd/system/$SERVICE-web.service" ]; then
+        if systemctl enable --now "$SERVICE-web" >/dev/null 2>&1; then
+            sleep 1
+            if systemctl is-active --quiet "$SERVICE-web"; then
+                WEB_RUNNING=1
+                echo "    Weboberflaeche laeuft und startet ab jetzt automatisch mit"
+            else
+                echo "    Weboberflaeche konnte nicht gestartet werden. Ursache zeigt:"
+                echo "      systemctl status $SERVICE-web"
+                echo "      journalctl -u $SERVICE-web -n 40 --no-pager"
+            fi
+        else
+            echo "    Weboberflaeche konnte nicht aktiviert werden, Hinweise siehe:"
+            echo "      journalctl -u $SERVICE-web -n 40 --no-pager"
+        fi
     fi
 else
-    echo "    systemd nicht verfuegbar, Dienstdatei uebersprungen"
+    echo "    systemd nicht verfuegbar, Dienstdateien uebersprungen"
 fi
 
 echo "==> Zeitzone pruefen"
@@ -833,6 +937,15 @@ Naechste Schritte:
        systemctl enable --now $SERVICE
 MSG
     fi
+fi
+
+# Die Weboberflaeche laeuft bereits, das Passwort fehlt aber noch. Ohne diesen Hinweis wuesste
+# niemand, wo es vergeben wird.
+if [ "$WEB_RUNNING" = 1 ]; then
+    echo ""
+    echo "Weboberflaeche: $(web_url)"
+    echo "    Beim ersten Aufruf vergibst du dort das Passwort. Bis dahin zeigt die Seite nichts an"
+    echo "    und es laesst sich kein Lauf ausloesen. Es steht nicht mehr in der .env."
 fi
 
 # 'doctor' als Gegenprobe zum Schluss. Ohne Geraete-Adresse kann es nicht starten, dann wird es

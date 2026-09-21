@@ -30,7 +30,7 @@ body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
   font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 .wrap { max-width: 900px; margin: 0 auto; }
 h1 { font-size: 1.25rem; margin: 0 0 16px; display: flex; align-items: center; gap: 10px; }
-.logo { flex: none; }
+.logo { flex: none; width: 28px; height: 28px; }
 footer { color: var(--muted); font-size: .8rem; text-align: center; padding: 8px 0 16px; }
 h2 { font-size: 1rem; margin: 0 0 12px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
@@ -54,7 +54,9 @@ input[type=time], input[type=password] { font: inherit; padding: 8px; border-rad
 .note { color: var(--muted); font-size: .85rem; }
 .banner { border-left: 4px solid var(--bad); padding-left: 12px; }
 form.inline { display: inline; }
-svg { width: 100%; height: auto; display: block; }
+/* Nur das Diagramm skaliert auf die Breite. Eine Regel fuer alle svg wuerde auch das Logo
+   im Titel aufblasen -- dessen width-Attribut hat gegen CSS keine Chance. */
+svg.chart { width: 100%; height: auto; display: block; }
 """
 
 
@@ -114,10 +116,60 @@ def login_page(error: str = "", version: str = "") -> str:
     )
 
 
+def setup_page(error: str = "", version: str = "", min_length: int = 8) -> str:
+    """Ersteinrichtung: das Passwort wird hier vergeben, nicht in der .env hinterlegt."""
+    warning = f'<p class="bad">{_e(error)}</p>' if error else ""
+    return page(
+        "Ersteinrichtung",
+        f"""<h1>{LOGO}AliExpress Coin Collector</h1>
+        <div class="card">
+          <h2>Passwort vergeben</h2>
+          <p class="note">
+            Die Oberfläche ist noch nicht geschützt. Vergib jetzt ein Passwort — bis dahin ist
+            nichts zu sehen und es lässt sich kein Lauf auslösen. Mindestens {min_length} Zeichen.
+          </p>
+          {warning}
+          <form method="post" action="/setup">
+            <div class="row">
+              <label>Passwort<br><input type="password" name="password" autofocus required
+                minlength="{min_length}" autocomplete="new-password"></label>
+              <label>Wiederholen<br><input type="password" name="repeat" required
+                minlength="{min_length}" autocomplete="new-password"></label>
+              <button type="submit">Speichern und anmelden</button>
+            </div>
+          </form>
+        </div>""",
+        version,
+    )
+
+
+def password_card(error: str = "", done: bool = False, min_length: int = 8) -> str:
+    """Passwort aendern. Ohne dieses Formular liesse es sich nur durch Loeschen einer Datei aendern."""
+    note = ""
+    if error:
+        note = f'<p class="bad">{_e(error)}</p>'
+    elif done:
+        note = '<p class="ok">Passwort geändert. Andere Anmeldungen wurden abgemeldet.</p>'
+    return f"""<div class="card">
+      <h2>Passwort ändern</h2>
+      {note}
+      <form method="post" action="/password" class="row">
+        <label>Bisheriges<br><input type="password" name="current" required
+          autocomplete="current-password"></label>
+        <label>Neues<br><input type="password" name="password" required
+          minlength="{min_length}" autocomplete="new-password"></label>
+        <label>Wiederholen<br><input type="password" name="repeat" required
+          minlength="{min_length}" autocomplete="new-password"></label>
+        <button type="submit" class="secondary">Ändern</button>
+      </form>
+      <p class="note">Nach dem Ändern musst du dich neu anmelden.</p>
+    </div>"""
+
+
 def coin_chart(points: list[DayPoint], width: int = 860, height: int = 220) -> str:
     """Muenzstand als Liniendiagramm. Gibt bei zu wenigen Daten einen Hinweis statt einer Linie."""
     if len(points) < 2:
-        return '<p class="note">Noch zu wenige Daten fuer einen Verlauf. Ab dem zweiten Tag mit erkanntem Stand.</p>'
+        return '<p class="note">Noch zu wenige Daten für einen Verlauf. Ab dem zweiten Tag mit erkanntem Stand.</p>'
 
     pad_l, pad_r, pad_t, pad_b = 48, 12, 12, 28
     inner_w = width - pad_l - pad_r
@@ -138,7 +190,7 @@ def coin_chart(points: list[DayPoint], width: int = 860, height: int = 220) -> s
     area = f"{pad_l:.1f},{pad_t + inner_h:.1f} {line} {x_at(len(points) - 1):.1f},{pad_t + inner_h:.1f}"
 
     parts = [
-        f'<svg viewBox="0 0 {width} {height}" role="img" '
+        f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" '
         f'aria-label="Muenzstand von {points[0].day} bis {points[-1].day}">'
     ]
     for frac in (0.0, 0.5, 1.0):  # drei waagerechte Hilfslinien mit Beschriftung

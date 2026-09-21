@@ -142,22 +142,22 @@ Alle Befehle als `python -m aliexpress_coin_collector <befehl>`.
 
 ## Weboberfläche
 
-Optional, als **zweiter** Dienst. `install.sh` legt die Unit an, startet sie aber nicht — der tägliche
-Check-in soll nicht von ihr abhängen.
+Ein **zweiter** Dienst, den `install.sh` mitinstalliert, aktiviert und startet. Er fasst weder ADB
+noch das Gerät an, deshalb darf er sofort laufen — anders als der Sammel-Dienst.
 
-```bash
-# WEB_PASSWORD in der .env setzen, dann:
-systemctl enable --now aliexpress-coin-collector-web
-```
+Erreichbar unter `http://<container-ip>/`. **Beim ersten Aufruf vergibst du dort das Passwort**; bis
+dahin zeigt die Seite nichts an und es lässt sich kein Lauf auslösen. Gespeichert wird nur ein Hash
+(PBKDF2-SHA256) in `data/web-password`, nie das Passwort selbst. Ändern lässt es sich auf der Seite
+unten; danach sind alle angemeldeten Browser abgemeldet.
 
-Danach erreichbar unter `http://<container-ip>/`. Die Seite zeigt einen Statuskopf (letzter Lauf,
+Die Seite zeigt einen Statuskopf (letzter Lauf,
 nächster Lauf, Münzstand, abgeleitete Streak, ob der Dienst läuft), den Münzverlauf als Diagramm und
 die Historie der letzten Läufe mit anklickbaren Fehler-Screenshots. Die Zeitfenster lassen sich dort
 ändern; eine Änderung gilt sofort, aber nicht rückwirkend — liegt die neu ausgewürfelte Uhrzeit schon
 in der Vergangenheit, läuft an diesem Tag nichts mehr.
 
-**Ohne `WEB_PASSWORD` startet der Dienst nicht.** Die Seite kann einen Lauf auf dem Gerät auslösen,
-deshalb ist die Anmeldung Pflicht und nicht abschaltbar. Sie gehört ins LAN und nicht ins Internet.
+Die Anmeldung ist Pflicht und nicht abschaltbar, weil die Seite einen Lauf auf dem Gerät auslösen
+kann. Sie gehört ins LAN und nicht ins Internet.
 
 Der Knopf „Lauf jetzt starten" fasst das Gerät **nicht** selbst an: Er legt nur eine Datei
 `data/run-requested` an, die der Sammel-Dienst beim nächsten Takt abholt. Damit bleibt genau ein
@@ -189,8 +189,7 @@ Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen hab
 | `NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE` | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |
-| `WEB_PASSWORD` | – | Pflicht für die Weboberfläche, ohne sie startet der Webdienst nicht |
-| `WEB_PORT` | `80` | Port der Weboberfläche |
+| `WEB_PORT` | `80` | Port der Weboberfläche (das Passwort wird auf der Seite vergeben, nicht hier) |
 | `STREAK_OFFSET` | `0` | Tage, die vor dem ersten Lauf von Hand gesammelt wurden |
 | `COIN_URL`, `APP_PACKAGE`, `ADB_PATH` | siehe `.env.example` | Nur ändern, wenn AliExpress die Adresse der Coin-Seite ändert |
 

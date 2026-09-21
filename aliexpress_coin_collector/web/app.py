@@ -7,6 +7,7 @@ Der Webdienst fasst weder ADB noch das Geraet an. Er oeffnet die Datenbank schre
 verstaendigt sich mit dem Sammel-Dienst ueber zwei kleine Dateien in data/:
   run-requested  legt er an, der Dienst holt sie beim naechsten Takt ab
   heartbeat      beruehrt der Dienst, daran erkennt die Seite, ob er laeuft
+  web-password   Hash des Passworts, bei der Ersteinrichtung ueber die Seite vergeben
 """
 
 from __future__ import annotations
@@ -26,10 +27,10 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from .. import __version__, settings
-from ..config import Config, ConfigError
+from ..config import Config
 from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for
 from ..store import Attempt, Store
-from . import data, render
+from . import auth, data, render
 
 log = logging.getLogger(__name__)
 
@@ -76,13 +77,35 @@ def _shots(cfg: Config) -> dict[str, str]:
     return {p.name[:15]: p.name for p in folder.glob("*.png") if SHOT_NAME_RE.match(p.name)}
 
 
-def create_app(cfg: Config, password: str) -> FastAPI:
+def create_app(cfg: Config) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     secret = _secret(cfg.data_dir)
-    token = hmac.new(secret, b"session", "sha256").hexdigest()
+
+    def token() -> str:
+        """Sitzungsmerkmal aus Geheimnis und Passwort-Hash.
+
+        Dass der Hash mit eingeht, ist Absicht: ein geaendertes Passwort macht damit alle
+        bestehenden Cookies ungueltig, ohne dass Sitzungen irgendwo verwaltet werden muessten.
+        """
+        return hmac.new(secret, auth.stored_hash(cfg.data_dir).encode(), "sha256").hexdigest()
 
     def authed(request: Request) -> bool:
-        return hmac.compare_digest(request.cookies.get(COOKIE, ""), token)
+        if not auth.is_set(cfg.data_dir):
+            return False
+        return hmac.compare_digest(request.cookies.get(COOKIE, ""), token())
+
+    def _logged_in(target: str = "/") -> Response:
+        response = RedirectResponse(target, status_code=303)
+        response.set_cookie(COOKIE, token(), httponly=True, samesite="lax", max_age=30 * 24 * 3600)
+        return response
+
+    def _gate(request: Request) -> Response | None:
+        """Gemeinsame Vorpruefung: erst einrichten, dann anmelden, dann erst die Seite."""
+        if not auth.is_set(cfg.data_dir):
+            return RedirectResponse("/setup", status_code=303)
+        if not authed(request):
+            return RedirectResponse("/login", status_code=303)
+        return None
 
     def current_cfg() -> Config:
         """Fenster bei jeder Anfrage frisch lesen, damit die Seite nach dem Speichern stimmt."""
@@ -93,18 +116,61 @@ def create_app(cfg: Config, password: str) -> FastAPI:
 
         return replace(cfg, **overrides.windows, settings_changed_at=overrides.changed_at)
 
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup_form() -> Response:
+        if auth.is_set(cfg.data_dir):
+            return RedirectResponse("/login", status_code=303)
+        return HTMLResponse(render.setup_page(version=__version__, min_length=auth.MIN_LENGTH))
+
+    @app.post("/setup")
+    def setup(password: str = Form(default=""), repeat: str = Form(default="")) -> Response:
+        if auth.is_set(cfg.data_dir):
+            return RedirectResponse("/login", status_code=303)
+        try:
+            auth.set_password(cfg.data_dir, password, repeat, only_if_unset=True)
+        except auth.PasswordError as exc:
+            return HTMLResponse(
+                render.setup_page(str(exc), __version__, auth.MIN_LENGTH),
+                status_code=400,
+            )
+        log.info("Passwort der Weboberflaeche bei der Ersteinrichtung vergeben")
+        return _logged_in()
+
     @app.get("/login", response_class=HTMLResponse)
-    def login_form() -> HTMLResponse:
+    def login_form() -> Response:
+        if not auth.is_set(cfg.data_dir):
+            return RedirectResponse("/setup", status_code=303)
         return HTMLResponse(render.login_page(version=__version__))
 
     @app.post("/login")
     def login(password_field: str = Form(alias="password", default="")) -> Response:
-        if not hmac.compare_digest(password_field, password):
+        if not auth.is_set(cfg.data_dir):
+            return RedirectResponse("/setup", status_code=303)
+        if not auth.verify(cfg.data_dir, password_field):
             time_mod.sleep(FAILED_LOGIN_DELAY_S)  # bremst Durchprobieren, mehr ist hier nicht verhaeltnismaessig
             return HTMLResponse(render.login_page("Passwort stimmt nicht.", __version__), status_code=401)
-        response = RedirectResponse("/", status_code=303)
-        response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=30 * 24 * 3600)
-        return response
+        return _logged_in()
+
+    @app.post("/password")
+    def change_password(
+        request: Request,
+        current: str = Form(default=""),
+        password: str = Form(default=""),
+        repeat: str = Form(default=""),
+    ) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        if not auth.verify(cfg.data_dir, current):
+            time_mod.sleep(FAILED_LOGIN_DELAY_S)
+            return HTMLResponse(_dashboard_html("Das bisherige Passwort stimmt nicht."), status_code=400)
+        try:
+            auth.set_password(cfg.data_dir, password, repeat)
+        except auth.PasswordError as exc:
+            return HTMLResponse(_dashboard_html(str(exc)), status_code=400)
+        log.info("Passwort der Weboberflaeche geaendert")
+        # Das neue Passwort aendert den Token, das alte Cookie ist damit wertlos.
+        return RedirectResponse("/login", status_code=303)
 
     @app.post("/logout")
     def logout() -> Response:
@@ -112,11 +178,7 @@ def create_app(cfg: Config, password: str) -> FastAPI:
         response.delete_cookie(COOKIE)
         return response
 
-    @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request) -> Response:
-        if not authed(request):
-            return RedirectResponse("/login", status_code=303)
-
+    def _dashboard_html(pw_error: str = "") -> str:
         active = current_cfg()
         now = datetime.now()
         attempts = _read_attempts(active)
@@ -191,13 +253,23 @@ def create_app(cfg: Config, password: str) -> FastAPI:
           {render.history_table(attempts[:60], _shots(active))}
         </div>
 
+        {render.password_card(pw_error, min_length=auth.MIN_LENGTH)}
+
         <form method="post" action="/logout"><button class="secondary" type="submit">Abmelden</button></form>"""
-        return HTMLResponse(render.page("Coin Collector", body, __version__))
+        return render.page("Coin Collector", body, __version__)
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard(request: Request) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        return HTMLResponse(_dashboard_html())
 
     @app.post("/run")
     def request_run(request: Request) -> Response:
-        if not authed(request):
-            return RedirectResponse("/login", status_code=303)
+        gate = _gate(request)
+        if gate is not None:
+            return gate
         active = current_cfg()
         now = datetime.now()
         attempts = _read_attempts(active)
@@ -218,8 +290,9 @@ def create_app(cfg: Config, password: str) -> FastAPI:
         evening_start: str = Form(...),
         evening_end: str = Form(...),
     ) -> Response:
-        if not authed(request):
-            return RedirectResponse("/login", status_code=303)
+        gate = _gate(request)
+        if gate is not None:
+            return gate
         try:
             windows = {
                 "morning_start": _parse_time(morning_start),
@@ -241,8 +314,9 @@ def create_app(cfg: Config, password: str) -> FastAPI:
 
     @app.get("/shot/{name}")
     def screenshot(request: Request, name: str) -> Response:
-        if not authed(request):
-            return RedirectResponse("/login", status_code=303)
+        gate = _gate(request)
+        if gate is not None:
+            return gate
         # Strenge Namenspruefung statt Pfadbereinigung: alles, was nicht exakt passt, wird abgelehnt.
         if not SHOT_NAME_RE.match(name):
             return Response("Unbekannt", status_code=404)
@@ -272,16 +346,34 @@ def _check_windows(windows: dict[str, dtime]) -> None:
         raise ValueError("Das Morgenfenster muss vor dem Abendfenster liegen.")
 
 
+def adopt_env_password(cfg: Config) -> None:
+    """Ein altes WEB_PASSWORD aus der .env einmalig uebernehmen.
+
+    Bis Version 0.3.0 stand das Passwort in der .env. Bestehende Installationen sollen nach dem
+    Update nicht ploetzlich nach einer Ersteinrichtung fragen -- also wird der vorhandene Wert
+    beim ersten Start gehasht abgelegt. Danach gilt nur noch die Datei; ein spaeter in der .env
+    geaendertes WEB_PASSWORD hat keine Wirkung mehr.
+    """
+    legacy = (os.environ.get("WEB_PASSWORD") or "").strip()
+    if not legacy or auth.is_set(cfg.data_dir):
+        return
+    try:
+        auth.set_password(cfg.data_dir, legacy, legacy, only_if_unset=True)
+    except auth.PasswordError as exc:
+        log.warning("WEB_PASSWORD aus der .env nicht uebernommen: %s", exc)
+        return
+    log.info("Passwort aus der .env uebernommen. Es kann dort jetzt geleert werden.")
+
+
 def build() -> FastAPI:
-    """Einstiegspunkt fuer uvicorn: Konfiguration laden und Passwort erzwingen."""
+    """Einstiegspunkt fuer uvicorn. Das Passwort wird bei Bedarf ueber die Seite vergeben."""
     cfg = Config.load(os.environ.get("ACC_ENV_FILE") or ".env")
-    password = (os.environ.get("WEB_PASSWORD") or "").strip()
-    if not password:
-        raise ConfigError(
-            "WEB_PASSWORD fehlt. Die Weboberflaeche kann einen Lauf auf dem Geraet ausloesen und "
-            "startet deshalb nicht ohne Passwort. Bitte in der .env setzen."
-        )
     logging.basicConfig(
         level=getattr(logging, cfg.log_level, logging.INFO), format="%(asctime)s %(levelname)-7s %(message)s"
     )
-    return create_app(cfg, password)
+    adopt_env_password(cfg)
+    if not auth.is_set(cfg.data_dir):
+        log.warning(
+            "Noch kein Passwort vergeben. Die Seite fragt beim ersten Aufruf danach und zeigt bis dahin nichts an."
+        )
+    return create_app(cfg)

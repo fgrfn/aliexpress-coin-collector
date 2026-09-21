@@ -31,6 +31,12 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   Ablehnen von Zeitfenstern, Knopf-Leitplanken und das Anlegen der Auftragsdatei wurden gegen einen echt
   laufenden Server geprüft. Die Unit selbst und `CAP_NET_BIND_SERVICE` auf Port 80 sind **ungetestet**,
   weil hier kein systemd läuft.
+- Passwortvergabe über die Seite: gegen einen echt laufenden Server geprüft — Ersteinrichtung, zu kurzes
+  Passwort, abweichende Wiederholung, gesperrte Zweiteinrichtung, falsche Anmeldung, Passwortwechsel samt
+  Entwertung des alten Cookies, und die Übernahme eines alten `WEB_PASSWORD` aus der `.env`. Die Seiten
+  wurden zusätzlich in Chromium gerendert und angesehen (hell und dunkel).
+- `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
+  (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
 - Verhalten bei abgelaufenem Login oder Popups: unbekannt, endet vermutlich als `not_found`.
 
 ## 2. Ablauf eines Laufs (`runner.run_once`)
@@ -153,10 +159,15 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
 5. **Popups wegtippen** (Bewertungsaufforderung, Update-Hinweis) statt daran zu scheitern.
 6. **Zusatzaufgaben** der Coin-Seite als eigene, austauschbare Module. Erst nach stabilem Check-in sinnvoll, und mit
    hohem Pflegeaufwand verbunden, weil die Aufgaben wechseln.
-7. **Kleine Weboberfläche** über der SQLite-Historie, falls Diagramme gewünscht sind.
-8. **Vision-Modell als Ausweichweg** für die Button-Erkennung, falls die OCR zu oft danebenliegt.
-9. **Neustart des Geräts abfangen.** `adb tcpip 5555` lässt sich ohne USB nicht wiederholen; die `unreachable`-Meldung
+7. **Vision-Modell als Ausweichweg** für die Button-Erkennung, falls die OCR zu oft danebenliegt.
+8. **Neustart des Geräts abfangen.** `adb tcpip 5555` lässt sich ohne USB nicht wiederholen; die `unreachable`-Meldung
    weist bereits darauf hin. Bei Android 11+ wäre Wireless Debugging eine Alternative.
+9. **Backup-Fenster des Hypervisors gegen die Laufzeiten prüfen.** Hält oder friert ein Proxmox-Backup den LXC an
+   (Modus `stop` oder `suspend`, bei `snapshot` kurz per fsfreeze), reißt die ADB-Verbindung ab und ein Lauf, der
+   in dieses Fenster fällt, endet als `unreachable`. Fällt das Backup mit dem Morgenfenster zusammen, sollte eins
+   von beiden verschoben werden. Der Dienst holt einen verpassten Morgenlauf abends nach, das federt es ab,
+   ersetzt aber keine saubere Trennung der Fenster.
+10. **Weboberfläche aufwerten.** Der Nutzer hat das ausdrücklich zurückgestellt, bis alle Funktionen stehen.
 
 ## 9. Regeln für Änderungen
 

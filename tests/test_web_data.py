@@ -96,7 +96,7 @@ def test_service_is_alive_only_with_a_recent_heartbeat():
 
 def test_button_is_blocked_while_the_service_is_down():
     state = data.button_state([], DAY, alive=False, request_pending=False)
-    assert not state.enabled and "laeuft nicht" in state.reason
+    assert not state.enabled and "läuft nicht" in state.reason
 
 
 def test_button_is_blocked_after_a_success_today():
