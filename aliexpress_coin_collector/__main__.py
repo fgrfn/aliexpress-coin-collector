@@ -37,7 +37,9 @@ def cmd_once(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon(cfg: Config, args: argparse.Namespace) -> int:
-    daemon(cfg, Adb(cfg.adb_serial, cfg.adb_path), Store(cfg.data_dir))
+    # Die Version wandert mit in die Zustandsmeldung: die Oberflaeche erkennt daran,
+    # ob der Dienst nach einem Update noch in der alten Fassung laeuft.
+    daemon(cfg, Adb(cfg.adb_serial, cfg.adb_path), Store(cfg.data_dir), version=__version__)
     return 0
 
 

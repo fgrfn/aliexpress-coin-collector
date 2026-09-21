@@ -1,0 +1,16 @@
+[Unit]
+Description=AliExpress Coin Collector: Dienste starten, stoppen, neu starten
+Documentation=https://github.com/fgrfn/aliexpress-coin-collector
+
+[Service]
+Type=oneshot
+# Laeuft als root, weil nur root systemctl bedienen darf. Das Skript nimmt aus der Steuerdatei
+# keinen Befehl entgegen: es liest zwei Woerter, prueft beide gegen eine feste Liste und baut
+# den systemctl-Aufruf selbst.
+ExecStart=/opt/aliexpress-coin-collector/control.sh
+Environment=INSTALL_DIR=/opt/aliexpress-coin-collector
+TimeoutStartSec=60
+
+# Der Helfer braucht nichts ausser systemd und dem Datenverzeichnis.
+ProtectHome=yes
+PrivateTmp=yes

@@ -4,10 +4,13 @@ Bewusst duenn: Auswertung in data.py, Aufbereitung in view.py, Darstellung in de
 unter templates/. Hier bleiben HTTP, Anmeldung und Dateizugriff.
 
 Der Webdienst fasst weder ADB noch das Geraet an. Er oeffnet die Datenbank schreibgeschuetzt
-und verstaendigt sich mit dem Sammel-Dienst ueber zwei kleine Dateien in data/:
-  run-requested  legt er an, der Dienst holt sie beim naechsten Takt ab
+und verstaendigt sich mit dem Sammel-Dienst ausschliesslich ueber Dateien in data/:
+  run-requested  Auftragsdatei vor Version 0.5.0, wird noch angenommen
   heartbeat      beruehrt der Dienst, daran erkennt die Seite, ob er laeuft
   web-password   Hash des Passworts, bei der Ersteinrichtung ueber die Seite vergeben
+  commands/      Auftraege an den Dienst (siehe commands.py)
+  status.json    was der Dienst ueber sich und das Geraet meldet
+  control        eine Zeile fuer den Root-Helfer, der die Dienste startet und stoppt
 """
 
 from __future__ import annotations
@@ -23,12 +26,13 @@ from dataclasses import replace
 from datetime import datetime
 from datetime import time as dtime
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, settings
+from .. import __version__, commands, settings
 from ..config import Config
 from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for
 from ..store import Attempt, Store
@@ -38,8 +42,13 @@ log = logging.getLogger(__name__)
 
 COOKIE = "acc_session"
 THEME_COOKIE = "acc_theme"
+FLASH_COOKIE = "acc_flash"
+CONTROL_FILE = "control"
+CONTROL_VERBS = ("start", "stop", "restart")
+CONTROL_TARGETS = ("collector", "web")
 SECRET_FILE = "web-secret"
 SHOT_NAME_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[a-z_]+\.png$")
+MANUAL_SHOT_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-manual\.png$")
 HISTORY_LIMIT = 400
 TABLE_LIMIT = 60
 FAILED_LOGIN_DELAY_S = 1.0
@@ -118,6 +127,13 @@ def create_app(cfg: Config) -> FastAPI:
         if not authed(request):
             return RedirectResponse("/login", status_code=303)
         return None
+
+    def _run_pending(active: Config) -> bool:
+        """Steht schon ein Lauf an? Die alte Auftragsdatei zaehlt mit, damit ein Update ohne
+        Neustart der Oberflaeche den Knopf nicht doppelt freigibt."""
+        if (active.data_dir / REQUEST_FILE).is_file():
+            return True
+        return any(c.name == commands.RUN for c in commands.pending(active.data_dir))
 
     def current_cfg() -> Config:
         """Fenster bei jeder Anfrage frisch lesen, damit die Seite nach dem Speichern stimmt."""
@@ -234,7 +250,6 @@ def create_app(cfg: Config) -> FastAPI:
         now = datetime.now()
         attempts = _read_attempts(active)
         status = status_values(request)
-        pending = (active.data_dir / REQUEST_FILE).is_file()
         series = data.coin_series(attempts)
         return page(
             "dashboard.html",
@@ -243,7 +258,7 @@ def create_app(cfg: Config) -> FastAPI:
             subtitle=f"{view.german_date(now.date())} · Zeitplan des Dienstes für heute",
             cfg=active,
             plan=plan_for(now.date(), active),
-            button=data.button_state(attempts, now.date(), status["alive"], pending),
+            button=data.button_state(attempts, now.date(), status["alive"], _run_pending(active)),
             series=series,
             chart=charts.coin_chart(series),
             attempts=view.rows(attempts[:TABLE_LIMIT], _shots(active)),
@@ -278,6 +293,142 @@ def create_app(cfg: Config) -> FastAPI:
             page("partials/service.html", request, alive=status["alive"], heartbeat_text=status["heartbeat_text"])
         )
 
+    # ------------------------------------------------------------------ Geraet
+
+    def _flash(response: Response, text: str, tone: str = "ok") -> Response:
+        """Eine Meldung fuer genau eine folgende Seite. Als Cookie, damit nach dem Absenden
+        umgeleitet werden kann (sonst legt ein Neuladen den Auftrag ein zweites Mal ab).
+
+        Prozentkodiert, weil ein Cookie als HTTP-Kopfzeile nur latin-1 kann: ein deutsches
+        Anfuehrungszeichen wuerde sonst beim Senden eine Ausnahme werfen.
+        """
+        value = f"{tone}|{quote(text[:200], safe='')}"
+        response.set_cookie(FLASH_COOKIE, value, max_age=30, samesite="lax", httponly=True)
+        return response
+
+    def _take_flash(request: Request) -> dict[str, str] | None:
+        raw = request.cookies.get(FLASH_COOKIE, "")
+        tone, _, encoded = raw.partition("|")
+        if not encoded or tone not in ("ok", "warn", "bad"):
+            return None
+        return {"tone": tone, "text": unquote(encoded)}
+
+    def _last_manual_shot(cfg_: Config, now: datetime) -> dict[str, str] | None:
+        """Der juengste selbst angeforderte Screenshot. Fehlerbilder gehoeren in die Historie,
+        nicht hierher."""
+        folder = cfg_.data_dir / "shots"
+        if not folder.is_dir():
+            return None
+        names = sorted(p.name for p in folder.glob("*.png") if MANUAL_SHOT_RE.match(p.name))
+        if not names:
+            return None
+        name = names[-1]
+        try:
+            when = datetime.strptime(name[:15], "%Y%m%d-%H%M%S")
+        except ValueError:
+            return None
+        return {"name": name, "when": f"{when:%d.%m. %H:%M}", "ago": view.ago(when, now)}
+
+    def device_values(request: Request) -> dict[str, object]:
+        active = current_cfg()
+        now = datetime.now()
+        status = commands.read_status(active.data_dir)
+        beat = _heartbeat(active)
+        alive = data.service_alive(beat, now)
+        queue = commands.recent(active.data_dir)
+        return {
+            "device": view.device_view(status, active.adb_serial, now),
+            "queue": view.queue_rows(queue, now),
+            "waiting": sum(1 for c in queue if c.status == commands.WAITING),
+            "services": view.services(alive, beat, now),
+            "shot": _last_manual_shot(active, now),
+            "alive": alive,
+            "heartbeat_text": view.heartbeat_text(beat, now),
+            # Nach einem Update laeuft der Dienst weiter, bis jemand ihn neu startet. Das ist
+            # sonst nicht zu sehen und erklaert, warum Auftraege liegen bleiben.
+            "stale_daemon": status.version if status and status.version and status.version != __version__ else "",
+        }
+
+    @app.get("/geraet", response_class=HTMLResponse)
+    def device_page(request: Request) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        body = page(
+            "geraet.html",
+            request,
+            title="Gerät & Dienst",
+            subtitle="Zustand, Verbindung und Steuerung",
+            current="/geraet",
+            flash=_take_flash(request),
+            **device_values(request),
+        )
+        response = HTMLResponse(body)
+        response.delete_cookie(FLASH_COOKIE)
+        return response
+
+    @app.post("/geraet/befehl")
+    def device_command(request: Request, name: str = Form(default="")) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        active = current_cfg()
+        response = RedirectResponse("/geraet", status_code=303)
+        try:
+            cmd = commands.submit(active.data_dir, name)
+        except commands.CommandError as exc:
+            return _flash(response, str(exc), "warn")
+        log.info("Auftrag ueber die Weboberflaeche abgelegt: %s", cmd.name)
+        return _flash(response, f"„{cmd.label}“ abgelegt. Der Dienst holt ihn binnen 30 Sekunden.", "ok")
+
+    @app.post("/geraet/dienst")
+    def device_service(request: Request, verb: str = Form(default=""), target: str = Form(default="")) -> Response:
+        """Dienst starten, stoppen oder neu starten.
+
+        Geschrieben wird nur eine Zeile aus zwei geprueften Woertern. Ein Helfer, den systemd
+        auf die Aenderung hin als root startet, setzt daraus selbst den systemctl-Aufruf
+        zusammen -- die Oberflaeche reicht nie einen Befehl durch.
+        """
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        response = RedirectResponse("/geraet", status_code=303)
+        if verb not in CONTROL_VERBS or target not in CONTROL_TARGETS:
+            return _flash(response, "Unbekannte Aktion.", "bad")
+        if target == "web" and verb == "stop":
+            return _flash(response, "Die Oberfläche darf sich nicht selbst stoppen.", "warn")
+
+        active = current_cfg()
+        try:
+            # Der Zeitstempel sorgt dafuer, dass sich die Datei wirklich aendert -- sonst
+            # bemerkt die Pfadeinheit zwei gleiche Anforderungen hintereinander nicht.
+            (active.data_dir / CONTROL_FILE).write_text(
+                f"{verb} {target}\n# {datetime.now():%Y-%m-%dT%H:%M:%S}\n", encoding="utf-8"
+            )
+        except OSError as exc:
+            log.warning("Steuerdatei nicht schreibbar: %s", exc)
+            return _flash(response, "Die Steuerdatei ließ sich nicht schreiben.", "bad")
+
+        log.info("Dienststeuerung angefordert: %s %s", verb, target)
+        wording = {"start": "Starten", "stop": "Stoppen", "restart": "Neustart"}[verb]
+        if target == "web":
+            return _flash(response, f"{wording} der Oberfläche angefordert. Diese Seite bricht gleich ab.", "warn")
+        return _flash(response, f"{wording} des Sammel-Dienstes angefordert.", "ok")
+
+    @app.get("/teile/geraet", response_class=HTMLResponse)
+    def part_device(request: Request) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        return HTMLResponse(page("partials/device.html", request, **device_values(request)))
+
+    @app.get("/teile/auftraege", response_class=HTMLResponse)
+    def part_queue(request: Request) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        return HTMLResponse(page("partials/queue.html", request, **device_values(request)))
+
     # ------------------------------------------------------------------ Aktionen
 
     @app.post("/run")
@@ -289,11 +440,14 @@ def create_app(cfg: Config) -> FastAPI:
         now = datetime.now()
         attempts = _read_attempts(active)
         alive = data.service_alive(_heartbeat(active), now)
-        pending = (active.data_dir / REQUEST_FILE).is_file()
         # Serverseitig erneut pruefen: ein deaktivierter Knopf im Browser ist keine Absicherung.
-        if not data.button_state(attempts, now.date(), alive, pending).enabled:
+        if not data.button_state(attempts, now.date(), alive, _run_pending(active)).enabled:
             return RedirectResponse("/", status_code=303)
-        (active.data_dir / REQUEST_FILE).write_text(f"{now:%Y-%m-%dT%H:%M:%S}\n", encoding="utf-8")
+        try:
+            commands.submit(active.data_dir, commands.RUN, now)
+        except commands.CommandError as exc:
+            log.info("Lauf nicht angenommen: %s", exc)
+            return RedirectResponse("/", status_code=303)
         log.info("Lauf ueber die Weboberflaeche angefordert")
         return RedirectResponse("/", status_code=303)
 

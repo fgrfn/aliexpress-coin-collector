@@ -1,0 +1,26 @@
+{# Auftragsschlange. Macht die Wartezeit sichtbar, statt sie zu verstecken:
+   wer auf einen Knopf drueckt, soll sehen, dass der Auftrag liegt und noch nicht ausgefuehrt ist. #}
+<section class="card" hx-get="/teile/auftraege" hx-trigger="every 5s" hx-swap="outerHTML">
+  <div class="card-head">
+    <h2>Aufträge</h2>
+    <span class="note" style="margin: 0;">
+      {% if waiting %}{{ waiting }} offen, {% endif %}vom Dienst alle 30 s abgeholt
+    </span>
+  </div>
+
+  {% if queue %}
+    <div class="queue">
+      {% for cmd in queue %}
+        <div class="queue-row">
+          <span class="queue-name">{{ cmd.label }}</span>
+          <span class="pill pill-{{ cmd.tone }}">{{ cmd.status }}</span>
+          <span class="queue-msg">{{ cmd.message }}</span>
+          <span class="nav-spacer"></span>
+          <span class="queue-when">{{ cmd.when }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="note" style="margin-top: 0;">Noch keine Aufträge.</p>
+  {% endif %}
+</section>

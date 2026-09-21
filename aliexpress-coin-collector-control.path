@@ -1,0 +1,12 @@
+[Unit]
+Description=AliExpress Coin Collector: beobachtet die Steuerdatei der Weboberflaeche
+Documentation=https://github.com/fgrfn/aliexpress-coin-collector
+
+[Path]
+# Die Weboberflaeche schreibt hier eine Zeile hinein, mehr kann sie nicht. Diese Einheit
+# bemerkt das und startet den Helfer als root -- ohne sudo und ohne polkit.
+PathChanged=/opt/aliexpress-coin-collector/data/control
+Unit=aliexpress-coin-collector-control.service
+
+[Install]
+WantedBy=multi-user.target

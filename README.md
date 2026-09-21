@@ -167,11 +167,33 @@ Anfrage nach draußen.
 Die Anmeldung ist Pflicht und nicht abschaltbar, weil die Seite einen Lauf auf dem Gerät auslösen
 kann. Sie gehört ins LAN und nicht ins Internet.
 
-Der Knopf „Lauf jetzt starten" fasst das Gerät **nicht** selbst an: Er legt nur eine Datei
-`data/run-requested` an, die der Sammel-Dienst beim nächsten Takt abholt. Damit bleibt genau ein
-Besitzer des Geräts, und zwei gleichzeitige Läufe sind bauartbedingt ausgeschlossen. Der Knopf ist
-gesperrt, wenn heute schon erfolgreich eingecheckt wurde, wenn bereits ein Auftrag offen ist oder
-wenn der Dienst kein Lebenszeichen mehr gibt.
+### Gerät & Dienst
+
+Eine zweite Seite zeigt, in welchem Zustand die ADB-Verbindung ist — verbunden, nicht freigegeben
+oder nicht erreichbar —, wann der Dienst das zuletzt geprüft hat und ob der Bildschirm an ist. Von
+dort lassen sich die Verbindung neu aufbauen, ein Screenshot anfordern und die beiden Dienste
+starten, stoppen und neu starten.
+
+**Die Oberfläche fasst das Gerät nie selbst an.** Sie legt einen Auftrag in `data/commands/` ab, den
+der Sammel-Dienst beim nächsten Takt abholt — also binnen 30 Sekunden. Damit bleibt genau ein
+Besitzer des Geräts, und zwei gleichzeitige Zugriffe sind bauartbedingt ausgeschlossen. Die
+Auftragsschlange steht auf der Seite, damit die Wartezeit sichtbar ist statt versteckt.
+
+Für die Dienststeuerung braucht die Oberfläche **kein `sudo`**: sie läuft bewusst ohne das Recht,
+sich Rechte zu holen (`NoNewPrivileges=yes`). Sie schreibt stattdessen eine Zeile aus zwei geprüften
+Wörtern nach `data/control`; eine systemd-Pfadeinheit bemerkt das und startet `control.sh` als root,
+das aus diesen Wörtern selbst den `systemctl`-Aufruf zusammensetzt. Alles, was nicht exakt passt,
+wird abgelehnt. Es wird nie ein Befehl durchgereicht.
+
+Die vollständige Geräteadresse steht nicht auf der Seite — sie erscheint verkürzt als
+`10.10.30.xxx:5555`, weil sie sonst in jedem Screenshot und im Browserverlauf landet.
+
+Läuft der Sammel-Dienst nach einem Update noch in der alten Fassung, sagt die Seite das: der Dienst
+schreibt seine Version mit in die Zustandsmeldung.
+
+Der Knopf „Lauf jetzt starten" geht denselben Weg. Er ist gesperrt, wenn heute schon erfolgreich
+eingecheckt wurde, wenn bereits ein Auftrag offen ist oder wenn der Dienst kein Lebenszeichen mehr
+gibt.
 
 Die abgeleitete Streak zählt aufeinanderfolgende Tage mit Erfolg aus der Datenbank. Tage, die vor dem
 ersten Lauf des Dienstes von Hand gesammelt wurden, kennt sie nicht — dafür gibt es `STREAK_OFFSET`.

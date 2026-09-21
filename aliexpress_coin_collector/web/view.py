@@ -13,6 +13,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from ..commands import Command, Status, mask_serial
 from ..store import Attempt
 from . import data
 
@@ -28,6 +29,11 @@ NAV = [
         "href": "/",
         "label": "Übersicht",
         "icon": "M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5",
+    },
+    {
+        "href": "/geraet",
+        "label": "Gerät",
+        "icon": "M7.5 2.5h9a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2ZM10 18.5h4",
     },
 ]
 
@@ -164,6 +170,22 @@ def relative(target: datetime, now: datetime) -> str:
     return f"in {minutes} min"
 
 
+def ago(moment: datetime | None, now: datetime) -> str:
+    """ "vor 12 s" -- fuer Angaben, die in der Vergangenheit liegen."""
+    if moment is None:
+        return "noch nie"
+    seconds = max(0, int((now - moment).total_seconds()))
+    if seconds < 90:
+        return f"vor {seconds} s"
+    minutes = seconds // 60
+    if minutes < 90:
+        return f"vor {minutes} min"
+    hours = minutes // 60
+    if hours < 48:
+        return f"vor {hours} h"
+    return f"vor {hours // 24} Tagen"
+
+
 def heartbeat_text(beat: datetime | None, now: datetime) -> str:
     """Wie frisch das Lebenszeichen ist. Ohne Datei: eine Aussage, kein leeres Feld."""
     if beat is None:
@@ -175,3 +197,103 @@ def heartbeat_text(beat: datetime | None, now: datetime) -> str:
     if minutes < 90:
         return f"Lebenszeichen vor {minutes} min"
     return f"Lebenszeichen vor {minutes // 60} h"
+
+
+# ---------------------------------------------------------------------------- Geraeteseite
+
+
+@dataclass(frozen=True)
+class Device:
+    """Was die Verbindungs-Karte anzeigt."""
+
+    state: str
+    label: str
+    tone: str
+    serial: str
+    screen: str
+    reported: str
+
+
+@dataclass(frozen=True)
+class QueueRow:
+    label: str
+    status: str
+    tone: str
+    message: str
+    when: str
+
+
+@dataclass(frozen=True)
+class Service:
+    target: str
+    label: str
+    unit: str
+    alive: bool
+    since: str
+    verbs: tuple[tuple[str, str], ...]
+
+
+def device_view(status: Status | None, serial: str, now: datetime) -> Device:
+    """Zustand des Geraets, wie ihn der Dienst zuletzt gemeldet hat.
+
+    Ohne Meldung wird nicht geraten: "unbekannt" ist ehrlicher als ein erfundenes "offline".
+    """
+    if status is None:
+        return Device(
+            state="unbekannt",
+            label="unbekannt",
+            tone="",
+            serial=mask_serial(serial),
+            screen="",
+            reported="noch nie",
+        )
+    screen = ""
+    if status.screen_on is not None:
+        screen = "Bildschirm an" if status.screen_on else "Bildschirm aus"
+    return Device(
+        state=status.device_state,
+        label=status.device_label,
+        tone=status.device_tone,
+        serial=mask_serial(serial),
+        screen=screen,
+        reported=ago(status.checked_at or status.written_at, now),
+    )
+
+
+def queue_rows(items: list[Command], now: datetime) -> list[QueueRow]:
+    return [
+        QueueRow(
+            label=c.label,
+            status=c.status,
+            tone=c.tone,
+            message=c.message,
+            when=ago(c.finished_at or c.requested_at, now),
+        )
+        for c in items
+    ]
+
+
+def services(collector_alive: bool, heartbeat: datetime | None, now: datetime) -> list[Service]:
+    """Die beiden Dienste fuer die Steuerungs-Karte.
+
+    Ueber die Weboberflaeche selbst ist nur bekannt, dass sie laeuft -- sie beantwortet ja gerade
+    diese Anfrage. Stoppen darf man sie hier nicht: danach koennte niemand sie wieder starten.
+    """
+    return [
+        Service(
+            target="collector",
+            label="Sammel-Dienst",
+            unit="aliexpress-coin-collector",
+            alive=collector_alive,
+            since=f"Lebenszeichen {ago(heartbeat, now)}" if heartbeat else "kein Lebenszeichen",
+            verbs=(("restart", "Neustart"), ("stop", "Stoppen")) if collector_alive else (("start", "Starten"),),
+        ),
+        Service(
+            target="web",
+            label="Weboberfläche",
+            unit="aliexpress-coin-collector-web",
+            alive=True,
+            since="beantwortet gerade diese Anfrage",
+            verbs=(("restart", "Neustart"),),
+        ),
+    ]

@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
-from . import notify, settings
+from . import commands, notify, settings
 from .adb import Adb
 from .config import Config
 from .runner import SUCCESS, Outcome, RunResult, run_once
@@ -178,7 +178,84 @@ def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final
     notify.send_discord(cfg.discord_webhook, text, result.screenshot)
 
 
-def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30) -> None:
+def report_status(cfg: Config, adb: Adb, version: str) -> str:
+    """Blick auf das Geraet fuer die Weboberflaeche. Gibt den Zustand zurueck.
+
+    'adb get-state' fragt nur den lokalen adb-Server, weckt das Geraet also nicht und tippt
+    nicht darauf. Der Bildschirmzustand kostet dagegen einen echten shell-Aufruf und wird
+    deshalb nur geholt, wenn das Geraet ueberhaupt antwortet.
+    """
+    state = "unbekannt"
+    screen: bool | None = None
+    try:
+        state = adb.state()
+        if state == "device":
+            screen = adb.is_awake()
+    except Exception as exc:  # noqa: BLE001 - ein Fehler hier darf den Dienst nie anhalten
+        log.debug("Zustand des Geraets nicht ermittelbar: %s", exc)
+        state = "offline" if state == "unbekannt" else state
+    commands.write_status(cfg.data_dir, version, state, screen)
+    return state
+
+
+def run_command(cfg: Config, adb: Adb, store: Store, cmd: commands.Command) -> tuple[bool, str]:
+    """Einen Auftrag der Weboberflaeche ausfuehren. Wirft nie."""
+    try:
+        if cmd.name == commands.RUN:
+            result = run_once(cfg, adb, force=True)
+            handle_result(cfg, store, "manual", result)
+            return result.ok, describe("manual", result)
+
+        if cmd.name == commands.RECONNECT:
+            if adb.ensure_connected():
+                return True, "Verbunden und freigegeben."
+            state = adb.state()
+            if state == "unauthorized":
+                return False, "Verbunden, aber nicht freigegeben. Auf dem Geraet wartet ein Dialog."
+            return False, "Keine Verbindung. Geraet aus, nicht im Netz, oder 'adb tcpip 5555' fehlt."
+
+        if cmd.name == commands.SCREENSHOT:
+            if not adb.ensure_connected():
+                return False, "Keine Verbindung zum Geraet."
+            return True, save_screenshot(cfg, adb.screenshot())
+
+        if cmd.name == commands.CHECK:
+            return True, f"Zustand: {adb.state()}"
+    except Exception as exc:  # noqa: BLE001 - ein kaputter Auftrag darf den Dienst nicht stoppen
+        log.warning("Auftrag %s fehlgeschlagen: %s", cmd.name, exc)
+        return False, f"Fehlgeschlagen: {exc}"
+    return False, "Unbekannter Auftrag."
+
+
+def save_screenshot(cfg: Config, image: bytes, now: datetime | None = None) -> str:
+    """Screenshot ablegen und die aeltesten wegraeumen. Gibt den Dateinamen zurueck.
+
+    Der Name endet auf 'manual', damit die Weboberflaeche ihn ausliefern darf -- sie prueft
+    den Namen streng, statt Pfade zu bereinigen.
+    """
+    now = now or datetime.now()
+    shots = cfg.data_dir / "shots"
+    shots.mkdir(parents=True, exist_ok=True)
+    name = f"{now:%Y%m%d-%H%M%S}-manual.png"
+    (shots / name).write_bytes(image)
+    for old in sorted(shots.glob("*.png"))[:-30]:  # dieselbe Grenze wie bei Fehlerbildern
+        old.unlink(missing_ok=True)
+    return name
+
+
+def process_commands(cfg: Config, adb: Adb, store: Store) -> int:
+    """Alle offenen Auftraege abarbeiten, aeltester zuerst. Gibt die Anzahl zurueck."""
+    done = 0
+    for cmd in commands.take(cfg.data_dir):
+        log.info("Auftrag aus der Weboberflaeche: %s", cmd.label)
+        ok, message = run_command(cfg, adb, store, cmd)
+        commands.finish(cfg.data_dir, cmd, ok, message)
+        log.info("Auftrag %s: %s -- %s", cmd.label, "erledigt" if ok else "fehlgeschlagen", message)
+        done += 1
+    return done
+
+
+def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str = "") -> None:
     log.info(
         "Dienst gestartet. Fenster morgens %s-%s, abends %s-%s",
         cfg.morning_start,
@@ -192,11 +269,16 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30) -> None:
         now = datetime.now()
         cfg = with_current_settings(base_cfg)
         touch_heartbeat(cfg)
+        report_status(cfg, adb, version)
 
+        # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
+        # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
         if take_request(cfg):
-            log.info("Lauf ueber die Weboberflaeche angefordert")
+            log.info("Lauf ueber die Weboberflaeche angefordert (alte Auftragsdatei)")
             result = run_once(cfg, adb, force=True)
             handle_result(cfg, store, "manual", result)
+
+        process_commands(cfg, adb, store)
 
         plan = plan_for(now.date(), cfg)
         if announced != now.date():

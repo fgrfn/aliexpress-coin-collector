@@ -630,6 +630,178 @@ svg.chart {
     text-align: center;
 }
 
+/* ---------------------------------------------------------------- Geraeteseite */
+.device-row,
+.service-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.service-row {
+    padding: 15px 0;
+    border-top: 1px solid var(--line);
+}
+
+.service-name {
+    min-width: 200px;
+}
+
+.service-name .name {
+    font: 600 13.5px/1.3 var(--body);
+}
+
+.service-name .unit {
+    font: 400 11.5px/1.3 var(--mono);
+    color: var(--muted);
+}
+
+.service-since {
+    font: 400 12.5px/1.4 var(--body);
+    color: var(--muted);
+}
+
+.device-badge {
+    width: 52px;
+    height: 52px;
+    flex: none;
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    color: var(--muted);
+}
+
+.device-badge.device-ok {
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+
+.device-badge.device-warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+
+.device-badge.device-bad {
+    background: var(--bad-soft);
+    color: var(--bad);
+}
+
+.device-state {
+    font: 600 20px/1.2 var(--display);
+    letter-spacing: -0.01em;
+}
+
+.btn-small {
+    font-size: 13px;
+    padding: 9px 14px;
+}
+
+/* Hinweiskasten: erklaert, was als Naechstes zu tun ist. */
+.hint {
+    margin-top: 16px;
+    padding: 13px 15px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    font: 400 12.5px/1.55 var(--body);
+    color: var(--muted);
+}
+
+.hint strong {
+    color: var(--text);
+}
+
+.hint code {
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.hint-warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+
+.hint-warn strong {
+    color: var(--warn);
+}
+
+/* ---------------------------------------------------------------- Screenshot */
+.shot-row {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.shot-frame {
+    width: 176px;
+    flex: none;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    overflow: hidden;
+    display: block;
+}
+
+.shot-frame img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.shot-empty {
+    height: 280px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    font: 400 12px/1.4 var(--body);
+}
+
+.shot-text {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+/* ---------------------------------------------------------------- Auftraege */
+.queue {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.queue-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 11px 14px;
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+
+.queue-name {
+    font: 600 13px/1.3 var(--body);
+    min-width: 130px;
+}
+
+.queue-msg {
+    font: 400 12.5px/1.4 var(--body);
+    color: var(--muted);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.queue-when {
+    font: 400 11.5px/1 var(--body);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------- Schmal */
 @media (max-width: 860px) {
     .shell {
@@ -695,6 +867,28 @@ svg.chart {
 
     .fields {
         grid-template-columns: 1fr;
+    }
+
+    .service-row,
+    .device-row {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .service-row .btn-row,
+    .device-row .btn-row {
+        width: 100%;
+    }
+
+    .shot-frame {
+        width: 100%;
+        max-width: 220px;
+        margin: 0 auto;
+    }
+
+    .queue-name {
+        min-width: 0;
     }
 
     .btn,
