@@ -31,6 +31,11 @@ NAV = [
         "icon": "M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5",
     },
     {
+        "href": "/verlauf",
+        "label": "Verlauf",
+        "icon": "M3 19h18M6 16V9M11 16V5M16 16v-6M21 16v-9",
+    },
+    {
         "href": "/geraet",
         "label": "Gerät",
         "icon": "M7.5 2.5h9a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2ZM10 18.5h4",

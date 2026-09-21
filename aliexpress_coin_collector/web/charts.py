@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from markupsafe import Markup
 
-from .data import DayPoint
+from .data import DayPoint, DayShare
 
 # Die Klasse traegt die Skalierung: eine Regel fuer alle svg wuerde auch das Logo aufblasen.
 _OPEN = '<svg class="chart" viewBox="0 0 {w} {h}" role="img" aria-label="{label}">'
@@ -80,6 +80,92 @@ def coin_chart(points: list[DayPoint], width: int = 950, height: int = 220) -> M
         parts.append(
             f'<text x="{x_at(i):.1f}" y="{height - 7}" text-anchor="{anchor}" font-size="11" '
             f'fill="var(--muted)">{day:%d.%m.}</text>'
+        )
+    parts.append("</svg>")
+    return Markup("".join(parts))
+
+
+def weekday_chart(days: list[DayShare], width: int = 620, height: int = 170) -> Markup:
+    """Erfolge je Wochentag als Saeulen.
+
+    Die Saeulenhoehe zeigt die Quote, nicht die absolute Zahl: bei sieben Wochentagen und
+    ungleich vielen Tagen je Tag waere die absolute Zahl irrefuehrend.
+    """
+    if not days or all(d.total == 0 for d in days):
+        return Markup('<p class="note" style="margin-top: 0;">Noch keine Läufe in diesem Zeitraum.</p>')
+
+    pad_b, pad_t = 34, 18
+    inner_h = height - pad_t - pad_b
+    slot = width / len(days)
+    bar_w = slot * 0.52
+
+    parts = [_OPEN.format(w=width, h=height, label=_escape("Erfolgsquote je Wochentag"))]
+    for i, day in enumerate(days):
+        cx = slot * (i + 0.5)
+        bar_h = max(2.0, inner_h * day.percent / 100) if day.total else 2.0
+        y = pad_t + inner_h - bar_h
+        fill = "var(--brand)" if day.total else "var(--line)"
+        opacity = 0.35 + 0.6 * (day.percent / 100) if day.total else 1.0
+        parts.append(
+            f'<rect x="{cx - bar_w / 2:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" '
+            f'rx="4" fill="{fill}" opacity="{opacity:.2f}"/>'
+        )
+        if day.total:
+            parts.append(
+                f'<text x="{cx:.1f}" y="{y - 6:.1f}" text-anchor="middle" font-size="11" '
+                f'fill="var(--muted)">{day.percent} %</text>'
+            )
+        parts.append(
+            f'<text x="{cx:.1f}" y="{height - 14}" text-anchor="middle" font-size="11" '
+            f'fill="var(--muted)">{day.name}</text>'
+        )
+        parts.append(
+            f'<text x="{cx:.1f}" y="{height - 2}" text-anchor="middle" font-size="10" '
+            f'fill="var(--muted)" opacity="0.7">{day.good}/{day.total}</text>'
+        )
+    parts.append("</svg>")
+    return Markup("".join(parts))
+
+
+def gain_chart(points: list[DayPoint], width: int = 950, height: int = 150) -> Markup:
+    """Zuwachs je Tag als Saeulen. Zeigt, ob die App unterschiedlich viel herausrueckt."""
+    # gain ist None, wenn der Vortag keinen erkannten Stand hatte -- das ist kein Nullzuwachs.
+    usable = [p for p in points if p.gain is not None and p.gain > 0]
+    if len(usable) < 2:
+        return Markup('<p class="note" style="margin-top: 0;">Noch zu wenige Tage mit erkanntem Zuwachs.</p>')
+
+    pad_l, pad_r, pad_t, pad_b = 46, 10, 14, 24
+    inner_w = width - pad_l - pad_r
+    inner_h = height - pad_t - pad_b
+    top = max(p.gain for p in usable)
+    slot = inner_w / len(usable)
+    bar_w = min(18.0, slot * 0.7)
+
+    parts = [
+        _OPEN.format(
+            w=width,
+            h=height,
+            label=_escape(f"Zuwachs je Tag, {min(p.gain for p in usable)} bis {top} Münzen"),
+        )
+    ]
+    for value in (0, top):
+        y = pad_t + inner_h - (inner_h * value / top if top else 0)
+        parts.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{width - pad_r}" y2="{y:.1f}" stroke="var(--line)"/>')
+        parts.append(
+            f'<text x="{pad_l - 9}" y="{y + 4:.1f}" text-anchor="end" font-size="11" fill="var(--muted)">{value}</text>'
+        )
+    for i, point in enumerate(usable):
+        cx = pad_l + slot * (i + 0.5)
+        bar_h = max(2.0, inner_h * point.gain / top)
+        parts.append(
+            f'<rect x="{cx - bar_w / 2:.1f}" y="{pad_t + inner_h - bar_h:.1f}" width="{bar_w:.1f}" '
+            f'height="{bar_h:.1f}" rx="3" fill="var(--brand)" opacity="0.75"/>'
+        )
+    for point, i, anchor in ((usable[0], 0, "start"), (usable[-1], len(usable) - 1, "end")):
+        x = pad_l + slot * (i + 0.5)
+        parts.append(
+            f'<text x="{x:.1f}" y="{height - 6}" text-anchor="{anchor}" font-size="11" '
+            f'fill="var(--muted)">{point.day:%d.%m.}</text>'
         )
     parts.append("</svg>")
     return Markup("".join(parts))

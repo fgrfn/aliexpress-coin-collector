@@ -139,3 +139,187 @@ def outcome_kind(outcome: str) -> str:
     if outcome == Outcome.BUSY.value:
         return "warn"
     return "bad"
+
+
+# ---------------------------------------------------------------------------- Auswertung
+#
+# Alles hier ist rein lesend und rechnet nur mit dem, was in der Datenbank steht. Ein Lauf,
+# den das Geraet uebersprungen hat, ist weder Erfolg noch Misserfolg -- er wird als eigene
+# Kategorie gefuehrt, statt die Quote zu verzerren.
+
+RANGES = ((7, "7 Tage"), (30, "30 Tage"), (90, "90 Tage"), (0, "alles"))
+DEFAULT_RANGE = 30
+WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+def parse_range(raw: str) -> int:
+    """Zeitraum aus der Adresszeile. 0 heisst alles, Unbrauchbares faellt auf den Standard."""
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_RANGE
+    return days if any(days == d for d, _ in RANGES) else DEFAULT_RANGE
+
+
+def in_range(attempts: list[Attempt], today: date, days: int) -> list[Attempt]:
+    """Laeufe der letzten 'days' Tage, heute eingeschlossen. 0 heisst alles."""
+    if days <= 0:
+        return list(attempts)
+    first = today - timedelta(days=days - 1)
+    return [a for a in attempts if first <= a.ts.date() <= today]
+
+
+@dataclass(frozen=True)
+class Quota:
+    """Erfolgsquote, bezogen auf Tage statt auf Laeufe.
+
+    Tage sind das ehrlichere Mass: an einem Tag mit einem gescheiterten Morgenlauf und einem
+    erfolgreichen Abendlauf ist der Check-in eingesammelt. Nach Laeufen gezaehlt waere das
+    50 Prozent, nach Tagen 100 -- und nur Letzteres beantwortet die Frage "hat es geklappt".
+    """
+
+    good: int
+    total: int
+
+    @property
+    def percent(self) -> int:
+        return round(100 * self.good / self.total) if self.total else 0
+
+    @property
+    def tone(self) -> str:
+        if not self.total:
+            return ""
+        return "ok" if self.percent >= 90 else "warn" if self.percent >= 70 else "bad"
+
+
+def success_quota(attempts: list[Attempt]) -> Quota:
+    days = {a.ts.date() for a in attempts}
+    good = {a.ts.date() for a in attempts if a.outcome in SUCCESS_VALUES}
+    return Quota(good=len(good), total=len(days))
+
+
+def gains(attempts: list[Attempt]) -> list[int]:
+    """Zuwachs je Lauf, nur wo beide Staende bekannt sind und es wirklich mehr wurde."""
+    out = []
+    for a in attempts:
+        if a.coins_before is None or a.coins_after is None:
+            continue
+        delta = a.coins_after - a.coins_before
+        if delta > 0:
+            out.append(delta)
+    return out
+
+
+def total_gain(attempts: list[Attempt]) -> int:
+    return sum(gains(attempts))
+
+
+def average_gain(attempts: list[Attempt]) -> float:
+    values = gains(attempts)
+    return sum(values) / len(values) if values else 0.0
+
+
+def gain_span(attempts: list[Attempt]) -> tuple[int, int] | None:
+    values = gains(attempts)
+    return (min(values), max(values)) if values else None
+
+
+@dataclass(frozen=True)
+class Streak:
+    days: int
+    first: date | None = None
+    last: date | None = None
+
+
+def longest_streak(attempts: list[Attempt]) -> Streak:
+    """Laengste ununterbrochene Folge von Tagen mit Erfolg.
+
+    Eine Luecke bricht die Serie -- auch ein Tag ganz ohne Lauf, denn dann wurde auch nichts
+    eingesammelt.
+    """
+    days = sorted({a.ts.date() for a in attempts if a.outcome in SUCCESS_VALUES})
+    if not days:
+        return Streak(0)
+    best = run = 1
+    best_end = run_start = best_start = days[0]
+    for previous, current in zip(days, days[1:], strict=False):
+        if current - previous == timedelta(days=1):
+            run += 1
+        else:
+            run, run_start = 1, current
+        if run > best:
+            best, best_start, best_end = run, run_start, current
+    return Streak(best, best_start, best_end)
+
+
+@dataclass(frozen=True)
+class Share:
+    """Ein Ergebnis mit seinem Anteil an allen Laeufen."""
+
+    outcome: str
+    label: str
+    tone: str
+    count: int
+    percent: int
+
+
+def outcome_shares(attempts: list[Attempt]) -> list[Share]:
+    """Wie die Laeufe ausgingen, haeufigstes zuerst. Ergebnisse ohne Vorkommen fehlen."""
+    total = len(attempts)
+    if not total:
+        return []
+    counts: dict[str, int] = {}
+    for a in attempts:
+        counts[a.outcome] = counts.get(a.outcome, 0) + 1
+    shares = [
+        Share(
+            outcome=outcome,
+            label=outcome_label(outcome),
+            tone=outcome_kind(outcome),
+            count=count,
+            percent=round(100 * count / total),
+        )
+        for outcome, count in counts.items()
+    ]
+    return sorted(shares, key=lambda s: (-s.count, s.label))
+
+
+@dataclass(frozen=True)
+class DayShare:
+    """Ein Wochentag: an wie vielen davon hat es geklappt."""
+
+    name: str
+    good: int
+    total: int
+
+    @property
+    def percent(self) -> int:
+        return round(100 * self.good / self.total) if self.total else 0
+
+
+def by_weekday(attempts: list[Attempt]) -> list[DayShare]:
+    """Erfolge je Wochentag, Montag zuerst. Gezaehlt werden Tage, nicht Laeufe."""
+    good: dict[int, set[date]] = {i: set() for i in range(7)}
+    seen: dict[int, set[date]] = {i: set() for i in range(7)}
+    for a in attempts:
+        day = a.ts.date()
+        seen[day.weekday()].add(day)
+        if a.outcome in SUCCESS_VALUES:
+            good[day.weekday()].add(day)
+    return [DayShare(name=WEEKDAYS[i], good=len(good[i]), total=len(seen[i])) for i in range(7)]
+
+
+def busiest_hour(attempts: list[Attempt]) -> tuple[int, int] | None:
+    """Stunde mit den meisten Fehlschlaegen, und wie viele.
+
+    Haeuft sich "nicht erreichbar" zu einer festen Uhrzeit, liegt das selten am Geraet --
+    eher an etwas, das regelmaessig dazwischenfunkt, etwa einem naechtlichen Backup.
+    """
+    bad = [a for a in attempts if a.outcome not in SUCCESS_VALUES and a.outcome != Outcome.BUSY.value]
+    if not bad:
+        return None
+    counts: dict[int, int] = {}
+    for a in bad:
+        counts[a.ts.hour] = counts.get(a.ts.hour, 0) + 1
+    hour = max(counts, key=lambda h: (counts[h], -h))
+    return (hour, counts[hour]) if counts[hour] >= 2 else None
