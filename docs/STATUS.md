@@ -42,6 +42,12 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Etappe 2 (Gerät & Dienst): Auftragsablage und Zustandsmeldung gegen einen echt laufenden Webdienst
+  geprüft — Auftrag ablegen, doppelte und unbekannte Aufträge abweisen, ein Dienst-Takt arbeitet sie ab,
+  die Seite zeigt Ergebnis und Screenshot. Der Root-Helfer `control.sh` wurde mit einer `systemctl`-Attrappe
+  gegen Einschleusversuche geprüft (angehängter Befehl, Pfadausbruch, leere Zeile, Selbststopp der
+  Oberfläche). Die Seite wurde in Chromium angesehen — hell, dunkel, Handybreite, ohne Konsolenmeldung.
+  **Die systemd-Pfadeinheit selbst ist gegen echtes systemd ungetestet**, hier läuft keins.
 - Verhalten bei abgelaufenem Login oder Popups: unbekannt, endet vermutlich als `not_found`.
 
 ## 2. Ablauf eines Laufs (`runner.run_once`)
@@ -97,6 +103,30 @@ können Anpassungen erfordern.
 
 > Der Seed in `scheduler._SEED` ist bewusst der historische Wert `aliexpress-coins`. Ändert man ihn, verschieben sich
 > alle geplanten Uhrzeiten.
+
+## 4a. Austausch zwischen den beiden Diensten
+
+Alles läuft über Dateien in `data/`, niemand ruft den anderen direkt auf. Je Datei genau ein Schreiber.
+
+| Datei | Schreiber | Leser | Zweck |
+|---|---|---|---|
+| `heartbeat` | Sammel-Dienst | Oberfläche | Lebenszeichen, alle 30 s berührt |
+| `status.json` | Sammel-Dienst | Oberfläche | Gerätezustand, Bildschirm, Version des Dienstes |
+| `commands/*.json` | Oberfläche | Sammel-Dienst | offene Aufträge (`run`, `reconnect`, `screenshot`, `check`) |
+| `commands/done/*.json` | Sammel-Dienst | Oberfläche | Ergebnis, die letzten 20 |
+| `settings.json` | Oberfläche | beide | geänderte Zeitfenster |
+| `web-password` | Oberfläche | Oberfläche | Hash des Passworts |
+| `control` | Oberfläche | `control.sh` (root) | zwei geprüfte Wörter für `systemctl` |
+| `control-result` | `control.sh` (root) | Oberfläche | Ausgang der letzten Steuerung |
+| `run-requested` | (Altlast) | Sammel-Dienst | Auftragsdatei vor Version 0.5.0, wird noch angenommen |
+
+Die Wartezeit von bis zu einem Takt ist der Preis dafür, dass genau ein Prozess das Gerät anfasst.
+Die Oberfläche zeigt sie an, statt sie zu verstecken.
+
+**Warum `control.sh` und kein `sudo`:** der Webdienst läuft mit `NoNewPrivileges=yes`, damit
+funktioniert `sudo` nicht (es braucht setuid). `polkit` ist in einem schlanken LXC oft gar nicht
+installiert. Eine systemd-Pfadeinheit auf `data/control` braucht beides nicht und lässt die
+Absicherung des Webdienstes unangetastet.
 
 ## 5. Datenbank (`store.py`)
 
@@ -172,10 +202,10 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    in dieses Fenster fällt, endet als `unreachable`. Fällt das Backup mit dem Morgenfenster zusammen, sollte eins
    von beiden verschoben werden. Der Dienst holt einen verpassten Morgenlauf abends nach, das federt es ab,
    ersetzt aber keine saubere Trennung der Fenster.
-10. **Weboberfläche ausbauen.** Etappe 1 (Fundament: Vorlagen, Seitenleiste, Farbwelt, Logo, htmx) ist
-    umgesetzt. Offen sind Etappe 2 (Gerät und Dienst steuern über eine Befehlsablage), Etappe 3 (Protokoll
-    und Erkennungs-Werkzeug) und Etappe 4 (Einstellungen in `data/web.sqlite3`, ausgebaute Auswertung).
-    Der Entwurf dazu steht als Design-Leinwand und ist mit dem Nutzer abgestimmt.
+10. **Weboberfläche ausbauen.** Etappe 1 (Fundament) und Etappe 2 (Gerät und Dienst steuern über eine
+    Befehlsablage) sind umgesetzt. Offen sind Etappe 3 (Protokoll und Erkennungs-Werkzeug) und Etappe 4
+    (Einstellungen in `data/web.sqlite3`, ausgebaute Auswertung). Der Entwurf dazu steht als
+    Design-Leinwand und ist mit dem Nutzer abgestimmt.
 
 ## 9. Regeln für Änderungen
 

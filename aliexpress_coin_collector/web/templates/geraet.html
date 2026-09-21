@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block head_actions %}
+  <span class="stamp"><span class="dot dot-ok"></span>alle 10 s</span>
+{% endblock %}
+
+{% block content %}
+
+{% if stale_daemon %}
+  <div class="card banner">
+    <strong>Der Sammel-Dienst läuft noch in Version {{ stale_daemon }}.</strong>
+    Die Oberfläche ist schon auf {{ version }}. Aufträge von hier kennt die ältere Fassung
+    womöglich nicht — ein <code>systemctl restart aliexpress-coin-collector</code> behebt das.
+  </div>
+{% endif %}
+
+{% if flash %}
+  <div class="card banner" style="border-left-color: var(--{{ flash.tone }}); background: var(--{{ flash.tone }}-soft);">
+    <strong style="color: var(--{{ flash.tone }});">{{ flash.text }}</strong>
+  </div>
+{% endif %}
+
+{% include "partials/device.html" with context %}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Dienste</h2>
+    <span class="note" style="margin: 0;">gesteuert über einen Helfer, den systemd startet</span>
+  </div>
+
+  {% for svc in services %}
+    <div class="service-row">
+      <div class="service-name">
+        <div class="name">{{ svc.label }}</div>
+        <code class="unit">{{ svc.unit }}</code>
+      </div>
+      <span class="pill pill-{{ 'ok' if svc.alive else 'bad' }}">{{ "läuft" if svc.alive else "läuft nicht" }}</span>
+      <span class="service-since">{{ svc.since }}</span>
+      <span class="nav-spacer"></span>
+      <form method="post" action="/geraet/dienst" class="btn-row">
+        <input type="hidden" name="target" value="{{ svc.target }}">
+        {% for verb, label in svc.verbs %}
+          <button class="btn btn-ghost btn-small" type="submit" name="verb" value="{{ verb }}">{{ label }}</button>
+        {% endfor %}
+      </form>
+    </div>
+  {% endfor %}
+
+  <p class="note">
+    Die Oberfläche kann kein <code>sudo</code> — sie läuft bewusst ohne das Recht, sich
+    Rechte zu holen. Sie schreibt stattdessen eine Zeile in <code>data/control</code>; systemd
+    bemerkt das und startet einen Helfer als root, der aus zwei geprüften Wörtern selbst den
+    Aufruf zusammensetzt. <strong>Ein Neustart der Oberfläche unterbricht diese Seite</strong> —
+    danach einfach neu laden.
+  </p>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Letzter Screenshot</h2>
+    <form method="post" action="/geraet/befehl">
+      <button class="btn btn-ghost btn-small" type="submit" name="name" value="screenshot">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4.5 7.5h3l1.5-2.5h6l1.5 2.5h3v11h-15z"/>
+          <circle cx="12" cy="12.5" r="3"/>
+        </svg>
+        Screenshot anfordern
+      </button>
+    </form>
+  </div>
+
+  <div class="shot-row">
+    {% if shot %}
+      <a href="/shot/{{ shot.name }}" class="shot-frame">
+        <img src="/shot/{{ shot.name }}" alt="Screenshot des Geräts vom {{ shot.when }}" loading="lazy">
+      </a>
+    {% else %}
+      <div class="shot-frame shot-empty">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4.5 7.5h3l1.5-2.5h6l1.5 2.5h3v11h-15z"/>
+          <circle cx="12" cy="12.5" r="3"/>
+        </svg>
+        <span>noch keiner</span>
+      </div>
+    {% endif %}
+    <div class="shot-text">
+      {% if shot %}
+        <p class="note" style="margin-top: 0;"><strong>{{ shot.when }}</strong> · {{ shot.ago }}</p>
+      {% endif %}
+      <p class="note" style="margin-top: 0;">
+        Der Screenshot wird nicht hier geholt, sondern als Auftrag an den Sammel-Dienst gegeben —
+        er bleibt der einzige Prozess, der das Gerät anfasst. Das kostet bis zu 30 Sekunden und
+        ist der Preis dafür, dass zwei gleichzeitige Zugriffe bauartbedingt unmöglich sind.
+      </p>
+      <div class="hint hint-warn">
+        <strong>Screenshots zeigen Kontodaten.</strong>
+        Sie bleiben im Datenverzeichnis und werden weder verschickt noch ins Repo übernommen.
+      </div>
+    </div>
+  </div>
+</section>
+
+{% include "partials/queue.html" with context %}
+
+{% endblock %}

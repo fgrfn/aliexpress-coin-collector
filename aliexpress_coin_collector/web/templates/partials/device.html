@@ -1,0 +1,53 @@
+{# Verbindungszustand. Ersetzt sich alle zehn Sekunden selbst; gemeldet wird er vom
+   Sammel-Dienst, der das Geraet bei jedem Takt anschaut. #}
+<section class="card" hx-get="/teile/geraet" hx-trigger="every 10s" hx-swap="outerHTML">
+  <div class="card-head">
+    <h2>Verbindung</h2>
+    <span class="note" style="margin: 0;">gemeldet {{ device.reported }}</span>
+  </div>
+
+  <div class="device-row">
+    <div class="device-badge device-{{ device.tone }}">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7.5 2.5h9a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2ZM10 18.5h4"/>
+      </svg>
+    </div>
+    <div>
+      <div class="device-state {{ device.tone }}">{{ device.label }}</div>
+      <div class="note" style="margin-top: 3px;">
+        {{ device.serial }}{% if device.screen %} · {{ device.screen }}{% endif %}
+      </div>
+    </div>
+    <span class="nav-spacer"></span>
+    <form method="post" action="/geraet/befehl" class="btn-row">
+      <button class="btn btn-ghost" type="submit" name="name" value="check">Zustand prüfen</button>
+      <button class="btn" type="submit" name="name" value="reconnect">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4.5 9.5A7.5 7.5 0 0 1 18 7M19.5 14.5A7.5 7.5 0 0 1 6 17M4.5 5v4.5H9M19.5 19v-4.5H15"/>
+        </svg>
+        Neu verbinden
+      </button>
+    </form>
+  </div>
+
+  {% if device.state == "unauthorized" %}
+    <div class="hint hint-warn">
+      <strong>Auf dem Gerät wartet ein Dialog.</strong>
+      Mit „Immer zulassen“ bestätigen, danach hier auf „Neu verbinden“.
+    </div>
+  {% elif device.state == "offline" %}
+    <div class="hint">
+      <strong>Häufigste Ursachen:</strong>
+      das Gerät ist aus, im Ruhezustand oder nicht im Netz · nach einem Neustart des Geräts fehlt
+      <code>adb tcpip 5555</code> (einmalig per USB setzen) · die Adresse in der <code>.env</code>
+      stimmt nicht · USB-Debugging ist nicht aktiv.
+    </div>
+  {% elif device.state == "unbekannt" %}
+    <div class="hint">
+      Der Sammel-Dienst hat noch nichts gemeldet. Er schaut bei jedem Takt nach, also spätestens
+      in 30 Sekunden.
+    </div>
+  {% endif %}
+</section>

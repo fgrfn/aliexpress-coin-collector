@@ -159,18 +159,25 @@ check_timezone() {
 
 do_uninstall() {
     echo "==> Deinstallation"
+    # Alle vier Einheiten, nicht nur die erste: Sammel-Dienst, Weboberflaeche und das
+    # Paar fuer die Dienststeuerung.
+    local units="$SERVICE.service $SERVICE-web.service $SERVICE-control.path $SERVICE-control.service"
     if [ "$HAVE_SYSTEMD" = 1 ]; then
-        systemctl stop "$SERVICE" 2>/dev/null || true
-        systemctl disable "$SERVICE" 2>/dev/null || true
+        for unit in $units; do
+            systemctl stop "$unit" 2>/dev/null || true
+            systemctl disable "$unit" 2>/dev/null || true
+        done
     else
-        echo "    systemd nicht verfuegbar, Dienst konnte nicht gestoppt werden"
+        echo "    systemd nicht verfuegbar, Dienste konnten nicht gestoppt werden"
     fi
-    rm -f "/etc/systemd/system/$SERVICE.service"
+    for unit in $units; do
+        rm -f "/etc/systemd/system/$unit"
+    done
     if [ "$HAVE_SYSTEMD" = 1 ]; then
         systemctl daemon-reload
-        echo "    Dienst gestoppt, deaktiviert und die systemd-Unit entfernt"
+        echo "    Dienste gestoppt, deaktiviert und die systemd-Einheiten entfernt"
     else
-        echo "    Unit-Datei entfernt, falls sie vorhanden war"
+        echo "    Unit-Dateien entfernt, falls sie vorhanden waren"
     fi
 
     if [ ! -d "$DEST" ]; then
@@ -840,7 +847,25 @@ if [ "$HAVE_SYSTEMD" = 1 ]; then
         sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE-web.service" \
             > "/etc/systemd/system/$SERVICE-web.service"
     fi
+    # Steuerung der Dienste ueber die Oberflaeche: eine Pfadeinheit beobachtet data/control,
+    # der Helfer dahinter laeuft als root. Der Webdienst braucht damit weder sudo noch das
+    # Recht, sich Rechte zu holen.
+    for unit in "$SERVICE-control.path" "$SERVICE-control.service"; do
+        if [ -f "$DEST/$unit" ]; then
+            sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$unit" > "/etc/systemd/system/$unit"
+        fi
+    done
+    chmod 755 "$DEST/control.sh" 2>/dev/null || true
     systemctl daemon-reload
+
+    if [ -f "/etc/systemd/system/$SERVICE-control.path" ]; then
+        if systemctl enable --now "$SERVICE-control.path" >/dev/null 2>&1; then
+            echo "    Dienststeuerung ueber die Oberflaeche ist scharf"
+        else
+            echo "    Dienststeuerung konnte nicht aktiviert werden, Hinweise siehe:"
+            echo "      journalctl -u $SERVICE-control.path -n 20 --no-pager"
+        fi
+    fi
 
     # Der Sammel-Dienst bleibt bewusst aus: er weckt das Geraet und tippt darauf. Das soll erst
     # laufen, wenn 'doctor' und ein erster Lauf von Hand geklappt haben.
@@ -855,6 +880,11 @@ if [ "$HAVE_SYSTEMD" = 1 ]; then
     # allenfalls einen Auftrag ab. Sie darf deshalb sofort laufen. Das Passwort wird beim ersten
     # Aufruf der Seite vergeben, es gibt hier nichts vorzukonfigurieren.
     if [ -f "/etc/systemd/system/$SERVICE-web.service" ]; then
+        # Beim Update reicht "enable --now" nicht: ein bereits laufender Dienst behielte den
+        # alten Code. Deshalb hier ein Neustart -- er fasst nichts an und dauert eine Sekunde.
+        if [ "$IS_UPDATE" = 1 ] && systemctl is-active --quiet "$SERVICE-web"; then
+            systemctl restart "$SERVICE-web" >/dev/null 2>&1 || true
+        fi
         if systemctl enable --now "$SERVICE-web" >/dev/null 2>&1; then
             sleep 1
             if systemctl is-active --quiet "$SERVICE-web"; then
