@@ -1,0 +1,55 @@
+{# Protokoll des Sammel-Dienstes. Laedt sich alle fuenf Sekunden nach, solange "mitlaufen"
+   angehakt ist -- der Schalter steuert nur, ob das hx-trigger-Attribut gesetzt wird. #}
+<section class="card"
+         {% if follow %}hx-get="/teile/protokoll?stufe={{ level }}&suche={{ query|urlencode }}&mit=1"
+         hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  <div class="card-head">
+    <h2>Protokoll</h2>
+    <span class="note" style="margin: 0;">
+      {% if lines %}{{ lines|length }} Zeilen{% else %}nichts zu zeigen{% endif %}
+    </span>
+  </div>
+
+  {# Die Stufe steht in der Adresse, deshalb Links statt Knoepfe: ein zweites Feld mit
+     demselben Namen im Formular wuerde den Wert doppelt senden. #}
+  <div class="log-filter">
+    <div class="chips" role="group" aria-label="Nach Stufe filtern">
+      {% for value, label in (("", "alle"), ("WARNING", "ab Warnung"), ("ERROR", "nur Fehler")) %}
+        <a class="chip{{ ' chip-on' if value == level else '' }}"
+           {% if value == level %}aria-current="true"{% endif %}
+           href="/diagnose?stufe={{ value }}&suche={{ query|urlencode }}{{ '&mit=1' if follow else '' }}"
+           >{{ label }}</a>
+      {% endfor %}
+    </div>
+    <form method="get" action="/diagnose" class="log-search">
+      <input type="hidden" name="stufe" value="{{ level }}">
+      {% if follow %}<input type="hidden" name="mit" value="1">{% endif %}
+      <label class="visually-hidden" for="suche">Im Protokoll suchen</label>
+      <input id="suche" type="search" name="suche" value="{{ query }}" placeholder="im Protokoll suchen">
+      <button class="btn btn-ghost btn-small" type="submit">Suchen</button>
+    </form>
+    <a class="chip{{ ' chip-on' if follow else '' }}"
+       href="/diagnose?stufe={{ level }}&suche={{ query|urlencode }}{{ '' if follow else '&mit=1' }}"
+       >{{ "mitlaufen: an" if follow else "mitlaufen: aus" }}</a>
+  </div>
+
+  {% if lines %}
+    <div class="log" role="log">
+      {% for line in lines %}
+        <div class="log-line">
+          <span class="log-time">{{ line.time }}</span>
+          <span class="log-level {{ line.tone }}">{{ line.level }}</span>
+          <span class="log-msg {{ line.tone }}">{{ line.message }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% elif not have_file %}
+    <div class="hint">
+      <strong>Noch keine Protokolldatei.</strong>
+      Sie entsteht, sobald der Sammel-Dienst einmal gelaufen ist — ein Aufruf von Hand schreibt
+      bewusst nicht hinein, sonst gehört die Datei danach dem falschen Nutzer.
+    </div>
+  {% else %}
+    <p class="note" style="margin-top: 0;">Keine Zeile passt zum Filter.</p>
+  {% endif %}
+</section>

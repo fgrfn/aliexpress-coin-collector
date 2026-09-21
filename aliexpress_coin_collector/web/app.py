@@ -11,6 +11,7 @@ und verstaendigt sich mit dem Sammel-Dienst ausschliesslich ueber Dateien in dat
   commands/      Auftraege an den Dienst (siehe commands.py)
   status.json    was der Dienst ueber sich und das Geraet meldet
   control        eine Zeile fuer den Root-Helfer, der die Dienste startet und stoppt
+  collector.log  Protokoll des Dienstes, rotierend (siehe logs.py)
 """
 
 from __future__ import annotations
@@ -28,15 +29,16 @@ from datetime import time as dtime
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, commands, settings
+from .. import __version__, commands, logs, settings
 from ..config import Config
 from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for
 from ..store import Attempt, Store
-from . import auth, charts, data, view
+from . import auth, charts, data, imagecheck, view
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ SHOT_NAME_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[a-z_]+\.png$")
 MANUAL_SHOT_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-manual\.png$")
 HISTORY_LIMIT = 400
 TABLE_LIMIT = 60
+LOG_LIMIT = 300
 FAILED_LOGIN_DELAY_S = 1.0
 YEAR_S = 365 * 24 * 3600
 
@@ -145,6 +148,13 @@ def create_app(cfg: Config) -> FastAPI:
     def page(name: str, request: Request, **values: object) -> str:
         base = {"version": __version__, "theme": theme_of(request), "nav": view.NAV, "current": "/"}
         return env.get_template(name).render({**base, **values})
+
+    def service_values() -> dict[str, object]:
+        """Was das Geruest auf jeder Seite braucht: der Punkt in der Leiste."""
+        active = current_cfg()
+        now = datetime.now()
+        beat = _heartbeat(active)
+        return {"alive": data.service_alive(beat, now), "heartbeat_text": view.heartbeat_text(beat, now)}
 
     def status_values(request: Request) -> dict[str, object]:
         """Alles, was der Statuskopf und der Punkt in der Leiste brauchen."""
@@ -428,6 +438,86 @@ def create_app(cfg: Config) -> FastAPI:
         if gate is not None:
             return gate
         return HTMLResponse(page("partials/queue.html", request, **device_values(request)))
+
+    # ------------------------------------------------------------------ Diagnose
+
+    def log_values(level: str, query: str, follow: bool) -> dict[str, object]:
+        active = current_cfg()
+        clean = level.upper() if level.upper() in logs.LEVELS else ""
+        return {
+            "lines": logs.read(active.data_dir, clean, query, LOG_LIMIT),
+            "have_file": logs.exists(active.data_dir),
+            "level": clean,
+            "query": query,
+            "follow": follow,
+        }
+
+    def diagnose_page(
+        request: Request,
+        level: str,
+        query: str,
+        follow: bool,
+        result: imagecheck.Result | None = None,
+        error: str = "",
+        threshold_raw: str = "",
+        invert: bool = True,
+    ) -> str:
+        return page(
+            "diagnose.html",
+            request,
+            title="Diagnose",
+            subtitle="Protokoll mitlesen und die Erkennung an echten Bildern prüfen",
+            current="/diagnose",
+            result=result,
+            error=error,
+            threshold_raw=threshold_raw,
+            invert=invert,
+            **log_values(level, query, follow),
+            **service_values(),
+        )
+
+    @app.get("/diagnose", response_class=HTMLResponse)
+    def diagnose(request: Request, stufe: str = "", suche: str = "", mit: str = "") -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        return HTMLResponse(diagnose_page(request, stufe, suche[:100], mit == "1"))
+
+    @app.get("/teile/protokoll", response_class=HTMLResponse)
+    def part_log(request: Request, stufe: str = "", suche: str = "", mit: str = "") -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        return HTMLResponse(page("partials/log.html", request, **log_values(stufe, suche[:100], mit == "1")))
+
+    @app.post("/diagnose/erkennung", response_class=HTMLResponse)
+    async def inspect_image(
+        request: Request,
+        bild: UploadFile = File(default=None),
+        schwelle: str = Form(default=""),
+        invertiert: str = Form(default=""),
+    ) -> Response:
+        """Einen hochgeladenen Screenshot durch die Erkennung schicken.
+
+        Das Bild wird nie auf die Platte geschrieben -- es enthaelt Kontodaten. Die Erkennung
+        laeuft in einem Arbeits-Thread, damit die Seite waehrenddessen bedienbar bleibt.
+        """
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        invert = invertiert == "1"
+        try:
+            raw = await bild.read() if bild is not None else b""
+            imagecheck.check_upload(bild.content_type if bild is not None else "", len(raw))
+            result = await run_in_threadpool(imagecheck.analyze, raw, current_cfg(), schwelle, invert)
+        except imagecheck.InspectError as exc:
+            body = diagnose_page(request, "", "", False, error=str(exc), threshold_raw=schwelle, invert=invert)
+            return HTMLResponse(body, status_code=400)
+        finally:
+            if bild is not None:
+                await bild.close()
+        log.info("Erkennung an einem hochgeladenen Bild geprueft: %s", "gefunden" if result.found else "nicht gefunden")
+        return HTMLResponse(diagnose_page(request, "", "", False, result=result, threshold_raw=schwelle, invert=invert))
 
     # ------------------------------------------------------------------ Aktionen
 

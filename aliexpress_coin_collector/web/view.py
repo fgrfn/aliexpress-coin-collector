@@ -21,9 +21,9 @@ HERE = Path(__file__).parent
 TEMPLATES = HERE / "templates"
 STATIC = HERE / "static"
 
-# Bereiche der Seitenleiste. Etappe 1 bringt nur die Uebersicht; die uebrigen kommen in den
-# Etappen 2 bis 4 und stehen erst dann hier -- eine Leiste mit toten Wegen waere schlechter
-# als eine kurze.
+# Bereiche der Seitenleiste. Ein Eintrag steht erst hier, wenn es die Seite dahinter gibt --
+# eine Leiste mit toten Wegen waere schlechter als eine kurze. Einstellungen folgt in
+# Etappe 4.
 NAV = [
     {
         "href": "/",
@@ -34,6 +34,11 @@ NAV = [
         "href": "/geraet",
         "label": "Gerät",
         "icon": "M7.5 2.5h9a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2ZM10 18.5h4",
+    },
+    {
+        "href": "/diagnose",
+        "label": "Diagnose",
+        "icon": "M3 12h4l2.5-6 4 13L16 12h5",
     },
 ]
 
