@@ -12,12 +12,32 @@ from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
 from ..runner import Outcome
-from ..stats import SUCCESS_VALUES, Quota, gains, in_range, latest_coins, success_quota, total_gain
+from ..stats import (
+    SUCCESS_VALUES,
+    Quota,
+    Stall,
+    gains,
+    in_range,
+    latest_coins,
+    stalled_since,
+    success_quota,
+    total_gain,
+)
 from ..store import Attempt
 
 # Die Rechenregeln stehen in stats.py, weil der Dienst sie fuer den Wochenrueckblick ebenfalls
 # braucht. Hier weitergereicht, damit Vorlagen und Tests sie unveraendert ueber data.* finden.
-__all__ = ["SUCCESS_VALUES", "Quota", "gains", "in_range", "latest_coins", "success_quota", "total_gain"]
+__all__ = [
+    "SUCCESS_VALUES",
+    "Quota",
+    "Stall",
+    "gains",
+    "in_range",
+    "latest_coins",
+    "stalled_since",
+    "success_quota",
+    "total_gain",
+]
 
 # Aelter als das, gilt der Dienst als nicht laufend. Der Dienst meldet sich alle 30 s.
 HEARTBEAT_MAX_AGE = timedelta(minutes=5)

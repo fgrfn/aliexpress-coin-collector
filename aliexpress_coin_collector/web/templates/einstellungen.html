@@ -206,6 +206,13 @@
       </span>
     </label>
     <label class="opt">
+      <input type="checkbox" name="notify_on_stall" value="1" {% if cfg.notify_on_stall %}checked{% endif %}>
+      <span>
+        Wenn Erfolg gemeldet wird, aber nichts ankommt {{ saved('notify_on_stall') }}
+        <span class="opt-note">Der Münzstand steht seit Tagen, obwohl die Läufe als erledigt gelten.</span>
+      </span>
+    </label>
+    <label class="opt">
       <input type="checkbox" name="notify_weekly" value="1" {% if cfg.notify_weekly %}checked{% endif %}>
       <span>
         Wochenrückblick montags {{ saved('notify_weekly') }}

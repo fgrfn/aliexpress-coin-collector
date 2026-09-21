@@ -314,6 +314,7 @@ Geschickt wird ein **Embed**, keine Textzeile: Farbe nach Ausgang, Zahlen in eig
 | Gerät länger nicht erreichbar | rot | seit wann, Adresse (verkürzt) |
 | Gerät wieder erreichbar | grün | wie lange der Ausfall dauerte |
 | Wochenrückblick (montags 9 Uhr) | nach Quote | Erfolgsquote, gesammelte Münzen, Münzstand |
+| Erfolg ohne Zuwachs | rot | Tage ohne Zuwachs, stehender Münzstand |
 
 Der Grund eines Fehlschlags steht ausgeschrieben da, nicht als `not_found` — auf dem Handy gelesen
 sagt ein Codewort nichts.
@@ -329,6 +330,28 @@ kein Ort für interne Adressen.
 
 Fehlschläge eines Laufs werden **immer** gemeldet und lassen sich nicht abschalten: eine
 Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
+
+### Stillstandswächter
+
+Am 21.09.2026 stellte sich heraus, dass der Dienst tagelang „heute schon eingecheckt" gemeldet
+hatte, während gar nichts eingesammelt wurde. Die Erfolgsquote stand auf 100 %, die Serie lief
+weiter — und niemandem fiel es auf. Die Ursache ist behoben, aber die *Art* von Fehler bleibt
+möglich: Layout geändert, Konto gesperrt, Tap geht ins Leere.
+
+Der Wächter fragt darum nicht „hat der Schritt geklappt", sondern **„ist das Ergebnis
+eingetreten"**: steht der Münzstand an drei aufeinanderfolgenden Erfolgstagen unverändert, kommt
+eine rote Meldung und ein Banner auf der Übersicht.
+
+Was bewusst *nicht* zählt:
+
+- **Tage ohne Erfolg.** Dort ist ein gleichbleibender Stand die erwartete Folge, kein Widerspruch.
+- **Ein unlesbarer Münzstand.** Unbekannt ist nicht dasselbe wie unverändert.
+- **Ausgegebene Münzen.** Wer Münzen ausgibt, sammelt danach weiter — der nächste Anstieg beendet
+  die Serie.
+
+Gemeldet wird je Vorfall einmal. Gemerkt wird dafür der Münzstand und kein Datum: solange er sich
+nicht bewegt, ist es derselbe Vorfall. Steigt er wieder und bleibt später erneut stehen, wird
+wieder gewarnt.
 
 ### Wochenrückblick
 
@@ -402,6 +425,7 @@ in `data/settings.json` und überschreibt die `.env`.
 | **`NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE`** | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
 | **`NOTIFY_ON_OFFLINE`** | `true` | Melden, wenn das Gerät länger nicht erreichbar ist |
 | **`NOTIFY_WEEKLY`** | `true` | Wochenrückblick montags um 9 Uhr |
+| **`NOTIFY_ON_STALL`** | `true` | Melden, wenn Erfolg gemeldet wird, aber der Münzstand steht |
 | **`OFFLINE_ALERT_MIN`** | `30` | Wartezeit davor, in Minuten |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |

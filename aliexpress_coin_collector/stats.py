@@ -84,3 +84,64 @@ def gains(attempts: list[Attempt]) -> list[int]:
 
 def total_gain(attempts: list[Attempt]) -> int:
     return sum(gains(attempts))
+
+
+# So viele Tage ohne Zuwachs, bevor gewarnt wird. Drei statt einem, damit ein einzelner Tag mit
+# unlesbarem Stand oder ein verschobener Tageswechsel nicht gleich Alarm ausloest.
+STALL_DAYS = 3
+
+
+@dataclass(frozen=True)
+class Stall:
+    """Erfolg gemeldet, aber der Muenzstand bewegt sich nicht.
+
+    Der Waechter fragt nicht "hat der Schritt geklappt", sondern "ist das Ergebnis eingetreten".
+    Genau daran fehlte es, als die Erkennung tagelang faelschlich "heute schon eingecheckt"
+    meldete: die Erfolgsquote stand auf 100 Prozent, waehrend nichts eingesammelt wurde.
+    """
+
+    days: int  # aufeinanderfolgende Erfolgstage ohne Zuwachs, vom juengsten an
+    coins: int | None  # der Stand, der sich nicht bewegt
+
+    @property
+    def stalled(self) -> bool:
+        return self.days >= STALL_DAYS and self.coins is not None
+
+
+def _daily_balance(attempts: list[Attempt]) -> list[tuple[date, int]]:
+    """Je Tag mit gemeldetem Erfolg der zuletzt bekannte Muenzstand, aelteste zuerst.
+
+    Tage ohne Erfolg bleiben aussen vor: an denen ist ein gleichbleibender Stand kein Widerspruch,
+    sondern die erwartete Folge. Ebenso Tage, an denen der Stand nicht gelesen werden konnte --
+    unbekannt ist nicht dasselbe wie unveraendert.
+    """
+    by_day: dict[date, list[Attempt]] = {}
+    for a in attempts:
+        if a.outcome in SUCCESS_VALUES:
+            by_day.setdefault(a.ts.date(), []).append(a)
+
+    out = []
+    for day in sorted(by_day):
+        balance = latest_coins(by_day[day])
+        if balance is not None:
+            out.append((day, balance))
+    return out
+
+
+def stalled_since(attempts: list[Attempt], min_days: int = STALL_DAYS) -> Stall:
+    """Wie viele der juengsten Erfolgstage ohne Zuwachs blieben.
+
+    Gezaehlt werden Tage, deren Stand nicht ueber dem des vorherigen Erfolgstages liegt. Ein
+    gesunkener Stand zaehlt mit: wer Muenzen ausgibt, sammelt danach wieder ein, und der Anstieg
+    beendet die Serie ohnehin.
+    """
+    points = _daily_balance(attempts)
+    if len(points) < 2:
+        return Stall(days=0, coins=points[-1][1] if points else None)
+
+    days = 0
+    for i in range(len(points) - 1, 0, -1):
+        if points[i][1] > points[i - 1][1]:
+            break
+        days += 1
+    return Stall(days=days, coins=points[-1][1] if days >= min_days else None)

@@ -6,6 +6,16 @@
 
 {% block content %}
 
+{% if stall.stalled %}
+  <div class="card banner" style="border-left-color: var(--bad); background: var(--bad-soft);">
+    <strong style="color: var(--bad);">Erfolg gemeldet, aber nichts gesammelt.</strong>
+    An den letzten {{ stall.days }} Tagen galt der Check-in als erledigt, der Münzstand steht aber
+    unverändert bei {{ stall.coins|zahl }}. Die Läufe laufen, bringen aber nichts ein — nachsehen
+    unter <a href="/diagnose">Diagnose</a>, was die Seite hergibt, und im
+    <a href="/verlauf">Verlauf</a>, wie die Läufe ausgingen.
+  </div>
+{% endif %}
+
 {% if not alive %}
   <div class="card banner">
     <strong>Der Dienst läuft nicht.</strong>

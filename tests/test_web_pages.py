@@ -182,3 +182,23 @@ def test_theme_cannot_be_used_to_send_someone_elsewhere(client):
     # Der Referer steuert das Ziel. Eine fremde Adresse darf daraus nicht werden.
     response = client.post("/theme", data={"to": "dark"}, headers={"referer": "https://example.invalid/x"})
     assert response.headers["location"] == "/"
+
+
+# -- Stillstandswaechter auf der Startseite ------------------------------------------------------
+
+
+def stall_days(coins=10, count=4):
+    """Mehrere Tage 'schon erledigt' bei unveraendertem Muenzstand."""
+    return [run(i, outcome="already_done", after=coins) for i in range(count)]
+
+
+def test_a_stall_is_announced_on_the_front_page(client, tmp_path):
+    # Gehoert auf die Startseite, nicht in eine Unterseite: wer hier nichts sieht, sieht es nie.
+    seed(tmp_path, stall_days())
+    body = client.get("/").text
+    assert "Erfolg gemeldet, aber nichts gesammelt" in body
+
+
+def test_a_healthy_history_shows_no_banner(client, tmp_path):
+    seed(tmp_path, [run(3, after=10), run(2, after=25), run(1, after=40), run(0, after=55)])
+    assert "Erfolg gemeldet, aber nichts gesammelt" not in client.get("/").text
