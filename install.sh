@@ -506,8 +506,8 @@ ask() {
 # Dienstbenutzer, damit der Schluessel in dessen ~/.android landet und der Dienst ihn spaeter hat.
 # "adb connect" weckt das Geraet nicht und tippt nicht darauf, es baut nur die Verbindung auf.
 try_adb_connect() {
-    local serial="$1" state=""
-    # Beide Faelle sind "keine Verbindung", nicht "in Ordnung": sonst meldete der Aufrufer Erfolg.
+    local serial="$1" state="" answer="" attempt=0
+    # Ein Fehlschlag ist "keine Verbindung", nicht "in Ordnung": sonst meldete der Aufrufer Erfolg.
     [ -n "$serial" ] || return 1
     if ! command -v adb >/dev/null 2>&1; then
         echo "==> adb ist nicht vorhanden, die Verbindung kann nicht hergestellt werden"
@@ -515,47 +515,51 @@ try_adb_connect() {
     fi
 
     echo "==> Verbindung zum Geraet herstellen"
-    echo "    Falls auf dem Geraet ein Dialog erscheint: mit \"Immer zulassen\" bestaetigen."
-    runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
-    sleep 2
-    state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
 
-    case "$state" in
-        device)
+    # Schleife statt einmaligem Versuch: in beiden Fehlerfaellen muss der Nutzer etwas am Geraet
+    # tun -- Dialog bestaetigen, Geraet einschalten, 'adb tcpip 5555' setzen. Danach will er
+    # denselben Befehl noch einmal, nicht einen Hinweis fuer spaeter.
+    while [ "$attempt" -lt 5 ]; do
+        attempt=$((attempt + 1))
+        runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
+        state="$(wait_for_state "$serial")"
+
+        if [ "$state" = "device" ]; then
             echo "    Verbunden und freigegeben."
             return 0
-            ;;
-        unauthorized)
+        fi
+
+        if [ "$state" = "unauthorized" ]; then
             echo "    Verbunden, aber noch nicht freigegeben."
-            echo "    Auf dem Geraet wartet jetzt ein Dialog. Bitte mit \"Immer zulassen\" bestaetigen."
-            if interactive; then
-                local answer=""
-                ask answer "    Bestaetigt? [Enter zum erneuten Pruefen, n zum Ueberspringen]: "
-                case "$answer" in
-                    n|N|nein|Nein) ;;
-                    *)
-                        runuser -u "$SVC_USER" -- adb connect "$serial" >/dev/null 2>&1 || true
-                        sleep 2
-                        state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
-                        if [ "$state" = "device" ]; then
-                            echo "    Jetzt verbunden und freigegeben."
-                            return 0
-                        fi
-                        echo "    Immer noch nicht freigegeben."
-                        ;;
-                esac
+            echo "    Auf dem Geraet wartet ein Dialog. Bitte mit \"Immer zulassen\" bestaetigen."
+            answer=""
+            if ! interactive; then break; fi
+            ask answer "    Bestaetigt? [Enter = erneut versuchen, n = ueberspringen]: "
+        else
+            if [ "$attempt" = 1 ]; then
+                echo "    Keine Verbindung. Haeufigste Ursachen:"
+                echo "      - das Geraet ist aus, im Ruhezustand oder nicht im Netz"
+                echo "      - nach einem Neustart des Geraets fehlt 'adb tcpip 5555' (einmalig per USB setzen)"
+                echo "      - die Adresse $serial stimmt nicht (steht in $DEST/.env)"
+                echo "      - auf dem Geraet ist USB-Debugging nicht aktiv"
+            else
+                echo "    Weiterhin keine Verbindung."
             fi
-            echo "    Spaeter nachholen mit: runuser -u $SVC_USER -- adb connect $serial"
-            return 1
-            ;;
-        *)
-            echo "    Keine Verbindung. Haeufigste Ursachen:"
-            echo "      - das Geraet ist aus oder nicht im Netz"
-            echo "      - nach einem Neustart fehlt 'adb tcpip 5555' (einmalig per USB setzen)"
-            echo "      - die Adresse in $DEST/.env stimmt nicht"
-            return 1
-            ;;
-    esac
+            answer=""
+            if ! interactive; then break; fi
+            ask answer "    Geraet bereit oder Dialog bestaetigt? [Enter = erneut versuchen, n = ueberspringen]: "
+        fi
+
+        case "$answer" in
+            n|N|nein|Nein|NEIN) break ;;
+        esac
+    done
+
+    if [ "$attempt" -ge 5 ]; then
+        echo "    Nach mehreren Versuchen keine Verbindung."
+    fi
+    echo "    Spaeter nachholen mit: runuser -u $SVC_USER -- adb connect $serial"
+    return 1
 }
 
 
@@ -600,6 +604,67 @@ ensure_serial() {
     else
         echo "    WARNUNG: ADB_SERIAL wurde nicht gesetzt, bitte in $DEST/.env eintragen."
     fi
+}
+
+
+# Ergaenzt eine bestehende .env um Schluessel, die in .env.example dazugekommen sind. Bestehende
+# Werte werden nie angefasst. Ohne das kennt eine .env aus einer aelteren Version neue Optionen
+# gar nicht -- WEB_PASSWORD etwa, ohne das die Weboberflaeche nicht startet.
+merge_env_defaults() {
+    local example="$DEST/.env.example" target="$DEST/.env"
+    local line key block="" added=""
+    [ -f "$example" ] || return 0
+    [ -f "$target" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "#"*|"")
+                block="$block$line
+"
+                continue
+                ;;
+        esac
+        key="${line%%=*}"
+        case "$key" in
+            ""|*[!A-Za-z0-9_]*)
+                block=""
+                continue
+                ;;
+        esac
+        if ! grep -q "^${key}=" "$target"; then
+            added="$added$block$line
+"
+        fi
+        block=""
+    done < "$example"
+
+    [ -n "$added" ] || return 0
+    {
+        printf '\n# --- Neu hinzugekommen (Standardwerte aus .env.example) ---\n'
+        printf '%s' "$added"
+    } >> "$target"
+    chmod 600 "$target"
+    echo "    Neue Einstellungen in die .env uebernommen:"
+    printf '%s' "$added" | grep -oE '^[A-Za-z0-9_]+=' | tr -d '=' | sed 's/^/      /'
+}
+
+# Wartet, bis das Geraet einen brauchbaren Zustand meldet. Zwei Sekunden reichen nicht: nach
+# "adb connect" braucht der Transport gelegentlich laenger, und ein zu frueher Blick meldet
+# faelschlich "keine Verbindung".
+wait_for_state() {
+    local serial="$1" state="" waited=0
+    while [ "$waited" -lt 12 ]; do
+        state="$(runuser -u "$SVC_USER" -- adb -s "$serial" get-state 2>/dev/null || true)"
+        case "$state" in
+            device|unauthorized)
+                printf '%s' "$state"
+                return 0
+                ;;
+        esac
+        sleep 1
+        waited=$((waited + 1))
+    done
+    printf '%s' "$state"
 }
 
 
@@ -744,6 +809,9 @@ if [ ! -f "$DEST/.env" ]; then
 else
     echo "    .env existiert bereits, vorhandene Werte bleiben unveraendert"
 fi
+
+# Neue Schluessel aus .env.example nachziehen, bevor nach Werten gefragt wird.
+merge_env_defaults
 
 # Immer pruefen, nicht nur bei neuer .env: ohne Adresse startet spaeter nichts.
 ensure_serial
