@@ -195,6 +195,27 @@ Der Knopf „Lauf jetzt starten" geht denselben Weg. Er ist gesperrt, wenn heute
 eingecheckt wurde, wenn bereits ein Auftrag offen ist oder wenn der Dienst kein Lebenszeichen mehr
 gibt.
 
+### Verlauf & Auswertung
+
+Erfolgsquote, gesammelte Münzen, Zuwachs je Erfolg und längste Serie, dazu Münzverlauf,
+Zuwachs je Tag, die Verteilung der Ergebnisse und die Erfolge nach Wochentag. Zeitraum
+umschaltbar: 7, 30, 90 Tage oder alles.
+
+Zwei Dinge sind bewusst so gerechnet, wie sie da stehen:
+
+- **Die Erfolgsquote zählt Tage, nicht Läufe.** An einem Tag mit gescheitertem Morgenlauf und
+  erfolgreichem Abendlauf ist der Check-in eingesammelt — nach Läufen wären das 50 Prozent, nach
+  Tagen 100, und nur Letzteres beantwortet die Frage „hat es geklappt".
+- **Ein fehlender Münzstand ist kein Zuwachs von null.** Wo die Erkennung den Stand nicht lesen
+  konnte, fehlt der Balken, statt eine Null zu behaupten.
+
+Ein Klick auf eine Zeile der Verteilung filtert die Tabelle darunter. Die Kennzahlen bleiben dabei
+am ganzen Zeitraum — sonst zeigte die Quote nach einem Klick auf „nicht erkannt" null Prozent, was
+zwar stimmt, aber nichts mehr aussagt.
+
+Häufen sich Fehlschläge zu einer festen Uhrzeit, sagt die Seite das. Das ist selten das Gerät und
+meist etwas, das regelmäßig dazwischenfunkt — etwa ein nächtliches Backup des Hypervisors.
+
 ### Diagnose
 
 Eine dritte Seite zeigt das **Protokoll des Sammel-Dienstes** — mit Filter nach Stufe, Suche und

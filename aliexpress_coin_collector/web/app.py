@@ -54,6 +54,7 @@ MANUAL_SHOT_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-manual\.png$")
 HISTORY_LIMIT = 400
 TABLE_LIMIT = 60
 LOG_LIMIT = 300
+HISTORY_TABLE_LIMIT = 200
 FAILED_LOGIN_DELAY_S = 1.0
 YEAR_S = 365 * 24 * 3600
 
@@ -302,6 +303,53 @@ def create_app(cfg: Config) -> FastAPI:
         return HTMLResponse(
             page("partials/service.html", request, alive=status["alive"], heartbeat_text=status["heartbeat_text"])
         )
+
+    # ------------------------------------------------------------------ Verlauf
+
+    @app.get("/verlauf", response_class=HTMLResponse)
+    def history(request: Request, tage: str = "", ergebnis: str = "") -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        active = current_cfg()
+        now = datetime.now()
+        span = data.parse_range(tage)
+        attempts = data.in_range(_read_attempts(active), now.date(), span)
+        # Der Filter gilt nur fuer die Tabelle. Kennzahlen und Diagramme bleiben am ganzen
+        # Zeitraum -- sonst zeigte die Erfolgsquote nach einem Klick auf "nicht erkannt" null
+        # Prozent, was zwar stimmt, aber nichts mehr aussagt.
+        picked = ergebnis if any(s.outcome == ergebnis for s in data.outcome_shares(attempts)) else ""
+        listed = [x for x in attempts if x.outcome == picked] if picked else attempts
+        series = data.coin_series(attempts)
+        spread = data.gain_span(attempts)
+        average = data.average_gain(attempts)
+        body = page(
+            "verlauf.html",
+            request,
+            title="Verlauf & Auswertung",
+            subtitle=f"{len(attempts)} Läufe · aus der Laufdatenbank",
+            current="/verlauf",
+            ranges=data.RANGES,
+            span=span,
+            attempts=attempts,
+            rows=view.rows(listed[:HISTORY_TABLE_LIMIT], _shots(active)),
+            more=max(0, len(listed) - HISTORY_TABLE_LIMIT),
+            picked=picked,
+            picked_label=data.outcome_label(picked) if picked else "",
+            quota=data.success_quota(attempts),
+            total_gain=data.total_gain(attempts),
+            average_gain=f"{average:.1f}".replace(".", ",") if average else "–",
+            span_text=f"{spread[0]} bis {spread[1]}" if spread else "",
+            streak=data.longest_streak(attempts),
+            shares=data.outcome_shares(attempts),
+            busiest=data.busiest_hour(attempts),
+            series=series,
+            coin_chart=charts.coin_chart(series),
+            gain_chart=charts.gain_chart(series),
+            weekday_chart=charts.weekday_chart(data.by_weekday(attempts)),
+            **service_values(),
+        )
+        return HTMLResponse(body)
 
     # ------------------------------------------------------------------ Geraet
 

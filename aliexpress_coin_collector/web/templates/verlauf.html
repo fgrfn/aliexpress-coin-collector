@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block head_actions %}
+  <div class="chips" role="group" aria-label="Zeitraum wählen">
+    {% for days, label in ranges %}
+      <a class="chip{{ ' chip-on' if days == span else '' }}"
+         {% if days == span %}aria-current="true"{% endif %}
+         href="/verlauf?tage={{ days }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+{% endblock %}
+
+{% block content %}
+
+{% if not attempts %}
+  <div class="card">
+    <p class="note" style="margin-top: 0;">
+      In diesem Zeitraum steht noch kein Lauf in der Datenbank.
+      {% if span %}Mit „alles“ siehst du, was es insgesamt gibt.{% endif %}
+    </p>
+  </div>
+{% else %}
+
+<div class="tiles">
+  <div class="tile">
+    <div class="label">Erfolgsquote</div>
+    <div class="value {{ quota.tone }}">{{ quota.percent }} %</div>
+    <div class="sub">{{ quota.good }} von {{ quota.total }} Tagen</div>
+  </div>
+  <div class="tile">
+    <div class="label">Münzen gesammelt</div>
+    <div class="value">+{{ total_gain|zahl }}</div>
+    <div class="sub">im gewählten Zeitraum</div>
+  </div>
+  <div class="tile">
+    <div class="label">Zuwachs je Erfolg</div>
+    <div class="value">{{ average_gain }}</div>
+    <div class="sub">{% if span_text %}Spanne {{ span_text }}{% else %}noch kein Zuwachs erkannt{% endif %}</div>
+  </div>
+  <div class="tile">
+    <div class="label">Längste Serie</div>
+    <div class="value">{{ streak.days }} {{ "Tag" if streak.days == 1 else "Tage" }}</div>
+    <div class="sub">
+      {% if streak.first %}{{ streak.first.strftime('%d.%m.') }} bis {{ streak.last.strftime('%d.%m.') }}
+      {% else %}noch keine{% endif %}
+    </div>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Münzverlauf</h2>
+    {% if series|length > 1 %}
+      <span class="pill pill-ok">{{ series[0].coins|zahl }} → {{ series[-1].coins|zahl }}</span>
+    {% endif %}
+  </div>
+  {{ coin_chart }}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Zuwachs je Tag</h2></div>
+  {{ gain_chart }}
+  <p class="note">
+    Nur Tage, an denen der Münzstand vorher und nachher erkannt wurde. Wo die Erkennung den
+    Stand nicht lesen konnte, fehlt der Balken — das ist keine Null.
+  </p>
+</section>
+
+<div class="two-up">
+  <section class="card">
+    <div class="card-head"><h2>Wie die Läufe ausgingen</h2></div>
+    {# Anklickbar: die Verteilung ist zugleich der Filter fuer die Tabelle unten. #}
+    {% for share in shares %}
+      <a class="share-row{{ ' share-on' if share.outcome == picked else '' }}"
+         href="/verlauf?tage={{ span }}{{ '' if share.outcome == picked else '&ergebnis=' ~ share.outcome }}#laeufe">
+        <span class="share-label">{{ share.label }}</span>
+        <span class="share-bar"><span class="{{ share.tone }}" style="width: {{ share.percent }}%;"></span></span>
+        <span class="share-count">{{ share.count }}</span>
+        <span class="share-pct">{{ share.percent }} %</span>
+      </a>
+    {% endfor %}
+    <p class="note">
+      {% if picked %}Die Tabelle unten zeigt nur „{{ picked_label }}“. Noch einmal klicken hebt den
+      Filter auf.{% else %}Eine Zeile anklicken filtert die Tabelle unten.{% endif %}
+    </p>
+    {% if busiest %}
+      <div class="hint hint-warn">
+        <strong>{{ busiest[1] }} Fehlschläge um {{ "%02d"|format(busiest[0]) }} Uhr.</strong>
+        Häufen sie sich zu einer festen Uhrzeit, liegt das selten am Gerät — eher an etwas, das
+        regelmäßig dazwischenfunkt, etwa einem nächtlichen Backup des Hypervisors.
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Nach Wochentag</h2></div>
+    {{ weekday_chart }}
+    <p class="note">
+      Anteil der Tage mit Erfolg, nicht die absolute Zahl — sonst wäre ein Wochentag, der im
+      Zeitraum öfter vorkommt, automatisch im Vorteil.
+    </p>
+  </section>
+</div>
+
+<section class="card" id="laeufe">
+  <div class="card-head">
+    <h2>{{ "Läufe: " ~ picked_label if picked else "Alle Läufe" }}</h2>
+    {% if picked %}
+      <a class="chip" href="/verlauf?tage={{ span }}#laeufe">Filter aufheben</a>
+    {% else %}
+      <span class="note" style="margin: 0;">{{ attempts|length }} im Zeitraum</span>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+    <table class="table-cards">
+      <thead>
+        <tr>
+          <th scope="col">Zeit</th>
+          <th scope="col">Art</th>
+          <th scope="col">Ergebnis</th>
+          <th scope="col" style="text-align: right;">Münzen</th>
+          <th scope="col" style="text-align: right;">Dauer</th>
+          <th scope="col">Meldung</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="when" data-label="Zeit">{{ row.when }}</td>
+            <td data-label="Art">{{ row.kind }}</td>
+            <td data-label="Ergebnis"><span class="pill pill-{{ row.tone }}">{{ row.label }}</span></td>
+            <td class="num" data-label="Münzen">{{ row.coins }}</td>
+            <td class="num" data-label="Dauer">{{ row.duration }}</td>
+            <td class="msg" data-label="Meldung">
+              {{ row.message }}
+              {% if row.shot %}<a href="/shot/{{ row.shot }}">Screenshot</a>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if more %}
+    <p class="note">
+      Es werden die neuesten {{ rows|length }} gezeigt. Die übrigen {{ more }} stehen in der
+      Datenbank, aber nicht auf dieser Seite.
+    </p>
+  {% endif %}
+</section>
+
+{% endif %}
+
+{% endblock %}

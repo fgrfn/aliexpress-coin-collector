@@ -42,6 +42,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Etappe 4a (Auswertung): gegen einen echt laufenden Webdienst mit 90 Tagen erzeugter Historie
+  geprüft — Zeitraum-Umschalter, Kennzahlen, alle drei Diagramme, Filter über die Verteilung. Die
+  Häufung von Fehlschlägen zu einer festen Uhrzeit wird erkannt und benannt. Die Seite in Chromium
+  angesehen — hell, dunkel, Handybreite.
 - Etappe 3 (Diagnose): **erstmals gegen echtes Tesseract geprüft**, nicht nur mit Attrappen. An zwei
   nachgestellten Screenshots (720×1280, weiße Schrift auf orangem Knopf) findet die Erkennung „Sammeln"
   mit Konfidenz 96 und erkennt den Erledigt-Zustand. Das Protokoll wurde über den echten Schreibweg
@@ -216,9 +220,11 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    in dieses Fenster fällt, endet als `unreachable`. Fällt das Backup mit dem Morgenfenster zusammen, sollte eins
    von beiden verschoben werden. Der Dienst holt einen verpassten Morgenlauf abends nach, das federt es ab,
    ersetzt aber keine saubere Trennung der Fenster.
-10. **Weboberfläche ausbauen.** Etappen 1 bis 3 sind umgesetzt. Offen ist Etappe 4 (Einstellungen in
-    `data/web.sqlite3`, ausgebaute Auswertung). Der Entwurf dazu steht als Design-Leinwand und ist mit
-    dem Nutzer abgestimmt.
+10. **Weboberfläche ausbauen.** Etappen 1 bis 3 und 4a (Auswertung) sind umgesetzt. Offen ist 4b:
+    alle Einstellungen in einem Bereich, inklusive Passwortänderung und Zeitfenstern, die dorthin
+    umziehen. Zwei Punkte sind dafür noch zu klären: ob ein Verbindungstest vor dem Speichern einer
+    neuen Geräteadresse die Befehlsablage um Aufträge mit Nutzdaten erweitern soll, und ob die Werte
+    wirklich in eine eigene Datenbank müssen oder `settings.json` reicht.
 11. **App nach dem Lauf beenden?** Sie bleibt derzeit im Hintergrund auf der Coin-Seite stehen; beendet
     wird sie erst beim nächsten Lauf. Ein `force_stop` direkt nach der Bestätigung wäre riskant, weil
     unklar ist, ob die App den Vorgang schon zum Server durchgeschrieben hat. Falls gewünscht: nur dann
