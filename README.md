@@ -147,14 +147,12 @@ noch das Gerät an, deshalb darf er sofort laufen — anders als der Sammel-Dien
 
 Erreichbar unter `http://<container-ip>/`. **Beim ersten Aufruf vergibst du dort das Passwort**; bis
 dahin zeigt die Seite nichts an und es lässt sich kein Lauf auslösen. Gespeichert wird nur ein Hash
-(PBKDF2-SHA256) in `data/web-password`, nie das Passwort selbst. Ändern lässt es sich auf der Seite
-unten; danach sind alle angemeldeten Browser abgemeldet.
+(PBKDF2-SHA256) in `data/web-password`, nie das Passwort selbst. Ändern lässt es sich unter
+**Einstellungen → Zugang**; danach sind alle angemeldeten Browser abgemeldet.
 
-Die Seite zeigt einen Statuskopf (letzter Lauf,
-nächster Lauf, Münzstand, abgeleitete Streak, ob der Dienst läuft), den Münzverlauf als Diagramm und
-die Historie der letzten Läufe mit anklickbaren Fehler-Screenshots. Die Zeitfenster lassen sich dort
-ändern; eine Änderung gilt sofort, aber nicht rückwirkend — liegt die neu ausgewürfelte Uhrzeit schon
-in der Vergangenheit, läuft an diesem Tag nichts mehr.
+Die Übersicht zeigt einen Statuskopf (letzter Lauf, nächster Lauf, Münzstand, abgeleitete Streak,
+ob der Dienst läuft), den Münzverlauf als Diagramm, die heute geplanten Uhrzeiten und die Historie
+der letzten Läufe mit anklickbaren Fehler-Screenshots.
 
 Statuskopf und Dienstzustand aktualisieren sich alle fünf Sekunden von allein, der Rest der Seite
 bleibt stehen. Sie ist auf dem Handy genauso bedienbar wie am Rechner, und folgt der Hell-Dunkel-
@@ -242,25 +240,62 @@ nie benutzt, zahlt den Speicher nicht.
 Die abgeleitete Streak zählt aufeinanderfolgende Tage mit Erfolg aus der Datenbank. Tage, die vor dem
 ersten Lauf des Dienstes von Hand gesammelt wurden, kennt sie nicht — dafür gibt es `STREAK_OFFSET`.
 
+### Einstellungen
+
+Alles, was sich zur Laufzeit ändern lässt, steht auf einer Seite: **Ablauf & Verhalten**
+(Zeitfenster, Verhalten bei eingeschaltetem Bildschirm, Wartezeiten, Startversuche), **Gerät**
+(Adresse), **Benachrichtigungen** (Discord-Webhook, wann gemeldet wird) und **Zugang** (Passwort).
+
+Gespeichert wird nach `data/settings.json`; die `.env` bleibt die Vorgabe und wird nur
+überschrieben. Der Dienst liest die Datei bei jedem Takt neu — eine Änderung ist binnen 30 Sekunden
+wirksam, ohne Neustart. Werte, die von der `.env` abweichen, sind auf der Seite als „geändert"
+markiert.
+
+Geprüft wird mit **denselben Regeln wie im Dienst**: die eingegebenen Werte werden probeweise in die
+laufende Konfiguration eingesetzt und deren eigene Prüfung darüber laufen gelassen. So können
+Oberfläche und Dienst nicht auseinanderlaufen. Etwas Unhaltbares wird abgewiesen und gar nicht erst
+geschrieben, und die Meldung nennt das Feld so, wie es auf der Seite beschriftet ist.
+
+Drei Dinge sind bewusst so gebaut:
+
+- **Der Discord-Webhook wird nie an den Browser gegeben.** Er ist ein Geheimnis — wer ihn hat, kann
+  in den Kanal schreiben. Das Feld ist immer leer; leer lassen heißt „unverändert", entfernt wird er
+  nur über ein eigenes Kästchen. Auch ins Protokoll kommt er nicht, und `data/settings.json` ist nur
+  für den Dienstbenutzer lesbar (`0600`).
+- **Eine neue Geräteadresse wird gespeichert, nicht verbunden.** Ob sie stimmt, zeigt „Verbindung
+  prüfen" auf der Seite *Gerät* — die Oberfläche fasst das Gerät grundsätzlich nicht selbst an.
+- **Nur eine Fensteränderung stellt den heutigen Zeitplan zurück.** Der Zeitstempel in
+  `settings.json` sorgt dafür, dass eine Änderung nicht rückwirkend einen Lauf auslöst; ein
+  geänderter Webhook darf umgekehrt keinen fälligen Lauf unterdrücken.
+
+Woran die Erkennung hängt, bleibt außerhalb der Oberfläche und nur in der `.env`:
+`BUTTON_LABELS`, `OCR_LANG`, `COIN_URL`, `APP_PACKAGE`, `ADB_PATH`, `DATA_DIR`, `LOG_LEVEL`. Ein
+Vertipper dort ließe den täglichen Lauf ins Leere greifen, ohne dass es auffiele.
+
+Eine unbrauchbare `settings.json` hält weder Dienst noch CLI an: einzelne unlesbare Werte werden
+übersprungen, und ergibt die Datei insgesamt keine gültige Konfiguration, gilt wieder die `.env`.
+
 ## Konfiguration
 
-Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen haben Vorrang.
+Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen haben Vorrang. Die
+fett markierten lassen sich zusätzlich in der Weboberfläche ändern; was dort gespeichert wird, steht
+in `data/settings.json` und überschreibt die `.env`.
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
-| `ADB_SERIAL` | – (Pflicht) | Adresse des Geräts, z. B. `192.168.1.50:5555` |
-| `DISCORD_WEBHOOK_URL` | leer | Webhook für Meldungen (leer = nur Log) |
-| `MORNING_START` / `MORNING_END` | `07:00` / `10:00` | Fenster für den Morgenlauf |
-| `EVENING_START` / `EVENING_END` | `19:00` / `21:00` | Fenster für den Nachholversuch |
-| `SKIP_IF_AWAKE` | `true` | Nicht starten, solange der Bildschirm an ist. Bei einem reinen Automatisierungsgerät `false` |
-| `BUSY_RETRY_MIN` | `15` | Abstand der Wiederholung, wenn das Gerät in Benutzung ist |
-| `BUSY_MAX_WAIT_MIN` | `120` | Danach wird trotz eingeschaltetem Bildschirm gestartet |
-| `PAGE_TIMEOUT_S` | `90` | Wartezeit pro Startversuch auf die Coin-Seite |
-| `CONFIRM_TIMEOUT_S` | `25` | Wartezeit auf die Bestätigung nach dem Tap |
-| `LAUNCH_RETRIES` | `1` | Zusätzliche Startversuche mit App-Neustart |
+| **`ADB_SERIAL`** | – (Pflicht) | Adresse des Geräts, z. B. `192.168.1.50:5555` |
+| **`DISCORD_WEBHOOK_URL`** | leer | Webhook für Meldungen (leer = nur Log) |
+| **`MORNING_START` / `MORNING_END`** | `07:00` / `10:00` | Fenster für den Morgenlauf |
+| **`EVENING_START` / `EVENING_END`** | `19:00` / `21:00` | Fenster für den Nachholversuch |
+| **`SKIP_IF_AWAKE`** | `true` | Nicht starten, solange der Bildschirm an ist. Bei einem reinen Automatisierungsgerät `false` |
+| **`BUSY_RETRY_MIN`** | `15` | Abstand der Wiederholung, wenn das Gerät in Benutzung ist |
+| **`BUSY_MAX_WAIT_MIN`** | `120` | Danach wird trotz eingeschaltetem Bildschirm gestartet |
+| **`PAGE_TIMEOUT_S`** | `90` | Wartezeit pro Startversuch auf die Coin-Seite |
+| **`CONFIRM_TIMEOUT_S`** | `25` | Wartezeit auf die Bestätigung nach dem Tap |
+| **`LAUNCH_RETRIES`** | `1` | Zusätzliche Startversuche mit App-Neustart |
 | `BUTTON_LABELS` | `Sammeln,Collect,Claim` | Mögliche Beschriftungen des Buttons |
 | `OCR_LANG` | `deu` | Tesseract-Sprache |
-| `NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE` | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
+| **`NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE`** | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |
 | `WEB_PORT` | `80` | Port der Weboberfläche (das Passwort wird auf der Seite vergeben, nicht hier) |

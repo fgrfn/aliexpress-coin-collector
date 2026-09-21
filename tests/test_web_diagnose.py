@@ -188,7 +188,7 @@ def test_the_page_promises_that_nothing_is_stored(client):
     assert "wird nie gespeichert" in client.get("/diagnose").text
 
 
-def test_the_sidebar_now_has_three_areas(client):
+def test_the_sidebar_lists_every_area(client):
     body = client.get("/diagnose").text
-    for label in ("Übersicht", "Gerät", "Diagnose"):
+    for label in ("Übersicht", "Verlauf", "Gerät", "Diagnose", "Einstellungen"):
         assert f">{label}</span>" in body, label

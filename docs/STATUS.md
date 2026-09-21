@@ -42,6 +42,13 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Etappe 4b (Einstellungen): gegen einen echt laufenden Webdienst geprüft — Speichern aller
+  Abschnitte, Abweisen unhaltbarer Werte (Fenster verkehrt herum, Wiederholung nach dem Erzwingen,
+  Text statt Zahl, Adresse ohne gültigen Port, Webhook ohne `https://`), und dass ein abgewiesener
+  Wert den vorherigen stehen lässt. Nachgewiesen: der Discord-Webhook steht nach dem Speichern
+  weder in der Seite noch im Protokoll, `settings.json` ist `0600`, und das Speichern eines anderen
+  Abschnitts löscht die Zeitfenster nicht. Die Seite in Chromium angesehen — hell, dunkel,
+  Handybreite, ohne Konsolenmeldung und ohne waagerechten Überlauf.
 - Etappe 4a (Auswertung): gegen einen echt laufenden Webdienst mit 90 Tagen erzeugter Historie
   geprüft — Zeitraum-Umschalter, Kennzahlen, alle drei Diagramme, Filter über die Verteilung. Die
   Häufung von Fehlschlägen zu einer festen Uhrzeit wird erkannt und benannt. Die Seite in Chromium
@@ -125,7 +132,7 @@ Alles läuft über Dateien in `data/`, niemand ruft den anderen direkt auf. Je D
 | `status.json` | Sammel-Dienst | Oberfläche | Gerätezustand, Bildschirm, Version des Dienstes |
 | `commands/*.json` | Oberfläche | Sammel-Dienst | offene Aufträge (`run`, `reconnect`, `screenshot`, `check`) |
 | `commands/done/*.json` | Sammel-Dienst | Oberfläche | Ergebnis, die letzten 20 |
-| `settings.json` | Oberfläche | beide | geänderte Zeitfenster |
+| `settings.json` | Oberfläche | beide | geänderte Einstellungen, überschreibt die `.env`. `0600`, weil der Discord-Webhook darin stehen kann |
 | `web-password` | Oberfläche | Oberfläche | Hash des Passworts |
 | `control` | Oberfläche | `control.sh` (root) | zwei geprüfte Wörter für `systemctl` |
 | `control-result` | `control.sh` (root) | Oberfläche | Ausgang der letzten Steuerung |
@@ -195,6 +202,11 @@ möglichen Werte von `outcome` stehen in `runner.Outcome`.
 | Manueller Login, sonst Abbruch mit Meldung | Automatischer Login scheitert an Captcha und SMS-Verifizierung und wäre der fragilste Teil. Bewusst ausgeschlossen. |
 | systemd statt Docker | Ein LXC mit systemd ist die Zielumgebung. Ein Container-Setup bräuchte ein persistentes Volume für `~/.android`. |
 | SQLite ab Tag 1, keine WebUI | Ein Datensatz pro Tag reicht; die Historie erlaubt später Auswertungen und eine kleine Weboberfläche. |
+| Einstellungen in `settings.json`, nicht in einer zweiten Datenbank | Ein knappes Dutzend Werte ohne Änderungsverlauf. Eine Datei lässt sich im Notfall mit dem Editor geradeziehen, eine zweite SQLite neben `coins.sqlite3` nicht. Die Datei liegt bereits da und wird vom Dienst ohnehin bei jedem Takt gelesen. |
+| Die Oberfläche prüft mit `Config.validate`, nicht mit eigenen Regeln | Zwei Regelsätze laufen auseinander. So weist die Seite genau das ab, was auch den Dienst stören würde — die `.env`-Namen in der Meldung werden nur für die Anzeige durch die Feldbeschriftung ersetzt. |
+| Der Discord-Webhook wird nie in die Seite geschrieben | Er ist ein Geheimnis. Das Feld bleibt leer und heißt „unverändert"; gelöscht wird nur über ein eigenes Kästchen. Damit landet er weder im Browserverlauf noch in einem Screenshot der Seite. |
+| Erkennungswerte (`BUTTON_LABELS`, `OCR_LANG`, `COIN_URL`, `APP_PACKAGE`) bleiben in der `.env` | Ein Vertipper dort ließe den Lauf ins Leere greifen, ohne dass es auffiele. Die Oberfläche soll den Ablauf verstellen können, nicht die Erkennung. |
+| Nur eine Fensteränderung setzt `changed_at` fort | Der Zeitstempel legt den heutigen Zeitplan teilweise still. Täte das auch ein geänderter Webhook, unterdrückte eine harmlose Änderung einen fälligen Lauf. |
 
 ## 8. Offene Punkte
 
@@ -220,11 +232,11 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    in dieses Fenster fällt, endet als `unreachable`. Fällt das Backup mit dem Morgenfenster zusammen, sollte eins
    von beiden verschoben werden. Der Dienst holt einen verpassten Morgenlauf abends nach, das federt es ab,
    ersetzt aber keine saubere Trennung der Fenster.
-10. **Weboberfläche ausbauen.** Etappen 1 bis 3 und 4a (Auswertung) sind umgesetzt. Offen ist 4b:
-    alle Einstellungen in einem Bereich, inklusive Passwortänderung und Zeitfenstern, die dorthin
-    umziehen. Zwei Punkte sind dafür noch zu klären: ob ein Verbindungstest vor dem Speichern einer
-    neuen Geräteadresse die Befehlsablage um Aufträge mit Nutzdaten erweitern soll, und ob die Werte
-    wirklich in eine eigene Datenbank müssen oder `settings.json` reicht.
+10. **Weboberfläche ausbauen.** Etappen 1 bis 4b sind umgesetzt: Grundgerüst, Gerät & Dienst,
+    Diagnose, Auswertung und Einstellungen. Offen bleibt nur noch der Feinschliff — und ein
+    Verbindungstest direkt beim Speichern einer neuen Geräteadresse, der bewusst nicht gebaut
+    wurde: er würde die Befehlsablage um Aufträge mit Nutzdaten erweitern. Bis dahin wird
+    gespeichert und auf der Seite *Gerät* geprüft.
 11. **App nach dem Lauf beenden?** Sie bleibt derzeit im Hintergrund auf der Coin-Seite stehen; beendet
     wird sie erst beim nächsten Lauf. Ein `force_stop` direkt nach der Bestätigung wäre riskant, weil
     unklar ist, ob die App den Vorgang schon zum Server durchgeschrieben hat. Falls gewünscht: nur dann
