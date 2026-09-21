@@ -155,3 +155,57 @@ def test_a_login_marker_never_spoils_a_working_run(cfg):
     res = run(cfg, adb, state(button=True, coins=0, logged_out=True), state(coins=10))
     assert res.outcome == Outcome.CLAIMED
     assert adb.tapped
+
+
+# -- Erledigt-Zustand erst glauben, wenn er stehen bleibt -------------------------------------
+#
+# Der Marker steht oft schon auf der halb geladenen Seite, waehrend der Knopf noch fehlt. Wer
+# beim ersten Bild aufhoert, meldet "heute schon eingecheckt" und laesst den Tag ausfallen.
+
+
+class SequenceAdb(FakeAdb):
+    """Liefert pro Screenshot ein anderes Bild, damit sich die Seite 'aufbauen' kann."""
+
+    def __init__(self, frames):
+        super().__init__()
+        self.frames = list(frames)
+        self.taken = 0
+
+    def screenshot(self):
+        if self.tapped:
+            return b"png-tapped"
+        frame = self.frames[min(self.taken, len(self.frames) - 1)]
+        self.taken += 1
+        return frame
+
+
+def sequence_run(cfg, frames, after):
+    """frames: Liste von PageStates, die nacheinander erkannt werden."""
+    seen = {f"png-{i}": st for i, st in enumerate(frames)}
+    adb = SequenceAdb([f"png-{i}".encode() for i in range(len(frames))])
+    return (
+        run_once(
+            cfg,
+            adb,
+            analyze=lambda png, c: after if png == b"png-tapped" else seen[png.decode()],
+            sleep=lambda s: None,
+            rng=random.Random(1),
+            confirm_timeout_s=1,
+        ),
+        adb,
+    )
+
+
+def test_a_button_appearing_late_is_still_collected(cfg):
+    # Zwei Bilder nur mit Marker, dann taucht der Knopf auf.
+    frames = [state(done=True), state(done=True), state(button=True, coins=10)]
+    res, adb = sequence_run(cfg, frames, state(coins=25))
+    assert res.outcome == Outcome.CLAIMED, "der Tag darf nicht wegen eines fruehen Markers ausfallen"
+    assert adb.tapped
+
+
+def test_a_marker_that_stays_is_believed(cfg):
+    frames = [state(done=True)] * 5
+    res, adb = sequence_run(cfg, frames, state(done=True))
+    assert res.outcome == Outcome.ALREADY_DONE
+    assert adb.tapped is None

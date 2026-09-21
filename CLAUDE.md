@@ -42,6 +42,9 @@ python -m aliexpress_coin_collector notify-test                # Testmeldung an 
 python -m aliexpress_coin_collector.web                        # Weboberfläche (eigener Dienst)
 ```
 
+Auf dem installierten LXC heissen dieselben Befehle `acc <befehl>` — der Kurzbefehl kapselt
+Arbeitsverzeichnis, venv und Dienstbenutzer. `python -m …` gilt nur im Quellbaum.
+
 `once`, `doctor` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `notify-test`, `--version` und die Tests
 brauchen kein Gerät (`notify-test` braucht Netz nach draußen).
 

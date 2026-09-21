@@ -104,10 +104,18 @@ Eine geänderte Bildschirmdichte (`wm density`) ist nicht nötig.
 ## Erster Test
 
 ```bash
-cd /opt/aliexpress-coin-collector
-runuser -u coins -- .venv/bin/python -m aliexpress_coin_collector doctor
-runuser -u coins -- .venv/bin/python -m aliexpress_coin_collector once --force --no-notify
-runuser -u coins -- .venv/bin/python -m aliexpress_coin_collector status
+acc doctor
+acc once --force --no-notify
+acc status
+```
+
+`acc` legt `install.sh` nach `/usr/local/bin`. Der Kurzbefehl wechselt selbst ins
+Installationsverzeichnis (die `.env` wird relativ gelesen) und wechselt auf den Dienstbenutzer —
+als `root` aufgerufen entstünden sonst Dateien in `data/`, an die der Dienst danach nicht mehr
+herankommt. Ohne ihn wäre jeder Aufruf:
+
+```bash
+cd /opt/aliexpress-coin-collector && runuser -u coins -- .venv/bin/python -m aliexpress_coin_collector status
 ```
 
 `doctor` prüft Installation, Tesseract-Sprache und die Verbindung zum Gerät, dazu die Umgebung: ob eine `.env` gefunden wurde, ob die Zeitzone plausibel ist (bei UTC gibt es eine Warnung, denn die Zeitfenster gelten in Serverzeit), ob das Datenverzeichnis beschreibbar ist, sowie den heutigen Plan und den letzten Lauf. Ist heute schon eingecheckt, meldet der
@@ -118,7 +126,7 @@ Erkennung an einem gespeicherten Screenshot testen. Den Screenshot **ohne** Shel
 `adb shell screencap -p /sdcard/s.png` und `adb pull` (die Umleitung `>` beschädigt PNGs in PowerShell):
 
 ```bash
-.venv/bin/python -m aliexpress_coin_collector ocr screen.png --text
+acc ocr screen.png --text
 ```
 
 ## Betrieb
@@ -136,9 +144,11 @@ journalctl -u aliexpress-coin-collector -f
 | `ocr <bild.png> [--text]` | Erkennung an einem Screenshot testen |
 | `status [-n 14]` | Letzte Läufe mit Dauer und Summen aus der Datenbank |
 | `schedule [-n 7]` | Geplante Uhrzeiten der nächsten Tage und wann der nächste Lauf ansteht |
+| `notify-test` | Testmeldung an Discord schicken (ohne Gerät) |
 | `--version` | Version anzeigen |
 
-Alle Befehle als `python -m aliexpress_coin_collector <befehl>`.
+Alle Befehle als `acc <befehl>` auf dem installierten System. Im Quellbaum, etwa zur Entwicklung,
+stattdessen `python -m aliexpress_coin_collector <befehl>`.
 
 ## Weboberfläche
 
@@ -357,7 +367,7 @@ in der Oberfläche unter **Einstellungen → Benachrichtigungen** („Testmeldun
 im Terminal:
 
 ```bash
-python -m aliexpress_coin_collector notify-test
+acc notify-test
 ```
 
 Die Testmeldung führt gleich mit auf, wovon du künftig hörst und wovon nicht. Schlägt sie fehl,

@@ -9,6 +9,9 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 
 ### Auf echter Hardware belegt
 
+- **Ein vollstaendiger Check-in mit `claimed`** (21.09.2026, 10:17, Muenzstand 10 → 25). Damit sind Tap
+  **und** Bestaetigung auf dem Geraet belegt — der aelteste offene Punkt des Projekts ist erledigt.
+
 - ADB über WLAN vom Server zum Gerät (`doctor` meldet `device`, Screenshot 720×1280).
 - Der Deep-Link öffnet die Coin-Seite aus dem Kaltstart heraus (nach `am force-stop`).
 - Erkennung des **Erledigt-Zustands** und des **Münzstands** an echten Screenshots in 720×1280 und 1200×1920.
@@ -57,6 +60,9 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Vorrang des Knopfes vor dem Erledigt-Marker (0.11.0): **mit Attrappen getestet, der Anlass ist
+  echt.** Die Laufdaten belegen den Fehler zweifelsfrei (siehe 5c); dass die Korrektur im Betrieb
+  greift, zeigt sich erst an den nächsten Tagen.
 - Wochenrückblick und Umschaltpunkt-Hinweis (0.10.0): **nur mit Attrappen getestet.** Der Rückblick
   wurde nicht in einen echten Kanal geschickt; der Hinweis wurde gegen einen laufenden Webdienst mit
   erzeugtem Abendlauf-Muster geprüft und angesehen.
@@ -227,6 +233,26 @@ jemand wissen *warum* es nicht ging. Der Grund steht im Klartext da ("Diesen Web
 Die Geraeteadresse geht nur verkuerzt hinaus (`commands.mask_serial`). Ein Chat-Kanal ist kein
 Ort fuer interne Adressen, und Discord-Nachrichten bleiben dort lange stehen.
 
+## 5c. Warum der Erledigt-Marker nicht mehr gewinnt
+
+Die ersten echten Laufdaten zeigten ein Muster, das nicht aufgehen konnte: dreimal `already_done`
+bei unveraendertem Muenzstand (10), und zwei Stunden nach dem letzten dieser Laeufe liess sich am
+**selben Tag** noch einsammeln (10 → 25). Ein echtes "schon erledigt" haette vorher einen Anstieg
+hinterlassen muessen.
+
+Ursache in `ocr.analyze`: `done` wurde aus einem `\bmorgen` in der oberen Bildhaelfte gebildet, und
+bei `done` lief die Knopfsuche **gar nicht erst**. Der Vorschautext "wenn Sie morgen vorbeischauen"
+steht dort aber in beiden Zustaenden. Dazu kam `_wait_for_page`, das beim ersten Bild mit Marker
+sofort aufhoerte -- also womoeglich auf einer halb gerenderten Seite, auf der der Knopf einfach
+noch fehlte.
+
+Seit 0.11.0:
+- Der Knopf wird **immer** gesucht, und ein gefundener Knopf schlaegt den Marker. Ein Fehlgriff in
+  die Gegenrichtung ist unwahrscheinlich: "gesammelt" erreicht gegen "sammeln" nur 0.75 und
+  "verdienen" noch weniger -- beide bleiben unter der Schwelle von 0.8.
+- Der Erledigt-Zustand wird erst nach `DONE_SETTLE_ROUNDS` aufeinanderfolgenden Bildern geglaubt
+  (rund sechs Sekunden). Gezaehlt und nicht die Uhr befragt, damit es ohne Warten pruefbar ist.
+
 ## 6. Stolpersteine
 
 1. **PNGs nie per Shell-Umleitung holen.** `adb exec-out screencap -p > screen.png` schreibt in PowerShell UTF-16,
@@ -278,8 +304,8 @@ Ort fuer interne Adressen, und Discord-Nachrichten bleiben dort lange stehen.
 
 Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
 
-1. **Tap auf dem Gerät bestätigen.** Der wichtigste offene Punkt: Erst mehrere Läufe mit `claimed` belegen, dass Tap
-   und Bestätigung funktionieren.
+1. ~~**Tap auf dem Gerät bestätigen.**~~ Belegt am 21.09.2026: ein Lauf endete mit `claimed`, Münzstand
+   10 → 25. Offen bleibt nur noch, dass das über mehrere Tage stabil bleibt.
 2. **Fixtures für Erkennungstests.** Echte Screenshots (offen und erledigt, verschiedene Auflösungen) als Testbilder,
    dazu Regressionstests für `ocr.analyze`. Screenshots zeigen Kontostände und müssen vorher zugeschnitten werden;
    die CI bräuchte dafür `tesseract-ocr` und das passende Sprachpaket.
