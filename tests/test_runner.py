@@ -42,8 +42,8 @@ class FakeAdb:
 BTN = Word("Sammeln", 500, 900, 200, 50, 96.0)
 
 
-def state(button=False, done=False, coins=None):
-    return PageState(BTN if button else None, done, coins, 1200, 1920, "")
+def state(button=False, done=False, coins=None, logged_out=False):
+    return PageState(BTN if button else None, done, coins, 1200, 1920, "", logged_out=logged_out)
 
 
 def analyzer(before, after):
@@ -128,3 +128,30 @@ def test_gives_up_after_all_launch_attempts(cfg):
         replace(cfg, launch_retries=1), adb, analyze=lambda png, c: state(), sleep=lambda s: None, rng=random.Random(1)
     )
     assert res.outcome == Outcome.NOT_FOUND and adb.starts == 2
+
+
+# -- Anmeldung abgelaufen ----------------------------------------------------------------------
+#
+# Bisher endete das als "not_found" -- eine Meldung, die einen taeglich zum Screenshot schickt,
+# ohne zu sagen, was zu tun ist. Die Erkennung greift ausschliesslich dann, wenn ohnehin weder
+# Button noch Erledigt-Zustand gefunden wurden; einen erfolgreichen Lauf kann sie nicht stoeren.
+
+
+def test_a_login_prompt_is_named_instead_of_nichts_erkannt(cfg):
+    res = run(cfg, FakeAdb(), state(logged_out=True))
+    assert res.outcome == Outcome.LOGIN_REQUIRED
+    assert "neu einloggen" in res.message
+    assert res.screenshot, "der Screenshot gehoert dazu, damit man es selbst sehen kann"
+
+
+def test_without_a_login_prompt_it_stays_nichts_erkannt(cfg):
+    res = run(cfg, FakeAdb(), state())
+    assert res.outcome == Outcome.NOT_FOUND
+
+
+def test_a_login_marker_never_spoils_a_working_run(cfg):
+    # Der entscheidende Punkt: wird der Button gefunden, ist der Marker gleichgueltig.
+    adb = FakeAdb()
+    res = run(cfg, adb, state(button=True, coins=0, logged_out=True), state(coins=10))
+    assert res.outcome == Outcome.CLAIMED
+    assert adb.tapped

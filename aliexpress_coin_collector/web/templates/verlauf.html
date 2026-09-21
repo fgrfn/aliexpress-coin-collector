@@ -90,6 +90,18 @@
         regelmäßig dazwischenfunkt, etwa einem nächtlichen Backup des Hypervisors.
       </div>
     {% endif %}
+    {% if rollover.found %}
+      <div class="hint hint-warn">
+        <strong>Das Abendfenster liegt hinter dem Tageswechsel.</strong>
+        {{ rollover.hits }}× hat ein Abendlauf gesammelt und am nächsten Morgen war es schon
+        erledigt — der AliExpress-Tag springt also vor
+        <strong>{{ rollover.before.strftime('%H:%M') }}</strong> um. Damit holt der
+        Nachholversuch nicht den verpassten Tag nach, sondern schon den nächsten: der Fehltag
+        bleibt ein Fehltag. Ein <a href="/einstellungen#ablauf">früheres Abendfenster</a> behebt
+        das. (Wer abends von Hand am Telefon sammelt, erzeugt dasselbe Muster — dann stimmt der
+        Hinweis nicht.)
+      </div>
+    {% endif %}
   </section>
 
   <section class="card">

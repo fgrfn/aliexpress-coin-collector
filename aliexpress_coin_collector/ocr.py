@@ -9,7 +9,7 @@ import numpy as np
 import pytesseract
 from pytesseract import Output
 
-from .config import Config
+from .config import DEFAULT_LOGIN_MARKERS, Config
 
 
 @dataclass(frozen=True)
@@ -38,9 +38,11 @@ class PageState:
     width: int
     height: int
     text: str
+    logged_out: bool = False  # Anmelde-Marker im Text, siehe looks_logged_out
 
     def describe(self) -> str:
-        return f"button={'ja' if self.button else 'nein'} erledigt={self.done} muenzen={self.coins}"
+        out = " abgemeldet" if self.logged_out else ""
+        return f"button={'ja' if self.button else 'nein'} erledigt={self.done} muenzen={self.coins}{out}"
 
 
 def decode_png(png: bytes) -> np.ndarray:
@@ -108,6 +110,21 @@ def find_button(
     return max(candidates, key=lambda w: w.conf) if candidates else None
 
 
+def looks_logged_out(text: str, markers: tuple[str, ...] = DEFAULT_LOGIN_MARKERS) -> bool:
+    """Steht eine Anmeldeaufforderung auf der Seite?
+
+    Gesucht wird im Volltext und nicht ueber _matches: "Sign in" besteht aus zwei Woertern, und
+    die Wortvergleiche dort greifen nur je Wort.
+
+    Wird nur ausgewertet, wenn ohnehin weder Button noch Erledigt-Zustand erkannt wurden --
+    die Erkennung kann damit einen gescheiterten Lauf genauer benennen, aber nie einen
+    erfolgreichen stoeren. Ein Fehlgriff kostet also hoechstens ein falsches Etikett auf einem
+    Lauf, der so oder so nichts eingesammelt haette.
+    """
+    low = text.lower()
+    return any(marker in low for marker in markers)
+
+
 _COIN_RE = re.compile(r"^(\d{1,3}(?:[.,]\d{3})+|\d+)[≈~=]*$")
 _ICON_NOISE = re.compile(r"^[()\[\]{}|Oo©®]{1,3}(?=\d)")  # Muenz-Symbol wird manchmal als Zeichen vor die Zahl gelesen
 
@@ -148,4 +165,15 @@ def analyze(
 
     button = None if done else find_button(img, words, cfg.button_labels, cfg.ocr_lang, thresholds, invert)
     coins = read_coin_balance(words, width, height)
-    return PageState(button=button, done=done and button is None, coins=coins, width=width, height=height, text=text)
+    done = done and button is None
+    # Nur pruefen, wenn die Seite ohnehin nichts Brauchbares hergab (siehe looks_logged_out).
+    logged_out = not button and not done and looks_logged_out(text, cfg.login_markers)
+    return PageState(
+        button=button,
+        done=done,
+        coins=coins,
+        width=width,
+        height=height,
+        text=text,
+        logged_out=logged_out,
+    )

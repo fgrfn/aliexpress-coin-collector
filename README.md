@@ -222,6 +222,11 @@ Ein Klick auf eine Zeile der Verteilung filtert die Tabelle darunter. Die Kennza
 am ganzen Zeitraum — sonst zeigte die Quote nach einem Klick auf „nicht erkannt" null Prozent, was
 zwar stimmt, aber nichts mehr aussagt.
 
+Hat ein **Abendlauf** gesammelt und war es am nächsten Morgen schon erledigt, sagt die Seite das
+auch: dann liegt das Abendfenster hinter dem Tageswechsel von AliExpress. Der Nachholversuch holt
+dann nicht den verpassten Tag nach, sondern schon den nächsten — der Fehltag bleibt ein Fehltag.
+Ein Hinweis, kein Beweis: wer abends von Hand am Telefon sammelt, erzeugt dasselbe Muster.
+
 Häufen sich Fehlschläge zu einer festen Uhrzeit, sagt die Seite das. Das ist selten das Gerät und
 meist etwas, das regelmäßig dazwischenfunkt — etwa ein nächtliches Backup des Hypervisors.
 
@@ -298,6 +303,7 @@ Geschickt wird ein **Embed**, keine Textzeile: Farbe nach Ausgang, Zahlen in eig
 | Letzter Versuch des Tages | rot | wie oben, zusätzlich als letzter Versuch markiert |
 | Gerät länger nicht erreichbar | rot | seit wann, Adresse (verkürzt) |
 | Gerät wieder erreichbar | grün | wie lange der Ausfall dauerte |
+| Wochenrückblick (montags 9 Uhr) | nach Quote | Erfolgsquote, gesammelte Münzen, Münzstand |
 
 Der Grund eines Fehlschlags steht ausgeschrieben da, nicht als `not_found` — auf dem Handy gelesen
 sagt ein Codewort nichts.
@@ -313,6 +319,36 @@ kein Ort für interne Adressen.
 
 Fehlschläge eines Laufs werden **immer** gemeldet und lassen sich nicht abschalten: eine
 Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
+
+### Wochenrückblick
+
+Montags um 9 Uhr eine Meldung mit Erfolgsquote, gesammelten Münzen und Münzstand der letzten
+sieben Tage. Die Farbe folgt der Quote — grün ab 90 %, sonst orange oder rot.
+
+Gerechnet wird mit **denselben Regeln wie in der Weboberfläche** (`aliexpress_coin_collector/stats.py`):
+die Quote zählt Tage statt Läufe, und ein fehlender Münzstand ist kein Zuwachs von null. Die Regeln
+stehen an einer Stelle, damit Anzeige und Meldung nicht auseinanderlaufen.
+
+Beim allerersten Montag nach der Installation kommt nichts — sonst wäre der erste Rückblick einer
+auf eine leere Woche. Der Merker dafür liegt in `data/last-digest`.
+
+### Abgelaufene Anmeldung
+
+Die Sitzung in der App läuft irgendwann ab. Bis Version 0.10.0 endete das als `not_found` — also
+täglich dieselbe nichtssagende Meldung „nichts erkannt", und man musste den Screenshot ansehen, um
+zu verstehen, warum seit Tagen nichts gesammelt wurde.
+
+Jetzt sucht die Erkennung in diesem Fall nach einer Anmeldeaufforderung und meldet
+**„Anmeldung nötig — bitte in der AliExpress-App neu einloggen"**, in Rot, weil das auf einen
+Menschen wartet und sich nicht von allein erledigt.
+
+**Die Prüfung läuft nur, wenn ohnehin weder der Sammeln-Knopf noch der Erledigt-Zustand gefunden
+wurde.** Ein Treffer kann damit einen gescheiterten Lauf genauer benennen, aber niemals einen
+erfolgreichen stören — im schlimmsten Fall klebt ein falsches Etikett auf einem Lauf, der so oder
+so nichts eingesammelt hätte. Die Marker stehen in `LOGIN_MARKERS`.
+
+Ob sie an deiner App greifen, prüfst du ohne Wartezeit: einen Screenshot des abgemeldeten
+Zustands unter **Diagnose** hochladen — dort steht jetzt eine Zeile „Anmeldung nötig".
 
 ### Testmeldung
 
@@ -351,9 +387,11 @@ in `data/settings.json` und überschreibt die `.env`.
 | **`CONFIRM_TIMEOUT_S`** | `25` | Wartezeit auf die Bestätigung nach dem Tap |
 | **`LAUNCH_RETRIES`** | `1` | Zusätzliche Startversuche mit App-Neustart |
 | `BUTTON_LABELS` | `Sammeln,Collect,Claim` | Mögliche Beschriftungen des Buttons |
+| `LOGIN_MARKERS` | `anmelden,einloggen,…` | Woran eine abgelaufene Anmeldung erkannt wird |
 | `OCR_LANG` | `deu` | Tesseract-Sprache |
 | **`NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE`** | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
 | **`NOTIFY_ON_OFFLINE`** | `true` | Melden, wenn das Gerät länger nicht erreichbar ist |
+| **`NOTIFY_WEEKLY`** | `true` | Wochenrückblick montags um 9 Uhr |
 | **`OFFLINE_ALERT_MIN`** | `30` | Wartezeit davor, in Minuten |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |

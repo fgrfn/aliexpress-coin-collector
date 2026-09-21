@@ -8,6 +8,7 @@ fehlender Münzstand ist kein Nullzuwachs, und ein Tag ohne Lauf bricht eine Ser
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from datetime import time as dtime
 
 import pytest
 
@@ -367,3 +368,64 @@ def test_the_filter_keeps_the_chosen_range(client, tmp_path):
     seed(tmp_path, [today_run(0, outcome="not_found")])
     body = client.get("/verlauf?tage=90&ergebnis=not_found").text
     assert 'href="/verlauf?tage=90#laeufe"' in body
+
+
+# -- Umschaltpunkt des AliExpress-Tages ----------------------------------------------------------
+#
+# Der Tag springt nicht um Mitternacht Ortszeit um. Liegt das Abendfenster dahinter, sammelt der
+# Nachholversuch schon den naechsten Tag -- der verpasste bleibt verpasst.
+
+
+def rollover_pair(day, evening_hour=20, next_outcome="already_done"):
+    """Ein Abendlauf sammelt, am naechsten Morgen ist es schon erledigt."""
+    return [
+        Attempt(ts=datetime.combine(day, dtime(evening_hour, 0)), kind="evening", outcome="claimed"),
+        Attempt(ts=datetime.combine(day + timedelta(days=1), dtime(8, 0)), kind="morning", outcome=next_outcome),
+    ]
+
+
+def test_without_evening_runs_there_is_nothing_to_see():
+    daily = [
+        Attempt(ts=datetime.combine(TODAY - timedelta(days=i), dtime(8, 0)), kind="morning", outcome="claimed")
+        for i in range(10)
+    ]
+    assert data.rollover_hints(daily).found is False
+
+
+def test_an_evening_run_that_grabbed_the_next_day_is_flagged():
+    found = data.rollover_hints(rollover_pair(TODAY))
+    assert found.found is True
+    assert found.hits == 1
+    assert found.before == dtime(20, 0)
+
+
+def test_an_evening_run_followed_by_a_normal_claim_is_fine():
+    # Der Abendlauf hat den verpassten Tag nachgeholt, so wie er soll.
+    assert data.rollover_hints(rollover_pair(TODAY, next_outcome="claimed")).found is False
+
+
+def test_the_earliest_observation_bounds_the_rollover():
+    # Sammelte schon ein Lauf um 19:00 den naechsten Tag, liegt der Umschaltpunkt davor.
+    attempts = rollover_pair(TODAY, evening_hour=21) + rollover_pair(TODAY - timedelta(days=5), evening_hour=19)
+    found = data.rollover_hints(attempts)
+    assert found.hits == 2
+    assert found.before == dtime(19, 0)
+
+
+def test_a_failed_evening_run_proves_nothing():
+    attempts = [
+        Attempt(ts=datetime.combine(TODAY, dtime(20, 0)), kind="evening", outcome="unreachable"),
+        Attempt(ts=datetime.combine(TODAY + timedelta(days=1), dtime(8, 0)), kind="morning", outcome="already_done"),
+    ]
+    assert data.rollover_hints(attempts).found is False
+
+
+def test_the_hint_shows_up_on_the_history_page(client, tmp_path):
+    seed(tmp_path, rollover_pair(datetime.now().date() - timedelta(days=3)))
+    body = client.get("/verlauf?tage=0").text
+    assert "Abendfenster liegt hinter dem Tageswechsel" in body
+
+
+def test_the_hint_stays_away_without_evidence(client, tmp_path):
+    seed(tmp_path, [Attempt(ts=datetime.now(), kind="morning", outcome="claimed")])
+    assert "Abendfenster liegt hinter dem Tageswechsel" not in client.get("/verlauf?tage=0").text

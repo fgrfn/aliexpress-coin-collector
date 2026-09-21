@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from datetime import time as dtime
 
-from ..runner import SUCCESS, Outcome
+from ..runner import Outcome
+from ..stats import SUCCESS_VALUES, Quota, gains, in_range, latest_coins, success_quota, total_gain
 from ..store import Attempt
 
-SUCCESS_VALUES = {o.value for o in SUCCESS}
+# Die Rechenregeln stehen in stats.py, weil der Dienst sie fuer den Wochenrueckblick ebenfalls
+# braucht. Hier weitergereicht, damit Vorlagen und Tests sie unveraendert ueber data.* finden.
+__all__ = ["SUCCESS_VALUES", "Quota", "gains", "in_range", "latest_coins", "success_quota", "total_gain"]
 
 # Aelter als das, gilt der Dienst als nicht laufend. Der Dienst meldet sich alle 30 s.
 HEARTBEAT_MAX_AGE = timedelta(minutes=5)
@@ -31,16 +35,6 @@ class DayPoint:
 def latest(attempts: list[Attempt]) -> Attempt | None:
     """Juengster Lauf. Erwartet keine bestimmte Sortierung."""
     return max(attempts, key=lambda a: a.ts) if attempts else None
-
-
-def latest_coins(attempts: list[Attempt]) -> int | None:
-    """Zuletzt bekannter Muenzstand. Laeufe ohne erkannten Stand werden uebersprungen."""
-    for attempt in sorted(attempts, key=lambda a: a.ts, reverse=True):
-        if attempt.coins_after is not None:
-            return attempt.coins_after
-        if attempt.coins_before is not None:
-            return attempt.coins_before
-    return None
 
 
 def succeeded_on(attempts: list[Attempt], day: date) -> bool:
@@ -126,6 +120,7 @@ def outcome_label(outcome: str) -> str:
         Outcome.ALREADY_DONE.value: "schon erledigt",
         Outcome.BUSY.value: "übersprungen",
         Outcome.UNREACHABLE.value: "nicht erreichbar",
+        Outcome.LOGIN_REQUIRED.value: "Anmeldung nötig",
         Outcome.NOT_FOUND.value: "nicht erkannt",
         Outcome.UNCONFIRMED.value: "unbestätigt",
         Outcome.ERROR.value: "Fehler",
@@ -159,59 +154,6 @@ def parse_range(raw: str) -> int:
     except (TypeError, ValueError):
         return DEFAULT_RANGE
     return days if any(days == d for d, _ in RANGES) else DEFAULT_RANGE
-
-
-def in_range(attempts: list[Attempt], today: date, days: int) -> list[Attempt]:
-    """Laeufe der letzten 'days' Tage, heute eingeschlossen. 0 heisst alles."""
-    if days <= 0:
-        return list(attempts)
-    first = today - timedelta(days=days - 1)
-    return [a for a in attempts if first <= a.ts.date() <= today]
-
-
-@dataclass(frozen=True)
-class Quota:
-    """Erfolgsquote, bezogen auf Tage statt auf Laeufe.
-
-    Tage sind das ehrlichere Mass: an einem Tag mit einem gescheiterten Morgenlauf und einem
-    erfolgreichen Abendlauf ist der Check-in eingesammelt. Nach Laeufen gezaehlt waere das
-    50 Prozent, nach Tagen 100 -- und nur Letzteres beantwortet die Frage "hat es geklappt".
-    """
-
-    good: int
-    total: int
-
-    @property
-    def percent(self) -> int:
-        return round(100 * self.good / self.total) if self.total else 0
-
-    @property
-    def tone(self) -> str:
-        if not self.total:
-            return ""
-        return "ok" if self.percent >= 90 else "warn" if self.percent >= 70 else "bad"
-
-
-def success_quota(attempts: list[Attempt]) -> Quota:
-    days = {a.ts.date() for a in attempts}
-    good = {a.ts.date() for a in attempts if a.outcome in SUCCESS_VALUES}
-    return Quota(good=len(good), total=len(days))
-
-
-def gains(attempts: list[Attempt]) -> list[int]:
-    """Zuwachs je Lauf, nur wo beide Staende bekannt sind und es wirklich mehr wurde."""
-    out = []
-    for a in attempts:
-        if a.coins_before is None or a.coins_after is None:
-            continue
-        delta = a.coins_after - a.coins_before
-        if delta > 0:
-            out.append(delta)
-    return out
-
-
-def total_gain(attempts: list[Attempt]) -> int:
-    return sum(gains(attempts))
 
 
 def average_gain(attempts: list[Attempt]) -> float:
@@ -323,3 +265,47 @@ def busiest_hour(attempts: list[Attempt]) -> tuple[int, int] | None:
         counts[a.ts.hour] = counts.get(a.ts.hour, 0) + 1
     hour = max(counts, key=lambda h: (counts[h], -h))
     return (hour, counts[hour]) if counts[hour] >= 2 else None
+
+
+@dataclass(frozen=True)
+class Rollover:
+    """Hinweise darauf, dass das Abendfenster hinter dem Umschaltpunkt des AliExpress-Tages liegt."""
+
+    hits: int
+    before: dtime | None  # der Umschaltpunkt liegt vor dieser Uhrzeit
+
+    @property
+    def found(self) -> bool:
+        return self.hits > 0 and self.before is not None
+
+
+def rollover_hints(attempts: list[Attempt]) -> Rollover:
+    """Sucht Abendlaeufe, die schon den naechsten Tag eingesammelt haben.
+
+    Der AliExpress-Tag springt nicht um Mitternacht Ortszeit um. Liegt das Abendfenster dahinter,
+    holt der Nachholversuch nicht den verpassten Tag nach, sondern bereits den naechsten -- der
+    Fehltag bleibt ein Fehltag, und die Serie reisst trotzdem.
+
+    Belegt ist das durch ein Paar: ein Abendlauf sammelt, und am naechsten Morgen ist es bereits
+    erledigt. Die frueheste solche Uhrzeit begrenzt den Umschaltpunkt nach oben.
+
+    Ein Hinweis, kein Beweis: wer abends von Hand am Telefon sammelt, erzeugt dasselbe Muster.
+    Und ohne Abendlaeufe in der Historie gibt es hier nichts zu sehen -- die laufen nur, wenn
+    morgens etwas schiefging.
+    """
+    by_day: dict[date, list[Attempt]] = {}
+    for a in attempts:
+        by_day.setdefault(a.ts.date(), []).append(a)
+
+    hits, before = 0, None
+    for day, runs in by_day.items():
+        evening = [a for a in runs if a.kind == "evening" and a.outcome == Outcome.CLAIMED.value]
+        if not evening:
+            continue
+        following = sorted(by_day.get(day + timedelta(days=1), []), key=lambda a: a.ts)
+        if not following or following[0].outcome != Outcome.ALREADY_DONE.value:
+            continue
+        hits += 1
+        earliest = min(a.ts.time() for a in evening)
+        before = earliest if before is None or earliest < before else before
+    return Rollover(hits=hits, before=before)
