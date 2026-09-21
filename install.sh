@@ -609,7 +609,7 @@ ensure_serial() {
 
 # Ergaenzt eine bestehende .env um Schluessel, die in .env.example dazugekommen sind. Bestehende
 # Werte werden nie angefasst. Ohne das kennt eine .env aus einer aelteren Version neue Optionen
-# gar nicht -- WEB_PASSWORD etwa, ohne das die Weboberflaeche nicht startet.
+# gar nicht und faellt still auf die eingebauten Vorgaben zurueck.
 merge_env_defaults() {
     local example="$DEST/.env.example" target="$DEST/.env"
     local line key block="" added=""
@@ -665,6 +665,20 @@ wait_for_state() {
         waited=$((waited + 1))
     done
     printf '%s' "$state"
+}
+
+
+# Adresse, unter der die Weboberflaeche im LAN erreichbar ist. Ohne ermittelbare Adresse
+# wird der Hostname genommen -- besser als eine erfundene IP.
+web_url() {
+    local host="" port=""
+    port="$(grep -m1 '^WEB_PORT=' "$DEST/.env" 2>/dev/null | cut -d= -f2-)"
+    [ -n "$port" ] || port=80
+    host="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
+    [ -n "$host" ] || host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    [ -n "$host" ] || host="$(hostname 2>/dev/null)"
+    [ -n "$host" ] || host="<Adresse-des-Containers>"
+    if [ "$port" = "80" ]; then printf 'http://%s' "$host"; else printf 'http://%s:%s' "$host" "$port"; fi
 }
 
 
@@ -818,24 +832,46 @@ ensure_serial
 chmod 600 "$DEST/.env"
 chown -R "$SVC_USER": "$DEST"
 
-echo "==> systemd-Dienst"
+echo "==> systemd-Dienste"
+WEB_RUNNING=0
 if [ "$HAVE_SYSTEMD" = 1 ]; then
     sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
     if [ -f "$DEST/$SERVICE-web.service" ]; then
-        # Weboberflaeche: Unit wird angelegt, aber bewusst nicht gestartet. Sie ist optional,
-        # und der taeglich wichtige Check-in soll nicht von ihr abhaengen.
         sed "s|/opt/aliexpress-coin-collector|${DEST}|g" "$DEST/$SERVICE-web.service" \
             > "/etc/systemd/system/$SERVICE-web.service"
     fi
     systemctl daemon-reload
+
+    # Der Sammel-Dienst bleibt bewusst aus: er weckt das Geraet und tippt darauf. Das soll erst
+    # laufen, wenn 'doctor' und ein erster Lauf von Hand geklappt haben.
     if [ "$IS_UPDATE" = 1 ]; then
-        echo "    Dienstdatei aktualisiert. Laeuft der Dienst schon, wirkt die neue Version erst nach:"
+        echo "    Dienstdatei aktualisiert. Laeuft der Sammel-Dienst schon, wirkt die neue Version erst nach:"
         echo "      systemctl restart $SERVICE"
     else
-        echo "    Dienst installiert, aber noch NICHT gestartet"
+        echo "    Sammel-Dienst installiert, aber noch NICHT gestartet (er fasst das Geraet an)"
+    fi
+
+    # Die Weboberflaeche fasst weder ADB noch das Geraet an -- sie liest die Datenbank und legt
+    # allenfalls einen Auftrag ab. Sie darf deshalb sofort laufen. Das Passwort wird beim ersten
+    # Aufruf der Seite vergeben, es gibt hier nichts vorzukonfigurieren.
+    if [ -f "/etc/systemd/system/$SERVICE-web.service" ]; then
+        if systemctl enable --now "$SERVICE-web" >/dev/null 2>&1; then
+            sleep 1
+            if systemctl is-active --quiet "$SERVICE-web"; then
+                WEB_RUNNING=1
+                echo "    Weboberflaeche laeuft und startet ab jetzt automatisch mit"
+            else
+                echo "    Weboberflaeche konnte nicht gestartet werden. Ursache zeigt:"
+                echo "      systemctl status $SERVICE-web"
+                echo "      journalctl -u $SERVICE-web -n 40 --no-pager"
+            fi
+        else
+            echo "    Weboberflaeche konnte nicht aktiviert werden, Hinweise siehe:"
+            echo "      journalctl -u $SERVICE-web -n 40 --no-pager"
+        fi
     fi
 else
-    echo "    systemd nicht verfuegbar, Dienstdatei uebersprungen"
+    echo "    systemd nicht verfuegbar, Dienstdateien uebersprungen"
 fi
 
 echo "==> Zeitzone pruefen"
@@ -901,6 +937,15 @@ Naechste Schritte:
        systemctl enable --now $SERVICE
 MSG
     fi
+fi
+
+# Die Weboberflaeche laeuft bereits, das Passwort fehlt aber noch. Ohne diesen Hinweis wuesste
+# niemand, wo es vergeben wird.
+if [ "$WEB_RUNNING" = 1 ]; then
+    echo ""
+    echo "Weboberflaeche: $(web_url)"
+    echo "    Beim ersten Aufruf vergibst du dort das Passwort. Bis dahin zeigt die Seite nichts an"
+    echo "    und es laesst sich kein Lauf ausloesen. Es steht nicht mehr in der .env."
 fi
 
 # 'doctor' als Gegenprobe zum Schluss. Ohne Geraete-Adresse kann es nicht starten, dann wird es

@@ -22,7 +22,7 @@ jobs:
           cache: pip
       - name: Abhaengigkeiten
         # ruff ist fest gepinnt, damit neue Regeln einer neueren Version die CI nicht unangekündigt rot machen
-        run: pip install -r requirements.txt "pytest>=8" "ruff==0.15.8"
+        run: pip install -r requirements.txt "pytest>=8" "ruff==0.15.8" "httpx>=0.27"
       - name: Codeprüfung (ruff)
         run: ruff check .
       - name: Formatierung (ruff)

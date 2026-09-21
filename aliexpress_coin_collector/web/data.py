@@ -111,11 +111,11 @@ def button_state(
 ) -> ButtonState:
     """Die drei vereinbarten Leitplanken, an einer Stelle und ohne Webserver pruefbar."""
     if not alive:
-        return ButtonState(False, "Der Dienst laeuft nicht, ein Auftrag wuerde nie abgeholt werden.")
+        return ButtonState(False, "Der Dienst läuft nicht, ein Auftrag würde nie abgeholt werden.")
     if request_pending:
         return ButtonState(False, "Es ist bereits ein Lauf angefordert, der Dienst holt ihn gleich ab.")
     if succeeded_on(attempts, today):
-        return ButtonState(False, "Heute wurde bereits erfolgreich eingecheckt, ein weiterer Lauf braechte nichts.")
+        return ButtonState(False, "Heute wurde bereits erfolgreich eingecheckt, ein weiterer Lauf brächte nichts.")
     return ButtonState(True)
 
 
@@ -124,10 +124,10 @@ def outcome_label(outcome: str) -> str:
     return {
         Outcome.CLAIMED.value: "eingesammelt",
         Outcome.ALREADY_DONE.value: "schon erledigt",
-        Outcome.BUSY.value: "uebersprungen",
+        Outcome.BUSY.value: "übersprungen",
         Outcome.UNREACHABLE.value: "nicht erreichbar",
         Outcome.NOT_FOUND.value: "nicht erkannt",
-        Outcome.UNCONFIRMED.value: "unbestaetigt",
+        Outcome.UNCONFIRMED.value: "unbestätigt",
         Outcome.ERROR.value: "Fehler",
     }.get(outcome, outcome)
 
