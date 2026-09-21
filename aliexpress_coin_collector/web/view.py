@@ -22,8 +22,7 @@ TEMPLATES = HERE / "templates"
 STATIC = HERE / "static"
 
 # Bereiche der Seitenleiste. Ein Eintrag steht erst hier, wenn es die Seite dahinter gibt --
-# eine Leiste mit toten Wegen waere schlechter als eine kurze. Einstellungen folgt in
-# Etappe 4.
+# eine Leiste mit toten Wegen waere schlechter als eine kurze.
 NAV = [
     {
         "href": "/",
@@ -206,16 +205,21 @@ def ago(moment: datetime | None, now: datetime) -> str:
 
 
 def heartbeat_text(beat: datetime | None, now: datetime) -> str:
-    """Wie frisch das Lebenszeichen ist. Ohne Datei: eine Aussage, kein leeres Feld."""
+    """Wann der Dienst zuletzt seine Runde gedreht hat. Ohne Datei: eine Aussage, kein leeres Feld.
+
+    Bewusst "Takt" und nicht "Lebenszeichen": das Wort stand frueher auch an der Verbindungskarte,
+    und dann liest man "Lebenszeichen vor 15 s" neben "nicht erreichbar" als Widerspruch. Es sind
+    zwei Dinge -- hier der Dienst, dort das Geraet.
+    """
     if beat is None:
-        return "kein Lebenszeichen"
+        return "kein Takt seit dem Start"
     seconds = max(0, int((now - beat).total_seconds()))
     if seconds < 90:
-        return f"Lebenszeichen vor {seconds} s"
+        return f"letzter Takt vor {seconds} s"
     minutes = seconds // 60
     if minutes < 90:
-        return f"Lebenszeichen vor {minutes} min"
-    return f"Lebenszeichen vor {minutes // 60} h"
+        return f"letzter Takt vor {minutes} min"
+    return f"letzter Takt vor {minutes // 60} h"
 
 
 # ---------------------------------------------------------------------------- Geraeteseite
@@ -304,7 +308,7 @@ def services(collector_alive: bool, heartbeat: datetime | None, now: datetime) -
             label="Sammel-Dienst",
             unit="aliexpress-coin-collector",
             alive=collector_alive,
-            since=f"Lebenszeichen {ago(heartbeat, now)}" if heartbeat else "kein Lebenszeichen",
+            since=f"letzter Takt {ago(heartbeat, now)}" if heartbeat else "kein Takt seit dem Start",
             verbs=(("restart", "Neustart"), ("stop", "Stoppen")) if collector_alive else (("start", "Starten"),),
         ),
         Service(

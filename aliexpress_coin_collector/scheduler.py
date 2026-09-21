@@ -185,17 +185,77 @@ def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final
     notify.send_discord(cfg.discord_webhook, text, result.screenshot)
 
 
-def report_status(cfg: Config, adb: Adb, version: str) -> str:
+# Abstaende zwischen zwei Verbindungsversuchen, in Minuten. Der erste Versuch kommt sofort,
+# danach wird der Abstand groesser: ein 'adb connect' laeuft bei totem Geraet in einen Timeout
+# von 15 Sekunden, und das bei jedem Takt waere die halbe Zeit des Dienstes.
+RECONNECT_BACKOFF_MIN = (1, 2, 5, 10, 30)
+
+
+@dataclass
+class Reconnect:
+    """Merkt sich, wann zuletzt neu verbunden wurde und wie oft es nichts brachte.
+
+    Reine Zustandshaltung, ohne ADB -- damit die Abstaende ohne Geraet pruefbar sind.
+    """
+
+    failures: int = 0
+    last_try: datetime | None = None
+
+    def due(self, now: datetime) -> bool:
+        """Darf jetzt wieder ein Versuch laufen?"""
+        if self.last_try is None or self.failures == 0:
+            return True
+        wait = RECONNECT_BACKOFF_MIN[min(self.failures - 1, len(RECONNECT_BACKOFF_MIN) - 1)]
+        return now >= self.last_try + timedelta(minutes=wait)
+
+    def note(self, ok: bool, now: datetime) -> None:
+        self.last_try = now
+        self.failures = 0 if ok else self.failures + 1
+
+    def reset(self) -> None:
+        """Das Geraet ist von sich aus wieder da -- der naechste Abriss darf sofort ran."""
+        self.failures = 0
+        self.last_try = None
+
+
+def report_status(
+    cfg: Config,
+    adb: Adb,
+    version: str,
+    reconnect: Reconnect | None = None,
+    now: datetime | None = None,
+) -> str:
     """Blick auf das Geraet fuer die Weboberflaeche. Gibt den Zustand zurueck.
 
     'adb get-state' fragt nur den lokalen adb-Server, weckt das Geraet also nicht und tippt
     nicht darauf. Der Bildschirmzustand kostet dagegen einen echten shell-Aufruf und wird
     deshalb nur geholt, wenn das Geraet ueberhaupt antwortet.
+
+    Mit 'reconnect' heilt sich die Meldung selbst: get-state baut eine abgerissene
+    TCP-Verbindung nie von allein wieder auf, die Seite zeigte sonst dauerhaft "nicht
+    erreichbar", obwohl das Geraet laengst wieder im Netz haengt.
     """
+    now = now or datetime.now()
     state = "unbekannt"
     screen: bool | None = None
     try:
         state = adb.state()
+        # Bei 'unauthorized' steht die Verbindung bereits -- da wartet ein Dialog auf dem
+        # Geraet, und ein weiteres connect aendert daran nichts.
+        if reconnect is not None:
+            if state == "device":
+                reconnect.reset()
+            elif state != "unauthorized" and reconnect.due(now):
+                ok = False
+                try:
+                    ok = adb.ensure_connected()
+                finally:
+                    # Auch ein Versuch, der mit einer Ausnahme endet, zaehlt als Fehlversuch.
+                    # Sonst bliebe last_try leer und der naechste Takt versuchte es sofort
+                    # wieder -- der Backoff waere genau dann wirkungslos, wenn es klemmt.
+                    reconnect.note(ok, now)
+                log.info("Verbindung von allein neu aufgebaut" if ok else "Geraet weiter nicht erreichbar")
+                state = adb.state()
         if state == "device":
             screen = adb.is_awake()
     except Exception as exc:  # noqa: BLE001 - ein Fehler hier darf den Dienst nie anhalten
@@ -262,6 +322,55 @@ def process_commands(cfg: Config, adb: Adb, store: Store) -> int:
     return done
 
 
+def tick(
+    base_cfg: Config,
+    adb: Adb,
+    store: Store,
+    reconnect: Reconnect,
+    version: str = "",
+    announced: date | None = None,
+    now: datetime | None = None,
+) -> date | None:
+    """Eine Runde des Dienstes. Gibt zurueck, fuer welchen Tag der Plan zuletzt gemeldet wurde.
+
+    Eigene Funktion, damit die Schleife pruefbar ist -- die Reihenfolge darin ist nicht
+    beliebig, und genau daran ist schon einmal etwas haengengeblieben.
+    """
+    now = now or datetime.now()
+    cfg = with_current_settings(base_cfg)
+    touch_heartbeat(cfg)
+    report_status(cfg, adb, version, reconnect, now)
+
+    # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
+    # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
+    if take_request(cfg):
+        log.info("Lauf ueber die Weboberflaeche angefordert (alte Auftragsdatei)")
+        result = run_once(cfg, adb, force=True)
+        handle_result(cfg, store, "manual", result)
+
+    # Nach einem Auftrag noch einmal melden. Sonst zeigte die Seite bis zum naechsten Takt
+    # weiter den alten Zustand: ein erfolgreiches "Neu verbinden" waere bis zu 30 Sekunden
+    # lang unsichtbar, und es saehe aus, als haette der Knopf nichts getan.
+    if process_commands(cfg, adb, store):
+        report_status(cfg, adb, version, reconnect, datetime.now())
+
+    plan = plan_for(now.date(), cfg)
+    if announced != now.date():
+        log.info(
+            "Heute: Morgenlauf ab %s, Abendlauf ab %s",
+            plan.morning_at.strftime("%H:%M"),
+            plan.evening_at.strftime("%H:%M"),
+        )
+        announced = now.date()
+
+    decision = decide(now, plan, store.for_day(now.date()), cfg)
+    if decision:
+        log.info("Starte %s%s", decision.kind, " (erzwungen)" if decision.force else "")
+        result = run_once(cfg, adb, force=decision.force)
+        handle_result(cfg, store, decision.kind, result, final_attempt=decision.kind == "evening")
+    return announced
+
+
 def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str = "") -> None:
     log.info(
         "Dienst gestartet. Fenster morgens %s-%s, abends %s-%s",
@@ -271,34 +380,7 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
         cfg.evening_end,
     )
     announced: date | None = None
-    base_cfg = cfg
+    reconnect = Reconnect()
     while True:
-        now = datetime.now()
-        cfg = with_current_settings(base_cfg)
-        touch_heartbeat(cfg)
-        report_status(cfg, adb, version)
-
-        # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
-        # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
-        if take_request(cfg):
-            log.info("Lauf ueber die Weboberflaeche angefordert (alte Auftragsdatei)")
-            result = run_once(cfg, adb, force=True)
-            handle_result(cfg, store, "manual", result)
-
-        process_commands(cfg, adb, store)
-
-        plan = plan_for(now.date(), cfg)
-        if announced != now.date():
-            log.info(
-                "Heute: Morgenlauf ab %s, Abendlauf ab %s",
-                plan.morning_at.strftime("%H:%M"),
-                plan.evening_at.strftime("%H:%M"),
-            )
-            announced = now.date()
-
-        decision = decide(now, plan, store.for_day(now.date()), cfg)
-        if decision:
-            log.info("Starte %s%s", decision.kind, " (erzwungen)" if decision.force else "")
-            result = run_once(cfg, adb, force=decision.force)
-            handle_result(cfg, store, decision.kind, result, final_attempt=decision.kind == "evening")
+        announced = tick(cfg, adb, store, reconnect, version, announced)
         time.sleep(tick_s)

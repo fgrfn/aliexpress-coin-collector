@@ -183,6 +183,17 @@ Wörtern nach `data/control`; eine systemd-Pfadeinheit bemerkt das und startet `
 das aus diesen Wörtern selbst den `systemctl`-Aufruf zusammensetzt. Alles, was nicht exakt passt,
 wird abgelehnt. Es wird nie ein Befehl durchgereicht.
 
+Reißt die TCP-Verbindung ab, holt der Dienst sie von allein zurück: `adb get-state` fragt nur den
+lokalen adb-Server und baut nie neu auf, deshalb versucht die Zustandsmeldung selbst ein `connect`
+— sofort, dann mit wachsendem Abstand (1, 2, 5, 10, danach 30 Minuten). Der Abstand ist nötig, weil
+ein `connect` auf ein totes Gerät 15 Sekunden in einen Timeout läuft. Bei „nicht freigegeben" wird
+gar nicht erst versucht; da wartet nur ein Dialog auf dem Gerät.
+
+Die zwei Zeitangaben auf der Seite meinen Verschiedenes: **„letzter Takt"** in der Seitenleiste
+sagt, wann der Dienst zuletzt seine Runde gedreht hat, **„Gerät geprüft"** auf der Verbindungskarte,
+wann er dabei zuletzt nach dem Gerät gesehen hat. Ein frischer Takt neben „nicht erreichbar" ist
+also kein Widerspruch.
+
 Die vollständige Geräteadresse steht nicht auf der Seite — sie erscheint verkürzt als
 `10.10.30.xxx:5555`, weil sie sonst in jedem Screenshot und im Browserverlauf landet.
 
