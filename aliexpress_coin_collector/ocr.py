@@ -71,11 +71,25 @@ def _matches(word: Word, labels: tuple[str, ...]) -> bool:
     return any(difflib.SequenceMatcher(None, text, label.lower()).ratio() >= 0.8 for label in labels)
 
 
-def find_button(img: np.ndarray, words: list[Word], labels: tuple[str, ...], lang: str) -> Word | None:
+THRESHOLDS = (235, 220, 245)
+
+
+def find_button(
+    img: np.ndarray,
+    words: list[Word],
+    labels: tuple[str, ...],
+    lang: str,
+    thresholds: tuple[int, ...] = THRESHOLDS,
+    invert: bool = True,
+) -> Word | None:
     """Sucht das Button-Wort im mittleren Bereich der Seite.
 
     Weisse Schrift auf orangem Grund erkennt Tesseract im Originalbild nicht. Deshalb gibt es
     Ausweichdurchgaenge, die nur die (fast) weissen Pixel als dunkle Schrift auf hellem Grund stehen lassen.
+
+    'thresholds' und 'invert' sind fuer das Diagnose-Werkzeug der Weboberflaeche da: dort laesst
+    sich ausprobieren, welcher Schwellwert an einem echten Screenshot traegt. Im Betrieb bleibt
+    es bei den Standardwerten.
     """
     height = img.shape[0]
 
@@ -85,8 +99,9 @@ def find_button(img: np.ndarray, words: list[Word], labels: tuple[str, ...], lan
     candidates = [w for w in words if in_zone(w) and _matches(w, labels)]
     if not candidates:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        for threshold in (235, 220, 245):
-            _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+        mode = cv2.THRESH_BINARY_INV if invert else cv2.THRESH_BINARY
+        for threshold in thresholds:
+            _, binary = cv2.threshold(gray, threshold, 255, mode)
             candidates = [w for w in read_words(binary, lang) if in_zone(w) and _matches(w, labels)]
             if candidates:
                 break
@@ -117,7 +132,12 @@ def read_coin_balance(words: list[Word], width: int, height: int) -> int | None:
     return int(digits) if digits else None
 
 
-def analyze(png: bytes, cfg: Config) -> PageState:
+def analyze(
+    png: bytes,
+    cfg: Config,
+    thresholds: tuple[int, ...] = THRESHOLDS,
+    invert: bool = True,
+) -> PageState:
     img = decode_png(png)
     height, width = img.shape[:2]
     words = read_words(img, cfg.ocr_lang)
@@ -126,6 +146,6 @@ def analyze(png: bytes, cfg: Config) -> PageState:
     top_text = " ".join(w.text for w in words if w.cy < height * 0.5)
     done = bool(re.search(r"\bmorgen", top_text, re.IGNORECASE))
 
-    button = None if done else find_button(img, words, cfg.button_labels, cfg.ocr_lang)
+    button = None if done else find_button(img, words, cfg.button_labels, cfg.ocr_lang, thresholds, invert)
     coins = read_coin_balance(words, width, height)
     return PageState(button=button, done=done and button is None, coins=coins, width=width, height=height, text=text)

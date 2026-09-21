@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% include "partials/log.html" with context %}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Erkennung prüfen</h2>
+    <span class="note" style="margin: 0;">OCR wird erst hier geladen</span>
+  </div>
+
+  {% if error %}<p class="bad" role="alert">{{ error }}</p>{% endif %}
+
+  <form method="post" action="/diagnose/erkennung" enctype="multipart/form-data" class="inspect">
+    <div class="inspect-input">
+      <div class="field">
+        <label for="bild">Screenshot</label>
+        <input id="bild" type="file" name="bild" accept="image/png,image/jpeg,image/webp" required>
+      </div>
+      <div class="field">
+        <label for="schwelle">Schwellwert <span class="note" style="margin: 0;">leer = Standard</span></label>
+        <input id="schwelle" type="number" name="schwelle" min="0" max="255" step="1"
+               value="{{ threshold_raw }}" placeholder="235, 220, 245">
+      </div>
+      <label class="check">
+        <input type="checkbox" name="invertiert" value="1" {{ "checked" if invert else "" }}>
+        invertiert binarisieren
+      </label>
+      <button class="btn" type="submit">Prüfen</button>
+    </div>
+  </form>
+
+  {% if result %}
+    <div class="inspect-result">
+      {% if result.preview %}
+        <div class="inspect-shot">
+          <img src="{{ result.preview }}" alt="Verkleinerte Vorschau des geprüften Screenshots">
+          {% if result.box %}
+            <span class="inspect-box" style="left: {{ '%.2f'|format(result.box.left) }}%;
+                  top: {{ '%.2f'|format(result.box.top) }}%;
+                  width: {{ '%.2f'|format(result.box.width) }}%;
+                  height: {{ '%.2f'|format(result.box.height) }}%;"></span>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div class="inspect-rows">
+        <div class="row-line">
+          <span class="key">Button „Sammeln“</span>
+          {% if result.found %}
+            <span class="pill pill-ok">gefunden</span>
+            <span class="val">bei {{ result.position }}</span>
+          {% else %}
+            <span class="pill pill-bad">nicht gefunden</span>
+          {% endif %}
+        </div>
+        {% if result.found %}
+          <div class="row-line">
+            <span class="key">Erkanntes Wort</span><span class="val">{{ result.label }}</span>
+          </div>
+          <div class="row-line">
+            <span class="key">Konfidenz</span>
+            <span class="val">{{ result.confidence }} von 100</span>
+            <span class="bar"><span style="width: {{ result.confidence }}%;"></span></span>
+          </div>
+        {% endif %}
+        <div class="row-line">
+          <span class="key">Erledigt-Zustand</span>
+          <span class="val">{{ "erkannt" if result.done else "nicht erkannt" }}</span>
+        </div>
+        <div class="row-line">
+          <span class="key">Münzstand</span>
+          <span class="val">{{ result.coins|zahl }}</span>
+        </div>
+        <div class="row-line">
+          <span class="key">Auflösung</span>
+          <span class="val">{{ result.width }} × {{ result.height }}</span>
+        </div>
+        <div class="row-line">
+          <span class="key">Schwellwert</span>
+          <span class="val">{{ result.thresholds }}{{ ", invertiert" if result.invert else ", nicht invertiert" }}</span>
+        </div>
+        <div class="row-line">
+          <span class="key">Wörter im Originalbild</span>
+          <span class="val">{{ result.word_count }}</span>
+          {% if result.found and result.word_count == 0 %}
+            <span class="note" style="margin: 0;">
+              Keins — der Button kam erst aus dem Schwellwert-Durchgang. Genau dafür gibt es ihn:
+              weiße Schrift auf orangem Grund liest Tesseract im Originalbild nicht.
+            </span>
+          {% endif %}
+        </div>
+        <div class="row-line">
+          <span class="key">Dauer</span><span class="val">{{ result.duration_s }} s</span>
+        </div>
+      </div>
+    </div>
+
+    {% if result.words %}
+      <details class="words">
+        <summary>Was die OCR im Originalbild gelesen hat ({{ result.words|length }} Wörter)</summary>
+        <p>{{ result.words|join(" · ") }}</p>
+      </details>
+    {% endif %}
+  {% endif %}
+
+  <div class="hint">
+    <strong>Das hochgeladene Bild wird nie gespeichert.</strong>
+    Screenshots zeigen Kontostände und Bestellungen. Das Bild lebt nur im Speicher dieser einen
+    Anfrage; die Vorschau steckt direkt in dieser Seite und liegt nirgends auf der Platte.
+  </div>
+
+  <p class="note">
+    Wofür das da ist: die Erkennung des Sammeln-Buttons ist bis heute nur an Attrappen belegt.
+    Mit echten Screenshots lässt sich hier prüfen, ob sie trägt — und bei welchem Schwellwert.
+  </p>
+</section>
+
+{% endblock %}

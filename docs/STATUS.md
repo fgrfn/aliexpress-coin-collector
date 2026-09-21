@@ -42,6 +42,13 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Etappe 3 (Diagnose): **erstmals gegen echtes Tesseract geprüft**, nicht nur mit Attrappen. An zwei
+  nachgestellten Screenshots (720×1280, weiße Schrift auf orangem Knopf) findet die Erkennung „Sammeln"
+  mit Konfidenz 96 und erkennt den Erledigt-Zustand. Das Protokoll wurde über den echten Schreibweg
+  erzeugt und wieder eingelesen, samt Traceback. Nachgewiesen: das hochgeladene Bild landet nirgends
+  im Datenverzeichnis. Die Seite in Chromium angesehen — hell, dunkel, Handybreite.
+  **Ein echter Screenshot eines Telefons im Offen-Zustand liegt weiterhin nicht vor** — das Werkzeug
+  ist da, das Bild fehlt.
 - Etappe 2 (Gerät & Dienst): Auftragsablage und Zustandsmeldung gegen einen echt laufenden Webdienst
   geprüft — Auftrag ablegen, doppelte und unbekannte Aufträge abweisen, ein Dienst-Takt arbeitet sie ab,
   die Seite zeigt Ergebnis und Screenshot. Der Root-Helfer `control.sh` wurde mit einer `systemctl`-Attrappe
@@ -118,10 +125,17 @@ Alles läuft über Dateien in `data/`, niemand ruft den anderen direkt auf. Je D
 | `web-password` | Oberfläche | Oberfläche | Hash des Passworts |
 | `control` | Oberfläche | `control.sh` (root) | zwei geprüfte Wörter für `systemctl` |
 | `control-result` | `control.sh` (root) | Oberfläche | Ausgang der letzten Steuerung |
+| `collector.log` | Sammel-Dienst | Oberfläche | Protokoll, rotierend, 5 × 1 MB. Nur der Dienst schreibt es |
 | `run-requested` | (Altlast) | Sammel-Dienst | Auftragsdatei vor Version 0.5.0, wird noch angenommen |
 
 Die Wartezeit von bis zu einem Takt ist der Preis dafür, dass genau ein Prozess das Gerät anfasst.
 Die Oberfläche zeigt sie an, statt sie zu verstecken.
+
+**Warum eine Protokolldatei, wo doch alles ins journald geht:** der Webdienst darf das Journal
+nicht lesen. Ihn in die Gruppe `systemd-journal` zu nehmen wäre der Preis gewesen. Geschrieben
+wird sie nur vom Dienst — ein Aufruf von Hand (`once`, `doctor`) protokolliert weiter nur auf die
+Konsole, sonst legt der erste Aufruf als root eine Datei an, die der Dienst nicht mehr beschreiben
+kann.
 
 **Warum `control.sh` und kein `sudo`:** der Webdienst läuft mit `NoNewPrivileges=yes`, damit
 funktioniert `sudo` nicht (es braucht setuid). `polkit` ist in einem schlanken LXC oft gar nicht
@@ -202,10 +216,13 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    in dieses Fenster fällt, endet als `unreachable`. Fällt das Backup mit dem Morgenfenster zusammen, sollte eins
    von beiden verschoben werden. Der Dienst holt einen verpassten Morgenlauf abends nach, das federt es ab,
    ersetzt aber keine saubere Trennung der Fenster.
-10. **Weboberfläche ausbauen.** Etappe 1 (Fundament) und Etappe 2 (Gerät und Dienst steuern über eine
-    Befehlsablage) sind umgesetzt. Offen sind Etappe 3 (Protokoll und Erkennungs-Werkzeug) und Etappe 4
-    (Einstellungen in `data/web.sqlite3`, ausgebaute Auswertung). Der Entwurf dazu steht als
-    Design-Leinwand und ist mit dem Nutzer abgestimmt.
+10. **Weboberfläche ausbauen.** Etappen 1 bis 3 sind umgesetzt. Offen ist Etappe 4 (Einstellungen in
+    `data/web.sqlite3`, ausgebaute Auswertung). Der Entwurf dazu steht als Design-Leinwand und ist mit
+    dem Nutzer abgestimmt.
+11. **App nach dem Lauf beenden?** Sie bleibt derzeit im Hintergrund auf der Coin-Seite stehen; beendet
+    wird sie erst beim nächsten Lauf. Ein `force_stop` direkt nach der Bestätigung wäre riskant, weil
+    unklar ist, ob die App den Vorgang schon zum Server durchgeschrieben hat. Falls gewünscht: nur dann
+    beenden, wenn der Dienst das Gerät selbst geweckt hat, und mit Abstand.
 
 ## 9. Regeln für Änderungen
 

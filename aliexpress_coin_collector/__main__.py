@@ -7,7 +7,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import __version__, ocr
+from . import __version__, logs, ocr
 from .adb import Adb, AdbError
 from .config import Config, ConfigError
 from .runner import run_once
@@ -16,7 +16,7 @@ from .store import Store
 
 
 def _setup_logging(level: str) -> None:
-    logging.basicConfig(level=getattr(logging, level, logging.INFO), format="%(asctime)s %(levelname)-7s %(message)s")
+    logging.basicConfig(level=getattr(logging, level, logging.INFO), format=logs.FORMAT)
 
 
 def cmd_once(cfg: Config, args: argparse.Namespace) -> int:
@@ -37,6 +37,10 @@ def cmd_once(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon(cfg: Config, args: argparse.Namespace) -> int:
+    # Zusaetzlich in eine Datei, damit die Weboberflaeche das Protokoll zeigen kann.
+    # Nur hier, nicht bei Aufrufen von Hand: sonst gehoert die Datei danach dem
+    # falschen Nutzer und der Dienst kann sie nicht mehr beschreiben.
+    logs.attach(cfg.data_dir, cfg.log_level)
     # Die Version wandert mit in die Zustandsmeldung: die Oberflaeche erkennt daran,
     # ob der Dienst nach einem Update noch in der alten Fassung laeuft.
     daemon(cfg, Adb(cfg.adb_serial, cfg.adb_path), Store(cfg.data_dir), version=__version__)

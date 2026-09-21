@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aliexpress-coin-collector"
-version = "0.5.0"
+version = "0.6.0"
 description = "Sammelt den taeglichen AliExpress-Coin-Check-in automatisch ein (Android per ADB + OCR)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,3 +46,8 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+# FastAPI erwartet File() und Form() als Vorgabewert im Funktionskopf. Das ist der
+# vorgesehene Weg, kein veraenderliches Standardargument.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.File", "fastapi.Form"]

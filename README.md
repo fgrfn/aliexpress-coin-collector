@@ -195,6 +195,29 @@ Der Knopf „Lauf jetzt starten" geht denselben Weg. Er ist gesperrt, wenn heute
 eingecheckt wurde, wenn bereits ein Auftrag offen ist oder wenn der Dienst kein Lebenszeichen mehr
 gibt.
 
+### Diagnose
+
+Eine dritte Seite zeigt das **Protokoll des Sammel-Dienstes** — mit Filter nach Stufe, Suche und
+einem Schalter „mitlaufen", der die Ansicht alle fünf Sekunden nachlädt. Tracebacks hängen an der
+Zeile, zu der sie gehören, statt einzeln aufzutauchen.
+
+Der Dienst schreibt dafür neben der Ausgabe ins journald eine rotierende Datei nach
+`data/collector.log` (fünf mal ein Megabyte). Nötig ist das, weil der Webdienst als
+unprivilegierter Nutzer das Journal nicht lesen darf. Geschrieben wird sie **nur vom Dienst** — ein
+Aufruf von Hand protokolliert weiter auf die Konsole, sonst gehört die Datei danach dem falschen
+Nutzer.
+
+Dazu ein **Werkzeug für die Erkennung**: Screenshot hochladen, und die Seite zeigt, was die OCR
+darin findet — Button mit Position und Konfidenz, Erledigt-Zustand, Münzstand, Auflösung, Dauer,
+dazu ein Rahmen um die Fundstelle. Schwellwert und Invertierung lassen sich ausprobieren; leer
+bedeutet genau das Verhalten im Betrieb.
+
+**Das hochgeladene Bild wird nie gespeichert.** Screenshots zeigen Kontostände und Bestellungen.
+Es lebt nur im Speicher der einen Anfrage, die Vorschau steckt direkt in der Antwort.
+
+OpenCV und Tesseract werden erst beim ersten Aufruf des Werkzeugs geladen, nicht beim Start: wer es
+nie benutzt, zahlt den Speicher nicht.
+
 Die abgeleitete Streak zählt aufeinanderfolgende Tage mit Erfolg aus der Datenbank. Tage, die vor dem
 ersten Lauf des Dienstes von Hand gesammelt wurden, kennt sie nicht — dafür gibt es `STREAK_OFFSET`.
 
