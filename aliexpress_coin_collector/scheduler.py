@@ -6,8 +6,9 @@ import time
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
+from pathlib import Path
 
-from . import __version__, commands, notify, settings
+from . import __version__, commands, notify, settings, stats
 from .adb import Adb
 from .config import Config, ConfigError
 from .runner import SUCCESS, Outcome, RunResult, run_once
@@ -278,6 +279,68 @@ def offline_message(minutes: int, serial: str) -> notify.Message:
     )
 
 
+DIGEST_FILE = "last-digest"
+DIGEST_DAYS = 7
+DIGEST_WEEKDAY = 0  # Montag
+DIGEST_HOUR = 9
+
+
+def digest_due(data_dir: Path, today: date, weekday: int, hour: int, now_hour: int) -> bool:
+    """Ist heute ein Rueckblick faellig, und wurde er noch nicht geschickt?
+
+    Der Merker ist eine Datei mit einem Datum. Ohne sie waere der Rueckblick entweder an jedem
+    Takt des Stichtags noch einmal draussen oder nach einem Neustart des Dienstes verloren.
+    Beim allerersten Mal wird nichts verschickt: sonst kaeme direkt nach der Installation ein
+    Rueckblick auf eine leere Woche.
+    """
+    if today.weekday() != weekday or now_hour < hour:
+        return False
+    path = data_dir / DIGEST_FILE
+    try:
+        last = date.fromisoformat(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        # Noch nie geschickt: Stichtag vermerken und diese eine Woche auslassen.
+        _mark_digest(data_dir, today)
+        return False
+    return last < today
+
+
+def _mark_digest(data_dir: Path, today: date) -> None:
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / DIGEST_FILE).write_text(today.isoformat() + "\n", encoding="utf-8")
+    except OSError as exc:
+        log.warning("Merker fuer den Rueckblick nicht schreibbar: %s", exc)
+
+
+def digest_message(attempts: list[Attempt], today: date, days: int = DIGEST_DAYS) -> notify.Message:
+    """Rueckblick auf die letzten Tage. Rechnet mit denselben Regeln wie die Weboberflaeche."""
+    window = stats.in_range(attempts, today, days)
+    quota = stats.success_quota(window)
+    gained = stats.total_gain(window)
+    balance = stats.latest_coins(window) or stats.latest_coins(attempts)
+    missed = quota.total - quota.good
+
+    if not window:
+        description = "In den letzten sieben Tagen wurde kein einziger Lauf aufgezeichnet."
+    elif missed == 0:
+        description = "Jeden Tag eingesammelt."
+    else:
+        description = f"An {missed} von {quota.total} Tagen hat es nicht geklappt."
+
+    return notify.Message(
+        title="📅 Die Woche in Zahlen",
+        tone=quota.tone or "info",
+        description=description,
+        fields=(
+            notify.Field("Erfolgsquote", f"{quota.percent} % ({quota.good}/{quota.total} Tage)"),
+            notify.Field("Gesammelt", f"+{notify.number(gained)}"),
+            notify.Field("Münzstand", notify.number(balance)),
+        ),
+        footer=f"Rückblick auf {days} Tage",
+    )
+
+
 def test_message(cfg: Config) -> notify.Message:
     """Testmeldung. Zeigt zugleich, was ueberhaupt gemeldet wird -- sonst weiss man nach dem
     erfolgreichen Test immer noch nicht, wovon man kuenftig hoert."""
@@ -521,6 +584,12 @@ def tick(
     # lang unsichtbar, und es saehe aus, als haette der Knopf nichts getan.
     if process_commands(cfg, adb, store):
         report_status(cfg, adb, version, reconnect, datetime.now())
+
+    # Montagmorgens ein Rueckblick auf die Woche. Tag und Uhrzeit sind bewusst fest: noch zwei
+    # Einstellungen fuer eine Meldung, die einmal die Woche kommt, waeren keine gewonnen.
+    if cfg.notify_weekly and digest_due(cfg.data_dir, now.date(), DIGEST_WEEKDAY, DIGEST_HOUR, now.hour):
+        notify.send(cfg.discord_webhook, digest_message(store.recent(400), now.date()))
+        _mark_digest(cfg.data_dir, now.date())
 
     plan = plan_for(now.date(), cfg)
     if announced != now.date():

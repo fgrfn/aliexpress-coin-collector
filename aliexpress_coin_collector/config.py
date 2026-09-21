@@ -143,6 +143,7 @@ class Config:
     notify_on_already_done: bool
     notify_on_offline: bool
     offline_alert_min: int
+    notify_weekly: bool
     data_dir: Path
     log_level: str
     # Zeitpunkt der letzten Aenderung aus settings.json, None wenn es keine gibt.
@@ -192,6 +193,7 @@ class Config:
             "notify_on_already_done": _bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
             "notify_on_offline": _bool(get("NOTIFY_ON_OFFLINE") or "true"),
             "offline_alert_min": _int("OFFLINE_ALERT_MIN", 30),
+            "notify_weekly": _bool(get("NOTIFY_WEEKLY") or "true"),
             "data_dir": data_dir,
             "log_level": (get("LOG_LEVEL") or "INFO").strip().upper(),
         }

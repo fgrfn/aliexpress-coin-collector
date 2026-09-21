@@ -238,3 +238,62 @@ def test_the_cli_says_when_no_webhook_is_configured(cfg, capsys):
 
     assert __main__.cmd_notify_test(cfg, None) == 1
     assert "Kein Discord-Webhook" in capsys.readouterr().err
+
+
+# -- Wochenrueckblick ----------------------------------------------------------------------------
+
+
+def week(claimed_days=7, total_days=7, gain=10):
+    from datetime import timedelta
+
+    from aliexpress_coin_collector.store import Attempt
+
+    out, coins = [], 1500
+    for i in range(total_days):
+        day = NOW - timedelta(days=i)
+        good = i < claimed_days
+        out.append(
+            Attempt(
+                ts=day,
+                kind="morning",
+                outcome="claimed" if good else "unreachable",
+                coins_before=coins if good else None,
+                coins_after=coins + gain if good else None,
+            )
+        )
+        if good:
+            coins += gain
+    return out
+
+
+def test_a_perfect_week_is_green_and_says_so(posted):
+    notify.send(HOOK, scheduler.digest_message(week(), NOW.date()), now=NOW)
+    body = embed(posted)
+    assert body["title"] == "📅 Die Woche in Zahlen"
+    assert body["color"] == notify.COLORS["ok"]
+    assert "Jeden Tag eingesammelt" in body["description"]
+    values = {f["name"]: f["value"] for f in body["fields"]}
+    assert values["Erfolgsquote"] == "100 % (7/7 Tage)"
+    assert values["Gesammelt"] == "+70"
+
+
+def test_a_bad_week_names_the_missed_days_and_is_not_green(posted):
+    notify.send(HOOK, scheduler.digest_message(week(claimed_days=3), NOW.date()), now=NOW)
+    body = embed(posted)
+    assert "An 4 von 7 Tagen" in body["description"]
+    assert body["color"] != notify.COLORS["ok"]
+
+
+def test_a_week_without_any_run_says_that_instead_of_zero_percent(posted):
+    notify.send(HOOK, scheduler.digest_message([], NOW.date()), now=NOW)
+    assert "kein einziger Lauf" in embed(posted)["description"]
+
+
+def test_only_the_last_seven_days_count(posted):
+    from datetime import timedelta
+
+    older = week(total_days=30, gain=10)
+    notify.send(HOOK, scheduler.digest_message(older, NOW.date()), now=NOW)
+    values = {f["name"]: f["value"] for f in embed(posted)["fields"]}
+    assert values["Erfolgsquote"].endswith("(7/7 Tage)"), "die Woche, nicht der Monat"
+    assert NOW - timedelta(days=29) < NOW  # nur zur Klarheit: die Historie reicht weiter zurueck

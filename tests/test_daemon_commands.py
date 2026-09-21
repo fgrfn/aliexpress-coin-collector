@@ -7,7 +7,7 @@ ein Auftrag scheitert.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from aliexpress_coin_collector import commands, scheduler
 from aliexpress_coin_collector.adb import AdbError
@@ -357,3 +357,65 @@ def test_the_waiting_time_comes_from_the_settings(cfg, monkeypatch):
     patient = replace(cfg, offline_alert_min=120)
     assert outage_ticks(patient, monkeypatch, minutes=(0, 30, 60)) == []
     assert len(outage_ticks(patient, monkeypatch, minutes=(0, 120))) == 1
+
+
+# -- Wochenrueckblick: wann er rausgeht ----------------------------------------------------------
+#
+# Der heikle Teil ist nicht die Rechnung, sondern der Zeitpunkt: genau einmal je Woche, ueber
+# Neustarts hinweg, und nicht direkt nach der Installation auf eine leere Woche.
+
+MONDAY = date(2026, 9, 21)  # ein Montag
+TUESDAY = MONDAY + timedelta(days=1)
+
+
+def test_the_very_first_time_nothing_is_sent(cfg):
+    # Sonst kaeme direkt nach dem Aufsetzen ein Rueckblick auf eine Woche ohne Daten.
+    assert scheduler.digest_due(cfg.data_dir, MONDAY, 0, 9, 10) is False
+    assert (cfg.data_dir / scheduler.DIGEST_FILE).is_file(), "der Stichtag wird trotzdem vermerkt"
+
+
+def test_the_following_week_it_goes_out(cfg):
+    scheduler.digest_due(cfg.data_dir, MONDAY, 0, 9, 10)
+    assert scheduler.digest_due(cfg.data_dir, MONDAY + timedelta(days=7), 0, 9, 10) is True
+
+
+def test_not_twice_on_the_same_day(cfg):
+    scheduler.digest_due(cfg.data_dir, MONDAY, 0, 9, 10)
+    later = MONDAY + timedelta(days=7)
+    assert scheduler.digest_due(cfg.data_dir, later, 0, 9, 10) is True
+    scheduler._mark_digest(cfg.data_dir, later)
+    assert scheduler.digest_due(cfg.data_dir, later, 0, 9, 11) is False
+
+
+def test_not_on_another_weekday_and_not_too_early(cfg):
+    scheduler._mark_digest(cfg.data_dir, MONDAY - timedelta(days=7))
+    assert scheduler.digest_due(cfg.data_dir, TUESDAY, 0, 9, 10) is False, "nur montags"
+    assert scheduler.digest_due(cfg.data_dir, MONDAY, 0, 9, 8) is False, "erst ab 9 Uhr"
+    assert scheduler.digest_due(cfg.data_dir, MONDAY, 0, 9, 9) is True
+
+
+def test_a_broken_marker_does_not_stop_the_service(cfg):
+    (cfg.data_dir / scheduler.DIGEST_FILE).write_text("voellig kaputt", encoding="utf-8")
+    assert scheduler.digest_due(cfg.data_dir, MONDAY, 0, 9, 10) is False
+    # Und der Merker steht danach wieder brauchbar da.
+    assert scheduler.digest_due(cfg.data_dir, MONDAY + timedelta(days=7), 0, 9, 10) is True
+
+
+def test_the_digest_can_be_switched_off(cfg, monkeypatch):
+    from dataclasses import replace
+
+    sent = []
+    monkeypatch.setattr(scheduler.notify, "send", lambda hook, message, *a, **k: sent.append(message))
+    monkeypatch.setattr(scheduler, "digest_due", lambda *a, **k: True)
+    quiet = replace(cfg, notify_weekly=False, notify_on_offline=False)
+    scheduler.tick(quiet, FakeAdb(), Store(quiet.data_dir), scheduler.Reconnect(), now=BEFORE_WINDOW)
+    assert sent == []
+
+
+def test_the_digest_goes_out_through_the_tick(cfg, monkeypatch):
+    sent = []
+    monkeypatch.setattr(scheduler.notify, "send", lambda hook, message, *a, **k: sent.append(message))
+    monkeypatch.setattr(scheduler, "digest_due", lambda *a, **k: True)
+    scheduler.tick(cfg, FakeAdb(), Store(cfg.data_dir), scheduler.Reconnect(), now=BEFORE_WINDOW)
+    assert len(sent) == 1
+    assert "Woche" in sent[0].title

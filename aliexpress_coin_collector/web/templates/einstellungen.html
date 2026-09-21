@@ -206,6 +206,13 @@
       </span>
     </label>
     <label class="opt">
+      <input type="checkbox" name="notify_weekly" value="1" {% if cfg.notify_weekly %}checked{% endif %}>
+      <span>
+        Wochenrückblick montags {{ saved('notify_weekly') }}
+        <span class="opt-note">Erfolgsquote, gesammelte Münzen und Stand der letzten sieben Tage.</span>
+      </span>
+    </label>
+    <label class="opt">
       <input type="checkbox" name="notify_on_offline" value="1" {% if cfg.notify_on_offline %}checked{% endif %}>
       <span>
         Wenn das Gerät länger nicht erreichbar ist {{ saved('notify_on_offline') }}

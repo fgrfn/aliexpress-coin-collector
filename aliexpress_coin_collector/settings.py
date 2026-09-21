@@ -30,7 +30,13 @@ SETTINGS_FILE = "settings.json"
 # Uhrzeiten, als "HH:MM" abgelegt.
 WINDOW_KEYS = ("morning_start", "morning_end", "evening_start", "evening_end")
 # Ja/Nein.
-FLAG_KEYS = ("skip_if_awake", "notify_on_success", "notify_on_already_done", "notify_on_offline")
+FLAG_KEYS = (
+    "skip_if_awake",
+    "notify_on_success",
+    "notify_on_already_done",
+    "notify_on_offline",
+    "notify_weekly",
+)
 # Ganze Zahlen.
 NUMBER_KEYS = (
     "busy_retry_min",

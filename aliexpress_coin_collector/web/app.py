@@ -342,6 +342,7 @@ def create_app(cfg: Config) -> FastAPI:
             streak=data.longest_streak(attempts),
             shares=data.outcome_shares(attempts),
             busiest=data.busiest_hour(attempts),
+            rollover=data.rollover_hints(attempts),
             series=series,
             coin_chart=charts.coin_chart(series),
             gain_chart=charts.gain_chart(series),
@@ -713,6 +714,7 @@ def create_app(cfg: Config) -> FastAPI:
         notify_on_already_done: str = Form(default=""),
         notify_on_offline: str = Form(default=""),
         offline_alert_min: str = Form(default=""),
+        notify_weekly: str = Form(default=""),
     ) -> Response:
         gate = _gate(request)
         if gate is not None:
@@ -721,6 +723,7 @@ def create_app(cfg: Config) -> FastAPI:
             "notify_on_success": bool(notify_on_success),
             "notify_on_already_done": bool(notify_on_already_done),
             "notify_on_offline": bool(notify_on_offline),
+            "notify_weekly": bool(notify_weekly),
         }
         # Ein leeres Zahlenfeld heisst "unveraendert", nicht "Fehler". Sonst verwuerfe ein
         # Formular, das das Feld gar nicht mitschickt, gleich den ganzen Abschnitt -- samt
