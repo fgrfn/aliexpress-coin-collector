@@ -42,6 +42,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Selbstheilung der Verbindung (0.8.1): **nur mit Attrappen getestet.** Der Anlass ist echt --
+  auf dem Produktivsystem stand "nicht erreichbar", während das Gerät erreichbar war, und erst
+  ein Auftrag mit `ensure_connected` brachte es zurück. Dass die Erholung im Betrieb greift,
+  ist damit aber noch nicht belegt; das zeigt sich erst beim nächsten echten Verbindungsabriss.
 - Etappe 4b (Einstellungen): gegen einen echt laufenden Webdienst geprüft — Speichern aller
   Abschnitte, Abweisen unhaltbarer Werte (Fenster verkehrt herum, Wiederholung nach dem Erzwingen,
   Text statt Zahl, Adresse ohne gültigen Port, Webhook ohne `https://`), und dass ein abgewiesener
@@ -160,6 +164,25 @@ Tabelle `runs(id, ts, day, kind, outcome, coins_before, coins_after, message, du
 `ts` ist die **naive Ortszeit des Servers** zum Zeitpunkt des Laufs — die Zeitzone des Servers muss deshalb stimmen,
 sonst passen Zeitfenster und gespeicherte Zeiten nicht zusammen. `kind` ist `morning`, `evening` oder `manual`, die
 möglichen Werte von `outcome` stehen in `runner.Outcome`.
+
+## 5a. Verbindung: warum sie sich selbst heilen muss
+
+`adb get-state` fragt nur den **lokalen** adb-Server. Reisst die TCP-Verbindung ab -- Netz kurz weg,
+Geraet im Doze, adb-Server neu gestartet --, meldet get-state dauerhaft `offline`, auch wenn das
+Geraet laengst wieder erreichbar ist. Von allein baut es nie neu auf; nur `adb connect` tut das.
+
+Bis 0.8.0 rief die zyklische Zustandsmeldung ausschliesslich get-state. Die Oberflaeche zeigte
+darum bis in alle Ewigkeit "nicht erreichbar", bis jemand von Hand "Neu verbinden" drueckte --
+auf dem Produktivsystem genau so beobachtet. Seit 0.8.1 versucht `report_status` selbst ein
+`connect`, mit wachsendem Abstand (sofort, dann 1, 2, 5, 10 und ab da 30 Minuten). Der Abstand ist
+noetig, weil ein `connect` auf ein totes Geraet 15 Sekunden in einen Timeout laeuft -- bei einem
+Takt von 30 Sekunden waere das die halbe Arbeitszeit des Dienstes. Bei `unauthorized` wird gar
+nicht erst versucht: die Verbindung steht ja, es wartet nur ein Dialog auf dem Geraet.
+
+Ebenfalls seit 0.8.1: nach einem abgearbeiteten Auftrag wird der Zustand **erneut** gemeldet.
+Vorher lag `report_status` vor `process_commands` im selben Takt, ein erfolgreiches
+"Neu verbinden" war also bis zu 30 Sekunden unsichtbar -- zusammen mit der Abholzeit und dem
+10-Sekunden-Poll der Seite bis zu 70 Sekunden. Es sah aus, als haette der Knopf nichts getan.
 
 ## 6. Stolpersteine
 

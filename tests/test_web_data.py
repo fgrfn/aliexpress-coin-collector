@@ -185,7 +185,7 @@ def test_relative_reads_as_hours_and_minutes():
 
 def test_heartbeat_text_says_something_even_without_a_file():
     now = datetime(2026, 9, 21, 8, 0)
-    assert view.heartbeat_text(None, now) == "kein Lebenszeichen"
-    assert view.heartbeat_text(datetime(2026, 9, 21, 7, 59, 48), now) == "Lebenszeichen vor 12 s"
-    assert view.heartbeat_text(datetime(2026, 9, 21, 7, 50), now) == "Lebenszeichen vor 10 min"
-    assert view.heartbeat_text(datetime(2026, 9, 21, 4, 0), now) == "Lebenszeichen vor 4 h"
+    assert view.heartbeat_text(None, now) == "kein Takt seit dem Start"
+    assert view.heartbeat_text(datetime(2026, 9, 21, 7, 59, 48), now) == "letzter Takt vor 12 s"
+    assert view.heartbeat_text(datetime(2026, 9, 21, 7, 50), now) == "letzter Takt vor 10 min"
+    assert view.heartbeat_text(datetime(2026, 9, 21, 4, 0), now) == "letzter Takt vor 4 h"
