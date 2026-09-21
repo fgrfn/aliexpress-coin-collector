@@ -1,0 +1,45 @@
+{# Statuskopf. Ersetzt sich alle fuenf Sekunden selbst; die uebrige Seite bleibt stehen.
+   Diagramm, Historie und Zeitfenster aendern sich zweimal am Tag und werden nicht nachgeladen. #}
+<div class="tiles" hx-get="/teile/status" hx-trigger="every 5s" hx-swap="outerHTML">
+
+  <div class="tile">
+    <div class="label">Letzter Lauf</div>
+    {% if last %}
+      <div class="value {{ last.tone }}">{{ last.label }}</div>
+      <div class="sub">{{ last.when }} ({{ last.kind }})</div>
+    {% else %}
+      <div class="value">–</div>
+      <div class="sub">noch kein Lauf</div>
+    {% endif %}
+  </div>
+
+  <div class="tile">
+    <div class="label">Nächster Lauf</div>
+    {% if next_at %}
+      <div class="value">{{ next_at.strftime('%H:%M') }}</div>
+      <div class="sub">{{ next_at.strftime('%d.%m.') }}, {{ next_in }}</div>
+    {% else %}
+      <div class="value">–</div>
+      <div class="sub">keiner geplant</div>
+    {% endif %}
+  </div>
+
+  <div class="tile">
+    <div class="label">Münzstand</div>
+    <div class="value">{{ coins|zahl }}</div>
+    <div class="sub">zuletzt erkannt</div>
+  </div>
+
+  <div class="tile">
+    <div class="label">Serie</div>
+    <div class="value">{{ streak }}</div>
+    <div class="sub">abgeleitet, nicht aus der App</div>
+  </div>
+
+  <div class="tile">
+    <div class="label">Dienst</div>
+    <div class="value {{ 'ok' if alive else 'bad' }}">{{ "läuft" if alive else "läuft nicht" }}</div>
+    <div class="sub">{{ heartbeat_text }}</div>
+  </div>
+
+</div>

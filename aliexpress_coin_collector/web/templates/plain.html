@@ -1,0 +1,22 @@
+{# Geruest der Seiten ohne Anmeldung: Anmelden und Ersteinrichtung. Keine Seitenleiste --
+   es gibt noch nichts zu navigieren, und die Wortmarke darf hier gross wirken. #}
+<!doctype html>
+<html lang="de"{% if theme %} data-theme="{{ theme }}"{% endif %}>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{ title }} · Coin Collector</title>
+  <link rel="icon" href="{{ url('icon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url('app.css') }}">
+</head>
+<body>
+<div class="centered">
+  <div class="centered-inner">
+    {% include "partials/wordmark.html" %}
+    {% block content %}{% endblock %}
+    <p class="foot-note">{% block foot %}{% endblock %}<br>aliexpress-coin-collector {{ version }}</p>
+  </div>
+</div>
+</body>
+</html>

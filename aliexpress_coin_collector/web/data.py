@@ -122,7 +122,7 @@ def button_state(
 def outcome_label(outcome: str) -> str:
     """Kurztext fuer ein Ergebnis, fuer die Anzeige."""
     return {
-        Outcome.CLAIMED.value: "eingesammelt",
+        Outcome.CLAIMED.value: "gesammelt",
         Outcome.ALREADY_DONE.value: "schon erledigt",
         Outcome.BUSY.value: "übersprungen",
         Outcome.UNREACHABLE.value: "nicht erreichbar",

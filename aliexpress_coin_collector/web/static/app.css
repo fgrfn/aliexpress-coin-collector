@@ -1,0 +1,767 @@
+/* Oberflaeche des Coin Collectors.
+ *
+ * Farbwelt: das Orange des Logos traegt die Marke (aktiver Eintrag, Hauptknopf, Diagrammlinie).
+ * Die Statusfarben sind bewusst davon weggezogen -- waere die Warnfarbe ebenfalls orange, liesse
+ * sich "hier kannst du druecken" nicht von "hier stimmt etwas nicht" unterscheiden.
+ *
+ * Dunkel folgt der Systemeinstellung, laesst sich aber ueberstimmen: data-theme am <html> gewinnt.
+ */
+
+@font-face {
+    font-family: "Space Grotesk";
+    src: url("fonts/space-grotesk-latin.woff2") format("woff2");
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #fbfaf7;
+    --line: #e4e0d8;
+    --text: #1c1b19;
+    --muted: #66615a;
+    --brand: #d2540a;
+    --brand-ink: #ffffff;
+    --brand-soft: #fcefe3;
+    --ok: #15703f;
+    --ok-soft: #e3f2e9;
+    --warn: #8a5a00;
+    --warn-soft: #faf0d7;
+    --bad: #a81238;
+    --bad-soft: #fbe7ec;
+    --nav-bg: #16161a;
+    --nav-text: #e8e6e2;
+    --nav-muted: #9a948c;
+    --nav-active: #2a2a33;
+    --nav-line: rgba(255, 255, 255, 0.1);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+
+    --display: "Space Grotesk", system-ui, sans-serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --radius: 14px;
+    --tap: 44px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #131317;
+        --surface: #1d1d23;
+        --surface-2: #24242b;
+        --line: #33333d;
+        --text: #eceae6;
+        --muted: #9c968e;
+        --brand: #ff8a3d;
+        --brand-ink: #20130a;
+        --brand-soft: #331d0e;
+        --ok: #4bc07e;
+        --ok-soft: #14301f;
+        --warn: #e5b23c;
+        --warn-soft: #332813;
+        --bad: #ff7396;
+        --bad-soft: #351420;
+        --nav-bg: #0d0d10;
+        --nav-active: #26262f;
+        --shadow: none;
+    }
+}
+
+:root[data-theme="dark"] {
+    --bg: #131317;
+    --surface: #1d1d23;
+    --surface-2: #24242b;
+    --line: #33333d;
+    --text: #eceae6;
+    --muted: #9c968e;
+    --brand: #ff8a3d;
+    --brand-ink: #20130a;
+    --brand-soft: #331d0e;
+    --ok: #4bc07e;
+    --ok-soft: #14301f;
+    --warn: #e5b23c;
+    --warn-soft: #332813;
+    --bad: #ff7396;
+    --bad-soft: #351420;
+    --nav-bg: #0d0d10;
+    --nav-active: #26262f;
+    --shadow: none;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 15px/1.55 var(--body);
+    -webkit-font-smoothing: antialiased;
+}
+
+a {
+    color: var(--brand);
+}
+
+/* Sichtbarer Fokus ueberall: sonst ist die Seite mit der Tastatur nicht bedienbar. */
+:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- Geruest */
+.shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 248px;
+    flex: none;
+    background: var(--nav-bg);
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    border-right: 1px solid var(--nav-line);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 20px;
+    color: var(--nav-text);
+    text-decoration: none;
+}
+
+.brand-name {
+    font: 600 14.5px/1.2 var(--display);
+    letter-spacing: -0.01em;
+}
+
+.nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 11px 14px;
+    min-height: var(--tap);
+    border-radius: 9px;
+    color: var(--nav-muted);
+    text-decoration: none;
+    font: 500 13.5px/1 var(--body);
+}
+
+.nav-item:hover {
+    background: var(--nav-active);
+    color: var(--nav-text);
+}
+
+.nav-item[aria-current="page"] {
+    background: var(--nav-active);
+    color: #fff;
+    font-weight: 600;
+}
+
+.nav-item[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    bottom: 9px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--brand);
+}
+
+.nav-spacer {
+    flex-grow: 1;
+}
+
+.nav-foot {
+    border-top: 1px solid var(--nav-line);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.nav-service {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 8px;
+}
+
+.nav-service .label {
+    font: 600 12px/1.3 var(--body);
+    color: var(--nav-text);
+}
+
+.nav-service .sub {
+    font: 400 11px/1.3 var(--body);
+    color: var(--nav-muted);
+}
+
+.nav-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    font: 400 11px/1 var(--body);
+    color: var(--nav-muted);
+}
+
+.nav-meta a,
+.nav-meta button {
+    font: 600 11px/1 var(--body);
+    color: var(--nav-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    /* Auch ein kleiner Textlink braucht eine Flaeche, die sich mit dem Daumen treffen laesst. */
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+    padding: 0 2px;
+}
+
+.main {
+    flex-grow: 1;
+    padding: 26px 30px 44px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: 4px;
+}
+
+.page-head h1 {
+    margin: 0;
+    font: 600 26px/1.2 var(--display);
+    letter-spacing: -0.02em;
+}
+
+.page-head p {
+    margin: 5px 0 0;
+    font: 400 13px/1.4 var(--body);
+    color: var(--muted);
+}
+
+.head-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Menue fuer schmale Bildschirme. Ohne JavaScript, deshalb <details>. */
+.mobile-bar {
+    display: none;
+}
+
+/* ---------------------------------------------------------------- Karten */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+    box-shadow: var(--shadow);
+}
+
+.card > h2 {
+    margin: 0;
+    font: 600 15px/1.3 var(--display);
+}
+
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.note {
+    margin: 12px 0 0;
+    font: 400 12.5px/1.5 var(--body);
+    color: var(--muted);
+}
+
+.banner {
+    border-left: 3px solid var(--bad);
+    background: var(--bad-soft);
+}
+
+.banner strong {
+    color: var(--bad);
+}
+
+/* ---------------------------------------------------------------- Kacheln */
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+}
+
+.tile {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+}
+
+.tile .label {
+    font: 600 11px/1 var(--body);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.tile .value {
+    font: 600 25px/1.15 var(--display);
+    letter-spacing: -0.02em;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tile .sub {
+    font: 400 12px/1.4 var(--body);
+    color: var(--muted);
+    margin-top: 3px;
+}
+
+.ok {
+    color: var(--ok);
+}
+
+.warn {
+    color: var(--warn);
+}
+
+.bad {
+    color: var(--bad);
+}
+
+/* ---------------------------------------------------------------- Marken */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 600 12px/1 var(--body);
+    padding: 6px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--surface-2);
+    color: var(--muted);
+}
+
+.pill::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+
+.pill-ok {
+    background: var(--ok-soft);
+    color: var(--ok);
+}
+
+.pill-warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+
+.pill-bad {
+    background: var(--bad-soft);
+    color: var(--bad);
+}
+
+.stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font: 400 12px/1 var(--body);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 12px 13px;
+    border-radius: 9px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--muted);
+}
+
+.dot-ok {
+    background: var(--ok);
+}
+
+.dot-bad {
+    background: var(--bad);
+}
+
+/* ---------------------------------------------------------------- Knoepfe */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font: 600 14px/1 var(--body);
+    padding: 11px 18px;
+    min-height: var(--tap);
+    border-radius: 9px;
+    border: 1px solid var(--brand);
+    background: var(--brand);
+    color: var(--brand-ink);
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.btn:hover {
+    filter: brightness(1.06);
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--line);
+}
+
+.btn-ghost:hover {
+    background: var(--surface-2);
+    filter: none;
+}
+
+.btn[disabled] {
+    background: var(--line);
+    color: var(--muted);
+    border-color: var(--line);
+    cursor: not-allowed;
+    filter: none;
+}
+
+.btn-icon {
+    width: var(--tap);
+    height: var(--tap);
+    padding: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--muted);
+}
+
+.btn-icon:hover {
+    background: var(--surface-2);
+    color: var(--text);
+    filter: none;
+}
+
+.btn-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* ---------------------------------------------------------------- Formulare */
+.fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    align-items: end;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.field > label {
+    font: 600 12px/1 var(--body);
+}
+
+input[type="text"],
+input[type="time"],
+input[type="password"],
+input[type="search"] {
+    font: 400 14px/1 var(--body);
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 11px 12px;
+    min-height: var(--tap);
+    width: 100%;
+}
+
+/* ---------------------------------------------------------------- Tabelle */
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    text-align: left;
+    font: 600 11px/1 var(--body);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 10px 10px;
+    white-space: nowrap;
+}
+
+td {
+    padding: 11px 10px;
+    border-top: 1px solid var(--line);
+    font: 400 13px/1.45 var(--body);
+    vertical-align: top;
+}
+
+td.when,
+td.num {
+    font-weight: 500;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+td.num {
+    text-align: right;
+}
+
+td.msg {
+    color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- Diagramm */
+svg.chart {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* ---------------------------------------------------------------- Anmeldung */
+.centered {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+}
+
+.centered-inner {
+    width: 100%;
+    max-width: 470px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+}
+
+.wordmark {
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+}
+
+/* Die gelieferte Datei brennt die Farbe der zweiten Zeile fest ein und waehlt Inter.
+ * Beides wird hier ueberstimmt, damit sie im Dunkelmodus lesbar bleibt und ueberall
+ * gleich aussieht. Die Datei selbst bleibt unveraendert. */
+.wordmark .wm-text {
+    font-family: var(--display);
+}
+
+.wordmark .wm-sub {
+    fill: var(--text);
+}
+
+.centered .card {
+    width: 100%;
+}
+
+.centered h1 {
+    margin: 0 0 6px;
+    font: 600 20px/1.3 var(--display);
+}
+
+.foot-note {
+    margin: 0;
+    font: 400 12px/1.5 var(--body);
+    color: var(--muted);
+    text-align: center;
+}
+
+/* ---------------------------------------------------------------- Schmal */
+@media (max-width: 860px) {
+    .shell {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        display: none;
+    }
+
+    .mobile-bar {
+        display: block;
+        background: var(--nav-bg);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+    }
+
+    .mobile-bar summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        min-height: var(--tap);
+        color: var(--nav-text);
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .mobile-bar summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .mobile-bar .brand-name {
+        font-size: 15px;
+    }
+
+    .mobile-bar nav {
+        padding: 6px 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        border-top: 1px solid var(--nav-line);
+    }
+
+    .mobile-bar .nav-item {
+        min-height: 52px;
+        font-size: 15px;
+    }
+
+    .mobile-bar .nav-foot {
+        margin: 8px 4px 0;
+        padding: 14px 10px 4px;
+    }
+
+    .main {
+        padding: 18px 16px 40px;
+    }
+
+    .page-head h1 {
+        font-size: 22px;
+    }
+
+    .fields {
+        grid-template-columns: 1fr;
+    }
+
+    .btn,
+    .btn-row > .btn {
+        flex-grow: 1;
+    }
+
+    /* Tabellen werden zu Karten, statt seitwaerts zu scrollen.
+       Eine Zeile je Feld: ein zweispaltiges Raster schneidet die rechte Spalte ab,
+       sobald ein Wert breiter wird als gedacht. */
+    .table-cards,
+    .table-cards tbody,
+    .table-cards tr,
+    .table-cards td {
+        display: block;
+    }
+
+    .table-cards thead {
+        display: none;
+    }
+
+    .table-cards tr {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+    }
+
+    .table-cards td {
+        border: none;
+        padding: 3px 0;
+    }
+
+    .table-cards td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 12px;
+        display: inline-block;
+        min-width: 72px;
+    }
+
+    .table-cards td.num {
+        text-align: left;
+    }
+
+    /* Der Zeitstempel ist die Ueberschrift der Karte, nicht ein Feld darin. */
+    .table-cards td.when {
+        font: 600 15px/1.3 var(--display);
+        padding: 0 0 6px;
+        margin-bottom: 4px;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .table-cards td.when::before {
+        content: none;
+    }
+
+    /* Eine leere Zelle wuerde sonst nur ihre Beschriftung zeigen. */
+    .table-cards td:empty {
+        display: none;
+    }
+
+    /* Der Screenshot-Link steht mitten im Text und waere sonst kaum zu treffen. */
+    .table-cards td.msg a {
+        display: inline-block;
+        padding: 10px 4px;
+    }
+}

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block head_actions %}
+  <span class="stamp"><span class="dot dot-ok"></span>alle 5 s</span>
+{% endblock %}
+
+{% block content %}
+
+{% if not alive %}
+  <div class="card banner">
+    <strong>Der Dienst läuft nicht.</strong>
+    Es gibt kein Lebenszeichen der letzten Minuten — geplante Läufe finden gerade nicht statt.
+  </div>
+{% endif %}
+
+{# Statuskopf aktualisiert sich fuer sich allein, der Rest der Seite bleibt stehen. #}
+{% include "partials/tiles.html" with context %}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Münzverlauf</h2>
+    {% if series|length > 1 %}
+      <span class="pill pill-ok">{{ series[0].coins }} → {{ series[-1].coins }}</span>
+    {% endif %}
+  </div>
+  {{ chart }}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Lauf jetzt starten</h2></div>
+  <form method="post" action="/run" class="btn-row"
+        onsubmit="return confirm('Wirklich einen Lauf anfordern? Das weckt das Gerät und tippt darauf.');">
+    <button class="btn" type="submit" {% if not button.enabled %}disabled{% endif %}>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8 5.5v13l11-6.5-11-6.5"/>
+      </svg>
+      Lauf jetzt starten
+    </button>
+  </form>
+  {% if button.reason %}<p class="note">{{ button.reason }}</p>{% endif %}
+  <p class="note">
+    Der Auftrag wird beim nächsten Takt des Dienstes abgeholt, also binnen 30 Sekunden.
+    Die Oberfläche fasst das Gerät nicht selbst an.
+  </p>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Zeitfenster</h2></div>
+  <form method="post" action="/settings" class="fields">
+    <div class="field">
+      <label for="ms">Morgens ab</label>
+      <input id="ms" type="time" name="morning_start" value="{{ cfg.morning_start.strftime('%H:%M') }}" required>
+    </div>
+    <div class="field">
+      <label for="me">bis</label>
+      <input id="me" type="time" name="morning_end" value="{{ cfg.morning_end.strftime('%H:%M') }}" required>
+    </div>
+    <div class="field">
+      <label for="es">Abends ab</label>
+      <input id="es" type="time" name="evening_start" value="{{ cfg.evening_start.strftime('%H:%M') }}" required>
+    </div>
+    <div class="field">
+      <label for="ee">bis</label>
+      <input id="ee" type="time" name="evening_end" value="{{ cfg.evening_end.strftime('%H:%M') }}" required>
+    </div>
+    <div class="field">
+      <button class="btn btn-ghost" type="submit">Speichern</button>
+    </div>
+  </form>
+  <p class="note">
+    Heute geplant: Morgenlauf {{ plan.morning_at.strftime('%H:%M') }},
+    Abendlauf {{ plan.evening_at.strftime('%H:%M') }}.
+    Eine Änderung gilt sofort, aber nicht rückwirkend: liegt die neu gewürfelte Zeit schon in der
+    Vergangenheit, läuft heute nichts mehr. Der Abendlauf startet ohnehin nur, wenn morgens nichts
+    geklappt hat.
+  </p>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Letzte Läufe</h2></div>
+  {% if attempts %}
+    <div class="table-wrap">
+      <table class="table-cards">
+        <thead>
+          <tr>
+            <th scope="col">Zeit</th>
+            <th scope="col">Art</th>
+            <th scope="col">Ergebnis</th>
+            <th scope="col" style="text-align: right;">Münzen</th>
+            <th scope="col" style="text-align: right;">Dauer</th>
+            <th scope="col">Meldung</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in attempts %}
+            <tr>
+              <td class="when" data-label="Zeit">{{ row.when }}</td>
+              <td data-label="Art">{{ row.kind }}</td>
+              <td data-label="Ergebnis">
+                <span class="pill pill-{{ row.tone }}">{{ row.label }}</span>
+              </td>
+              <td class="num" data-label="Münzen">{{ row.coins }}</td>
+              <td class="num" data-label="Dauer">{{ row.duration }}</td>
+              <td class="msg" data-label="Meldung">
+                {{ row.message }}
+                {% if row.shot %}<a href="/shot/{{ row.shot }}">Screenshot</a>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="note" style="margin-top: 0;">Noch keine Läufe gespeichert.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Passwort ändern</h2></div>
+  {% if pw_error %}<p class="bad" role="alert">{{ pw_error }}</p>{% endif %}
+  <form method="post" action="/password" class="fields">
+    <div class="field">
+      <label for="pwc">Bisheriges</label>
+      <input id="pwc" type="password" name="current" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label for="pwn">Neues</label>
+      <input id="pwn" type="password" name="password" minlength="{{ min_length }}"
+             autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label for="pwr">Wiederholen</label>
+      <input id="pwr" type="password" name="repeat" minlength="{{ min_length }}"
+             autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <button class="btn btn-ghost" type="submit">Ändern</button>
+    </div>
+  </form>
+  <p class="note">
+    Mindestens {{ min_length }} Zeichen. Nach dem Ändern sind alle angemeldeten Browser
+    abgemeldet, auch dieser.
+  </p>
+</section>
+
+{% endblock %}

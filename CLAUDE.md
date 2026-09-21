@@ -59,10 +59,13 @@ aliexpress_coin_collector/
   notify.py     Discord-Webhook (wirft nie)
   __main__.py   CLI: once | daemon | ocr | status | schedule | doctor
   settings.py   zur Laufzeit änderbare Fenster (data/settings.json)
-  web/          optionale Weboberfläche: data.py (Auswertung), render.py (HTML/SVG),
-                app.py (FastAPI), eigener Dienst, liest die Datenbank nur
+  web/          Weboberfläche (eigener Dienst, liest die Datenbank nur):
+                data.py (Auswertung), view.py (Jinja-Umgebung + Aufbereitung),
+                charts.py (SVG), auth.py (Passwort-Hash), app.py (FastAPI),
+                templates/ (Jinja), static/ (CSS, htmx, Schrift, Icon)
 tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings.py,
-                test_web_data.py (Attrappen, kein Gerät nötig)
+                test_web_data.py, test_web_auth.py, test_web_pages.py
+                (Attrappen, kein Gerät nötig)
 install.sh      Installation/Update im LXC: lokaler Quellbaum oder Selbstdownload per curl,
                 Migration der Vorgängerversion, --update mit Rollback, --uninstall
 .github/workflows/ci.yml   CI: ruff, pytest (3.10/3.12), shellcheck

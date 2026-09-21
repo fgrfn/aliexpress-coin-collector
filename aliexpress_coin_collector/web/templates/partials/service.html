@@ -1,0 +1,7 @@
+<div class="nav-service" hx-get="/teile/dienst" hx-trigger="every 5s" hx-swap="outerHTML">
+  <span class="dot {{ 'dot-ok' if alive else 'dot-bad' }}"></span>
+  <div>
+    <div class="label">{{ "Dienst läuft" if alive else "Dienst läuft nicht" }}</div>
+    <div class="sub">{{ heartbeat_text }}</div>
+  </div>
+</div>
