@@ -36,6 +36,7 @@ FLAG_KEYS = (
     "notify_on_already_done",
     "notify_on_offline",
     "notify_weekly",
+    "notify_on_stall",
 )
 # Ganze Zahlen.
 NUMBER_KEYS = (

@@ -341,6 +341,48 @@ def digest_message(attempts: list[Attempt], today: date, days: int = DIGEST_DAYS
     )
 
 
+STALL_FILE = "stall-warned"
+
+
+def stall_due(data_dir: Path, stall: stats.Stall) -> bool:
+    """Ist zu diesem Stillstand schon gewarnt worden?
+
+    Gemerkt wird der Muenzstand, nicht ein Datum: solange er sich nicht bewegt, ist es derselbe
+    Vorfall und es bleibt bei einer Meldung. Steigt er wieder und bleibt spaeter erneut stehen,
+    unterscheidet sich der Stand -- und es wird wieder gewarnt.
+    """
+    if not stall.stalled:
+        return False
+    try:
+        return (data_dir / STALL_FILE).read_text(encoding="utf-8").strip() != str(stall.coins)
+    except OSError:
+        return True
+
+
+def _mark_stall(data_dir: Path, stall: stats.Stall) -> None:
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / STALL_FILE).write_text(f"{stall.coins}\n", encoding="utf-8")
+    except OSError as exc:
+        log.warning("Merker fuer den Stillstand nicht schreibbar: %s", exc)
+
+
+def stall_message(stall: stats.Stall) -> notify.Message:
+    return notify.Message(
+        title="🛑 Erfolg gemeldet, aber nichts gesammelt",
+        tone="bad",
+        description=(
+            "Der Dienst meldet seit Tagen Erfolg, der Münzstand steht aber unverändert. "
+            "Irgendetwas stimmt nicht — die Läufe laufen, nur bringen sie nichts ein."
+        ),
+        fields=(
+            notify.Field("Tage ohne Zuwachs", str(stall.days)),
+            notify.Field("Münzstand", notify.number(stall.coins)),
+        ),
+        footer="Nachsehen unter Diagnose: was erkennt die Seite? Und im Protokoll, wie die Läufe ausgingen",
+    )
+
+
 def test_message(cfg: Config) -> notify.Message:
     """Testmeldung. Zeigt zugleich, was ueberhaupt gemeldet wird -- sonst weiss man nach dem
     erfolgreichen Test immer noch nicht, wovon man kuenftig hoert."""
@@ -584,6 +626,14 @@ def tick(
     # lang unsichtbar, und es saehe aus, als haette der Knopf nichts getan.
     if process_commands(cfg, adb, store):
         report_status(cfg, adb, version, reconnect, datetime.now())
+
+    # Erfolg gemeldet, aber der Muenzstand bewegt sich nicht: dann laeuft zwar alles, bringt aber
+    # nichts ein. Genau das blieb tagelang unbemerkt, weil die Quote auf 100 Prozent stand.
+    if cfg.notify_on_stall:
+        stall = stats.stalled_since(store.recent(400))
+        if stall_due(cfg.data_dir, stall):
+            notify.send(cfg.discord_webhook, stall_message(stall))
+            _mark_stall(cfg.data_dir, stall)
 
     # Montagmorgens ein Rueckblick auf die Woche. Tag und Uhrzeit sind bewusst fest: noch zwei
     # Einstellungen fuer eine Meldung, die einmal die Woche kommt, waeren keine gewonnen.

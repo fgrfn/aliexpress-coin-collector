@@ -60,6 +60,9 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Stillstandswächter (0.12.0): **mit Attrappen getestet**, gegen das echte Fehlermuster aus der
+  Datenbank nachgestellt (sechs Tage „erledigt" bei Stand 10) und das Banner in Chromium angesehen.
+  Die Discord-Meldung ging in keinen echten Kanal.
 - Vorrang des Knopfes vor dem Erledigt-Marker (0.11.0): **mit Attrappen getestet, der Anlass ist
   echt.** Die Laufdaten belegen den Fehler zweifelsfrei (siehe 5c); dass die Korrektur im Betrieb
   greift, zeigt sich erst an den nächsten Tagen.
@@ -252,6 +255,24 @@ Seit 0.11.0:
   "verdienen" noch weniger -- beide bleiben unter der Schwelle von 0.8.
 - Der Erledigt-Zustand wird erst nach `DONE_SETTLE_ROUNDS` aufeinanderfolgenden Bildern geglaubt
   (rund sechs Sekunden). Gezaehlt und nicht die Uhr befragt, damit es ohne Warten pruefbar ist.
+
+## 5d. Der Stillstandswaechter
+
+Der Schaden am 21.09.2026 war nicht der Marker-Fehler (siehe 5c), sondern dass er tagelang
+unbemerkt blieb: das System meldete Erfolg, waehrend nichts geschah. Der Fehler selbst ist
+behoben, die Klasse nicht -- Layout geaendert, Konto gesperrt, Tap ins Leere.
+
+`stats.stalled_since` prueft darum das Ergebnis statt den Schritt: steht der Muenzstand an drei
+aufeinanderfolgenden Erfolgstagen unveraendert, gibt es eine rote Meldung und ein Banner auf der
+Uebersicht. Das haette den Fehler am zweiten Tag gefangen, ohne dass jemand die Ursache kennen
+musste.
+
+Bewusst nicht mitgezaehlt: Tage ohne Erfolg (dort ist ein stehender Stand die erwartete Folge),
+ein unlesbarer Stand (unbekannt ist nicht unveraendert) und ausgegebene Muenzen (der naechste
+Anstieg beendet die Serie ohnehin).
+
+Gemerkt wird der Muenzstand, nicht ein Datum: solange er sich nicht bewegt, ist es derselbe
+Vorfall und es bleibt bei einer Meldung.
 
 ## 6. Stolpersteine
 

@@ -61,7 +61,8 @@ aliexpress_coin_collector/
   runner.py     ein Lauf: Outcome-Logik, Wartezeiten, Wiederholung, Bestätigung
   scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen
   store.py      SQLite (Tabelle runs)
-  stats.py      Rechenregeln über der Historie (Quote, Zuwachs), von Dienst und Oberfläche genutzt
+  stats.py      Rechenregeln über der Historie (Quote, Zuwachs, Stillstand), von Dienst
+                und Oberfläche genutzt
   notify.py     Discord-Webhook: Embeds bauen und schicken (wirft nie)
   __main__.py   CLI: once | daemon | ocr | status | schedule | notify-test | doctor
   settings.py   zur Laufzeit änderbare Einstellungen (data/settings.json): überschreibt die .env
@@ -78,7 +79,7 @@ tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings
                 test_imagecheck.py, test_web_data.py, test_web_auth.py,
                 test_web_pages.py, test_web_device.py, test_web_diagnose.py,
                 test_web_stats.py, test_web_settings.py, test_notify.py,
-                test_ocr_login.py
+                test_ocr_login.py, test_stall.py
                 (Attrappen, weder Gerät noch Tesseract nötig)
 control.sh      Root-Helfer: startet/stoppt die Dienste, von systemd auf data/control hin
                 gestartet. Nimmt keinen Befehl entgegen, nur zwei geprüfte Wörter.
