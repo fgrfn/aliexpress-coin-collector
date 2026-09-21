@@ -35,6 +35,11 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   Passwort, abweichende Wiederholung, gesperrte Zweiteinrichtung, falsche Anmeldung, Passwortwechsel samt
   Entwertung des alten Cookies, und die Übernahme eines alten `WEB_PASSWORD` aus der `.env`. Die Seiten
   wurden zusätzlich in Chromium gerendert und angesehen (hell und dunkel).
+- Umbau der Oberfläche auf Vorlagen (Etappe 1): gegen einen echt laufenden Server mit gefüllter
+  Datenbank geprüft und in Chromium angesehen — hell, dunkel und in Handybreite (390 px), Menü geöffnet,
+  ohne Fehler oder Warnungen in der Browserkonsole. Geprüft wurden außerdem: kein waagerechter Überlauf
+  auf dem Handy, alle Eingabefelder mit echter Beschriftung, alle Tippziele mindestens 44 px, die
+  mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
 - Verhalten bei abgelaufenem Login oder Popups: unbekannt, endet vermutlich als `not_found`.
@@ -167,7 +172,10 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    in dieses Fenster fällt, endet als `unreachable`. Fällt das Backup mit dem Morgenfenster zusammen, sollte eins
    von beiden verschoben werden. Der Dienst holt einen verpassten Morgenlauf abends nach, das federt es ab,
    ersetzt aber keine saubere Trennung der Fenster.
-10. **Weboberfläche aufwerten.** Der Nutzer hat das ausdrücklich zurückgestellt, bis alle Funktionen stehen.
+10. **Weboberfläche ausbauen.** Etappe 1 (Fundament: Vorlagen, Seitenleiste, Farbwelt, Logo, htmx) ist
+    umgesetzt. Offen sind Etappe 2 (Gerät und Dienst steuern über eine Befehlsablage), Etappe 3 (Protokoll
+    und Erkennungs-Werkzeug) und Etappe 4 (Einstellungen in `data/web.sqlite3`, ausgebaute Auswertung).
+    Der Entwurf dazu steht als Design-Leinwand und ist mit dem Nutzer abgestimmt.
 
 ## 9. Regeln für Änderungen
 

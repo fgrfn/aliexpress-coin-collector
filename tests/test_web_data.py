@@ -1,9 +1,10 @@
 from datetime import date, datetime, timedelta
 
 from aliexpress_coin_collector.store import Attempt
-from aliexpress_coin_collector.web import data, render
+from aliexpress_coin_collector.web import charts, data, view
 
 DAY = date(2026, 9, 21)
+DAY_START = datetime.combine(DAY, datetime.min.time())
 
 
 def att(day_offset=0, hour=8, outcome="claimed", before=None, after=None, kind="morning"):
@@ -114,16 +115,16 @@ def test_button_is_enabled_after_a_failed_run():
     assert state.enabled and state.reason == ""
 
 
-# -- Darstellung -----------------------------------------------------------------------------
+# -- Diagramm --------------------------------------------------------------------------------
 
 
 def test_chart_needs_at_least_two_points():
-    assert "zu wenige Daten" in render.coin_chart(data.coin_series([att(0, 8, after=10)]))
-    assert "<svg" not in render.coin_chart([])
+    assert "zu wenige Daten" in charts.coin_chart(data.coin_series([att(0, 8, after=10)]))
+    assert "<svg" not in charts.coin_chart([])
 
 
 def test_chart_draws_a_polyline_for_real_data():
-    svg = render.coin_chart(data.coin_series([att(0, 8, after=10), att(1, 8, after=25), att(2, 8, after=45)]))
+    svg = charts.coin_chart(data.coin_series([att(0, 8, after=10), att(1, 8, after=25), att(2, 8, after=45)]))
     assert svg.startswith("<svg") and svg.endswith("</svg>")
     assert svg.count("<polyline") == 1
     assert "45" in svg  # Hoechstwert wird beschriftet
@@ -131,22 +132,60 @@ def test_chart_draws_a_polyline_for_real_data():
 
 def test_chart_survives_a_flat_line():
     # Gleicher Stand an allen Tagen: darf nicht durch null teilen.
-    svg = render.coin_chart(data.coin_series([att(0, 8, after=10), att(1, 8, after=10)]))
+    svg = charts.coin_chart(data.coin_series([att(0, 8, after=10), att(1, 8, after=10)]))
     assert "<polyline" in svg
 
 
-def test_history_table_escapes_messages():
-    attempts = [att(0, 8, outcome="error")]
-    evil = Attempt(ts=attempts[0].ts, kind="manual", outcome="error", message="<script>alert(1)</script>")
-    html = render.history_table([evil], shots={})
-    assert "<script>" not in html and "&lt;script&gt;" in html
+def test_chart_scales_only_itself():
+    # Die Klasse traegt die Skalierung. Ohne sie wuerde eine Regel fuer alle svg auch das
+    # Logo in der Kopfzeile aufblasen -- genau der Fehler, der in 0.3.0 steckte.
+    svg = charts.coin_chart(data.coin_series([att(0, 8, after=10), att(1, 8, after=25)]))
+    assert svg.startswith('<svg class="chart"')
 
 
-def test_history_table_links_a_screenshot_when_one_exists():
+# -- Aufbereitung der Historie ---------------------------------------------------------------
+
+
+def test_rows_are_newest_first():
+    rows = view.rows([att(0, 8, after=10), att(2, 8, after=30), att(1, 8, after=20)], shots={})
+    assert [r.when for r in rows] == ["23.09. 08:00", "22.09. 08:00", "21.09. 08:00"]
+
+
+def test_rows_show_a_gain_as_an_arrow():
+    rows = view.rows([att(0, 8, before=10, after=17)], shots={})
+    assert rows[0].coins == "10 → 17"
+
+
+def test_rows_fall_back_to_a_dash_without_a_known_count():
+    assert view.rows([att(0, 8, outcome="not_found")], shots={})[0].coins == "–"
+
+
+def test_rows_carry_the_screenshot_name():
     a = att(0, 8, outcome="not_found")
     shots = {a.ts.strftime("%Y%m%d-%H%M%S"): "20260921-080000-not_found.png"}
-    assert "/shot/20260921-080000-not_found.png" in render.history_table([a], shots)
+    assert view.rows([a], shots)[0].shot == "20260921-080000-not_found.png"
+    assert view.rows([a], {})[0].shot is None
 
 
-def test_empty_history_says_so():
-    assert "Noch keine" in render.history_table([], shots={})
+def test_rows_pass_the_message_through_unescaped():
+    # Maskiert wird beim Rendern durch Jinja, nicht hier -- sonst waere es doppelt maskiert.
+    evil = Attempt(ts=DAY_START, kind="manual", outcome="error", message="<script>alert(1)</script>")
+    assert view.rows([evil], shots={})[0].message == "<script>alert(1)</script>"
+
+
+# -- Zeitangaben -----------------------------------------------------------------------------
+
+
+def test_relative_reads_as_hours_and_minutes():
+    now = datetime(2026, 9, 21, 8, 0)
+    assert view.relative(datetime(2026, 9, 21, 8, 45), now) == "in 45 min"
+    assert view.relative(datetime(2026, 9, 21, 10, 15), now) == "in 2 h 15 min"
+    assert view.relative(datetime(2026, 9, 21, 7, 0), now) == "in 0 min"  # nie negativ
+
+
+def test_heartbeat_text_says_something_even_without_a_file():
+    now = datetime(2026, 9, 21, 8, 0)
+    assert view.heartbeat_text(None, now) == "kein Lebenszeichen"
+    assert view.heartbeat_text(datetime(2026, 9, 21, 7, 59, 48), now) == "Lebenszeichen vor 12 s"
+    assert view.heartbeat_text(datetime(2026, 9, 21, 7, 50), now) == "Lebenszeichen vor 10 min"
+    assert view.heartbeat_text(datetime(2026, 9, 21, 4, 0), now) == "Lebenszeichen vor 4 h"

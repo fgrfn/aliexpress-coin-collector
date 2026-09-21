@@ -1,0 +1,12 @@
+{# Die Bereiche. Etappe 1 bringt nur die Uebersicht; die uebrigen kommen in den Etappen 2 bis 4
+   und werden bis dahin nicht angezeigt, damit die Leiste keine toten Wege anbietet. #}
+{% for item in nav %}
+  <a class="nav-item" href="{{ item.href }}"
+     {% if item.href == current %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="{{ item.icon }}"/>
+    </svg>
+    <span>{{ item.label }}</span>
+  </a>
+{% endfor %}

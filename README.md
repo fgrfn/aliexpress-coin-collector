@@ -156,6 +156,14 @@ die Historie der letzten Läufe mit anklickbaren Fehler-Screenshots. Die Zeitfen
 ändern; eine Änderung gilt sofort, aber nicht rückwirkend — liegt die neu ausgewürfelte Uhrzeit schon
 in der Vergangenheit, läuft an diesem Tag nichts mehr.
 
+Statuskopf und Dienstzustand aktualisieren sich alle fünf Sekunden von allein, der Rest der Seite
+bleibt stehen. Sie ist auf dem Handy genauso bedienbar wie am Rechner, und folgt der Hell-Dunkel-
+Einstellung des Systems — der Knopf oben rechts überstimmt sie.
+
+**Nichts wird von außen nachgeladen.** Stylesheet, htmx und die Schrift liegen im Repo und kommen
+vom eigenen Dienst; die Seite funktioniert ohne Internetverbindung, und beim Aufruf geht keine
+Anfrage nach draußen.
+
 Die Anmeldung ist Pflicht und nicht abschaltbar, weil die Seite einen Lauf auf dem Gerät auslösen
 kann. Sie gehört ins LAN und nicht ins Internet.
 

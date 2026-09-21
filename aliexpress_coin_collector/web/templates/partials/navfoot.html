@@ -1,0 +1,7 @@
+{# Dienstzustand auf jeder Seite sichtbar, nicht nur auf der Uebersicht: das ist die Angabe,
+   die man als erstes braucht. Der Baustein ersetzt sich alle fuenf Sekunden selbst. #}
+{% include "partials/service.html" with context %}
+<div class="nav-meta">
+  <span>v{{ version }}</span>
+  <form method="post" action="/logout"><button type="submit">Abmelden</button></form>
+</div>
