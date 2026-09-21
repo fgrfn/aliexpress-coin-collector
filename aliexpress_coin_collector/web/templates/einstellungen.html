@@ -183,9 +183,31 @@
         <span class="opt-note">Meist Rauschen — standardmäßig aus.</span>
       </span>
     </label>
+    <label class="opt">
+      <input type="checkbox" name="notify_on_offline" value="1" {% if cfg.notify_on_offline %}checked{% endif %}>
+      <span>
+        Wenn das Gerät länger nicht erreichbar ist {{ saved('notify_on_offline') }}
+        <span class="opt-note">Je Ausfall eine Meldung, dazu eine Entwarnung, wenn die Verbindung wieder steht.</span>
+      </span>
+    </label>
+    <div class="fields">
+      <div class="field">
+        <label for="oam">Melden nach {{ saved('offline_alert_min') }}</label>
+        <div class="with-unit">
+          <input id="oam" type="number" name="offline_alert_min" min="1" value="{{ cfg.offline_alert_min }}" required>
+          <span class="unit-label">Minuten ohne Verbindung</span>
+        </div>
+      </div>
+    </div>
     <p class="note">
-      Fehlschläge werden immer gemeldet, mit Screenshot. Das lässt sich hier nicht abschalten:
-      eine Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
+      Kurze Aussetzer sind normal — ein Handy im Ruhezustand, ein Router, der neu startet. Zu
+      kurz gesetzt meldet sich der Dienst ständig, zu lang gesetzt merkst du einen echten
+      Ausfall erst am ausbleibenden Erfolg.
+    </p>
+    <p class="note">
+      Fehlschläge eines Laufs werden immer gemeldet, mit Screenshot. Das lässt sich hier nicht
+      abschalten: eine Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer
+      als keine.
     </p>
 
     <div class="btn-row form-foot">

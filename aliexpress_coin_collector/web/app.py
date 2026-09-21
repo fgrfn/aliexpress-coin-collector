@@ -688,6 +688,8 @@ def create_app(cfg: Config) -> FastAPI:
         remove_webhook: str = Form(default=""),
         notify_on_success: str = Form(default=""),
         notify_on_already_done: str = Form(default=""),
+        notify_on_offline: str = Form(default=""),
+        offline_alert_min: str = Form(default=""),
     ) -> Response:
         gate = _gate(request)
         if gate is not None:
@@ -695,7 +697,16 @@ def create_app(cfg: Config) -> FastAPI:
         values: dict[str, object] = {
             "notify_on_success": bool(notify_on_success),
             "notify_on_already_done": bool(notify_on_already_done),
+            "notify_on_offline": bool(notify_on_offline),
         }
+        # Ein leeres Zahlenfeld heisst "unveraendert", nicht "Fehler". Sonst verwuerfe ein
+        # Formular, das das Feld gar nicht mitschickt, gleich den ganzen Abschnitt -- samt
+        # des Webhooks, den daneben jemand gerade eingetragen hat.
+        if offline_alert_min.strip():
+            try:
+                values["offline_alert_min"] = _parse_int("Melden nach", offline_alert_min)
+            except ValueError as exc:
+                return _flash(RedirectResponse("/einstellungen", status_code=303), str(exc), "bad")
         # Das Feld kommt immer leer an -- der hinterlegte Webhook wird nie in die Seite
         # geschrieben. Leer heisst darum "unveraendert", geleert wird nur auf Ansage.
         if remove_webhook:
@@ -749,6 +760,7 @@ FIELD_NAMES = {
     "EVENING_START": "„Abends ab“",
     "EVENING_END": "„Abends bis“",
     "ADB_SERIAL": "Die Geräteadresse",
+    "OFFLINE_ALERT_MIN": "„Melden nach“",
     "DISCORD_WEBHOOK_URL": "Der Discord-Webhook",
 }
 

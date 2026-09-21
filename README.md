@@ -286,6 +286,34 @@ Vertipper dort ließe den täglichen Lauf ins Leere greifen, ohne dass es auffie
 Eine unbrauchbare `settings.json` hält weder Dienst noch CLI an: einzelne unlesbare Werte werden
 übersprungen, und ergibt die Datei insgesamt keine gültige Konfiguration, gilt wieder die `.env`.
 
+## Discord-Meldungen
+
+Geschickt wird ein **Embed**, keine Textzeile: Farbe nach Ausgang, Zahlen in eigenen Feldern.
+
+| Anlass | Farbe | Inhalt |
+|---|---|---|
+| Münzen gesammelt | grün | Zuwachs, Münzstand, Dauer, welcher Lauf |
+| Heute schon eingecheckt | blau | Münzstand, Dauer |
+| Lauf fehlgeschlagen | orange | Grund in Worten, Meldung, Screenshot im Embed |
+| Letzter Versuch des Tages | rot | wie oben, zusätzlich als letzter Versuch markiert |
+| Gerät länger nicht erreichbar | rot | seit wann, Adresse (verkürzt) |
+| Gerät wieder erreichbar | grün | wie lange der Ausfall dauerte |
+
+Der Grund eines Fehlschlags steht ausgeschrieben da, nicht als `not_found` — auf dem Handy gelesen
+sagt ein Codewort nichts.
+
+**Die Meldung bei längerem Ausfall** kommt je Ausfall genau einmal, nach `OFFLINE_ALERT_MIN`
+Minuten ohne Verbindung, und danach eine Entwarnung, sobald das Gerät wieder da ist. Kurze
+Aussetzer bleiben still — ein Handy im Ruhezustand oder ein Router, der neu startet, ist kein
+Vorfall. Ohne diese Meldung merkt man einen echten Ausfall erst daran, dass tagelang nichts
+eingesammelt wurde.
+
+Die Geräteadresse steht in der Meldung nur verkürzt (`10.10.30.xxx:5555`). Ein Chat-Kanal ist
+kein Ort für interne Adressen.
+
+Fehlschläge eines Laufs werden **immer** gemeldet und lassen sich nicht abschalten: eine
+Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
+
 ## Konfiguration
 
 Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen haben Vorrang. Die
@@ -307,6 +335,8 @@ in `data/settings.json` und überschreibt die `.env`.
 | `BUTTON_LABELS` | `Sammeln,Collect,Claim` | Mögliche Beschriftungen des Buttons |
 | `OCR_LANG` | `deu` | Tesseract-Sprache |
 | **`NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE`** | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
+| **`NOTIFY_ON_OFFLINE`** | `true` | Melden, wenn das Gerät länger nicht erreichbar ist |
+| **`OFFLINE_ALERT_MIN`** | `30` | Wartezeit davor, in Minuten |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |
 | `WEB_PORT` | `80` | Port der Weboberfläche (das Passwort wird auf der Seite vergeben, nicht hier) |

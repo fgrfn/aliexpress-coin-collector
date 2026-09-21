@@ -164,7 +164,7 @@ def test_a_run_command_writes_an_attempt_to_the_database(cfg, monkeypatch):
         return RunResult(outcome=Outcome.CLAIMED, coins_before=10, coins_after=17, duration_s=2.0, message="ok")
 
     monkeypatch.setattr(scheduler, "run_once", fake_run_once)
-    monkeypatch.setattr(scheduler.notify, "send_discord", lambda *a, **k: None)
+    monkeypatch.setattr(scheduler.notify, "send", lambda *a, **k: None)
 
     commands.submit(cfg.data_dir, commands.RUN, NOW)
     scheduler.process_commands(cfg, FakeAdb(), store)
@@ -278,3 +278,82 @@ def test_a_reconnect_that_explodes_still_counts_as_a_failure(cfg):
     assert state.failures == 1
     scheduler.report_status(cfg, adb, "0.9.0", state, NOW + timedelta(seconds=30))
     assert adb.calls.count("ensure_connected") == 1
+
+
+# -- Meldung bei laengerem Ausfall ---------------------------------------------------------------
+
+
+def test_a_short_outage_is_not_reported():
+    # Ein Handy im Ruhezustand, ein Router, der neu startet: das ist kein Vorfall.
+    outage = scheduler.Outage()
+    assert outage.note(False, NOW, after_min=30) == ""
+    assert outage.note(False, NOW + timedelta(minutes=29), after_min=30) == ""
+    assert outage.note(True, NOW + timedelta(minutes=29), after_min=30) == "", "keine Entwarnung ohne Stoerung"
+
+
+def test_a_long_outage_is_reported_once():
+    outage = scheduler.Outage()
+    outage.note(False, NOW, after_min=30)
+    assert outage.note(False, NOW + timedelta(minutes=30), after_min=30) == "down"
+    for extra in (31, 60, 600):
+        assert outage.note(False, NOW + timedelta(minutes=extra), after_min=30) == "", "nur eine Meldung je Ausfall"
+
+
+def test_the_all_clear_follows_a_reported_outage():
+    outage = scheduler.Outage()
+    outage.note(False, NOW, after_min=30)
+    outage.note(False, NOW + timedelta(minutes=30), after_min=30)
+    assert outage.minutes(NOW + timedelta(minutes=45)) == 45
+    assert outage.note(True, NOW + timedelta(minutes=45), after_min=30) == "up"
+    assert outage.note(True, NOW + timedelta(minutes=46), after_min=30) == "", "nur eine Entwarnung"
+
+
+def test_a_second_outage_is_reported_again():
+    outage = scheduler.Outage()
+    outage.note(False, NOW, after_min=30)
+    outage.note(False, NOW + timedelta(minutes=30), after_min=30)
+    outage.note(True, NOW + timedelta(minutes=45), after_min=30)
+
+    later = NOW + timedelta(hours=5)
+    outage.note(False, later, after_min=30)
+    assert outage.note(False, later + timedelta(minutes=30), after_min=30) == "down"
+
+
+# Vor dem Morgenfenster (fruehestens 07:00): sonst startet der Takt einen echten Lauf, und
+# dessen Fehlschlagmeldung waere in der Zaehlung nicht von der Stoerungsmeldung zu trennen.
+BEFORE_WINDOW = datetime(2026, 9, 21, 4, 0, 0)
+
+
+def outage_ticks(cfg, monkeypatch, minutes=(0, 30)):
+    """Laesst den Dienst takten, waehrend das Geraet weg ist. Gibt die Meldungen zurueck."""
+    sent = []
+    monkeypatch.setattr(scheduler.notify, "send", lambda hook, message, *a, **k: sent.append(message))
+    outage, reconnect, store = scheduler.Outage(), scheduler.Reconnect(), Store(cfg.data_dir)
+    for offset in minutes:
+        adb = FakeAdb(state="offline", connects=False)
+        scheduler.tick(
+            cfg, adb, store, reconnect, "0.9.0", now=BEFORE_WINDOW + timedelta(minutes=offset), outage=outage
+        )
+    return sent
+
+
+def test_the_daemon_reports_an_outage_over_discord(cfg, monkeypatch):
+    assert outage_ticks(cfg, monkeypatch, minutes=(0,)) == [], "erst nach der Wartezeit"
+
+    sent = outage_ticks(cfg, monkeypatch, minutes=(0, 30))
+    assert len(sent) == 1
+    assert "nicht erreichbar" in sent[0].title
+
+
+def test_the_outage_message_can_be_switched_off(cfg, monkeypatch):
+    from dataclasses import replace
+
+    assert outage_ticks(replace(cfg, notify_on_offline=False), monkeypatch) == []
+
+
+def test_the_waiting_time_comes_from_the_settings(cfg, monkeypatch):
+    from dataclasses import replace
+
+    patient = replace(cfg, offline_alert_min=120)
+    assert outage_ticks(patient, monkeypatch, minutes=(0, 30, 60)) == []
+    assert len(outage_ticks(patient, monkeypatch, minutes=(0, 120))) == 1

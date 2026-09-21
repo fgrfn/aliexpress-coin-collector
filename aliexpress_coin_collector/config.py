@@ -134,6 +134,8 @@ class Config:
     ocr_lang: str
     notify_on_success: bool
     notify_on_already_done: bool
+    notify_on_offline: bool
+    offline_alert_min: int
     data_dir: Path
     log_level: str
     # Zeitpunkt der letzten Aenderung aus settings.json, None wenn es keine gibt.
@@ -170,6 +172,8 @@ class Config:
             "ocr_lang": _text("OCR_LANG", "deu"),
             "notify_on_success": _bool(get("NOTIFY_ON_SUCCESS") or "true"),
             "notify_on_already_done": _bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
+            "notify_on_offline": _bool(get("NOTIFY_ON_OFFLINE") or "true"),
+            "offline_alert_min": _int("OFFLINE_ALERT_MIN", 30),
             "data_dir": data_dir,
             "log_level": (get("LOG_LEVEL") or "INFO").strip().upper(),
         }
@@ -209,6 +213,7 @@ class Config:
         _check_min("BUSY_RETRY_MIN", self.busy_retry_min, 1)
         _check_min("BUSY_MAX_WAIT_MIN", self.busy_max_wait_min, 1)
         _check_min("LAUNCH_RETRIES", self.launch_retries, 0)
+        _check_min("OFFLINE_ALERT_MIN", self.offline_alert_min, 1)
         if self.busy_retry_min >= self.busy_max_wait_min:
             raise ConfigError(
                 f"BUSY_RETRY_MIN ({self.busy_retry_min}) muss kleiner als BUSY_MAX_WAIT_MIN "

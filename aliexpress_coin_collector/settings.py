@@ -30,9 +30,16 @@ SETTINGS_FILE = "settings.json"
 # Uhrzeiten, als "HH:MM" abgelegt.
 WINDOW_KEYS = ("morning_start", "morning_end", "evening_start", "evening_end")
 # Ja/Nein.
-FLAG_KEYS = ("skip_if_awake", "notify_on_success", "notify_on_already_done")
+FLAG_KEYS = ("skip_if_awake", "notify_on_success", "notify_on_already_done", "notify_on_offline")
 # Ganze Zahlen.
-NUMBER_KEYS = ("busy_retry_min", "busy_max_wait_min", "page_timeout_s", "confirm_timeout_s", "launch_retries")
+NUMBER_KEYS = (
+    "busy_retry_min",
+    "busy_max_wait_min",
+    "page_timeout_s",
+    "confirm_timeout_s",
+    "launch_retries",
+    "offline_alert_min",
+)
 # Text. `discord_webhook` ist ein Geheimnis und darf nirgends mitprotokolliert werden.
 TEXT_KEYS = ("adb_serial", "discord_webhook")
 SECRET_KEYS = ("discord_webhook",)

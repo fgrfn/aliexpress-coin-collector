@@ -42,6 +42,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Discord-Embeds und Ausfallmeldung (0.9.0): **nur mit Attrappen getestet.** Der Aufbau der
+  Nachricht ist gegen die Grenzen der Discord-API geprüft (Kürzen statt Ablehnen) und die
+  Geräteadresse wird nachweislich verkürzt, aber **es wurde keine Meldung an einen echten
+  Kanal geschickt** — wie die Embeds dort aussehen, ist nicht belegt.
 - Selbstheilung der Verbindung (0.8.1): **nur mit Attrappen getestet.** Der Anlass ist echt --
   auf dem Produktivsystem stand "nicht erreichbar", während das Gerät erreichbar war, und erst
   ein Auftrag mit `ensure_connected` brachte es zurück. Dass die Erholung im Betrieb greift,
@@ -183,6 +187,26 @@ Ebenfalls seit 0.8.1: nach einem abgearbeiteten Auftrag wird der Zustand **erneu
 Vorher lag `report_status` vor `process_commands` im selben Takt, ein erfolgreiches
 "Neu verbinden" war also bis zu 30 Sekunden unsichtbar -- zusammen mit der Abholzeit und dem
 10-Sekunden-Poll der Seite bis zu 70 Sekunden. Es sah aus, als haette der Knopf nichts getan.
+
+## 5b. Discord-Meldungen
+
+Ein Embed statt einer Textzeile: Farbe nach Ausgang, Zahlen in eigenen Feldern. Der Grund eines
+Fehlschlags steht ausgeschrieben da (`FAILURE_REASONS`), nicht als `not_found` -- auf dem Handy
+gelesen sagt ein Codewort nichts.
+
+Getrennt gehalten sind **`describe()`** (eine Zeile fuers Protokoll, ohne Umlaute wie der Rest der
+Log-Ausgabe) und **`message_for()`** (die Discord-Meldung, mit Umlauten -- sie liest ein Mensch,
+und sie geht weder an die Shell noch an ADB). Sonst muesste eine von beiden Kompromisse machen.
+
+`notify.py` kuerzt Titel, Beschreibung und Felder auf die Grenzen der Discord-API. Wird eine
+ueberschritten, lehnt Discord die **ganze** Nachricht ab -- lieber gekuerzt als verloren.
+
+Die Ausfallmeldung (`Outage`) haelt nur fest, seit wann das Geraet weg ist und ob deswegen schon
+gemeldet wurde; geschickt wird im Takt. Je Ausfall genau eine Meldung, und die Entwarnung nur,
+wenn es vorher auch eine Stoerung gab -- sonst kaeme nach jedem kurzen Aussetzer ein Haken.
+
+Die Geraeteadresse geht nur verkuerzt hinaus (`commands.mask_serial`). Ein Chat-Kanal ist kein
+Ort fuer interne Adressen, und Discord-Nachrichten bleiben dort lange stehen.
 
 ## 6. Stolpersteine
 
