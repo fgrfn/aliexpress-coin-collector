@@ -79,3 +79,33 @@ def test_without_button_and_without_done_the_marker_counts(cfg, fake_ocr):
 def test_an_empty_page_is_not_a_login_prompt(cfg, fake_ocr):
     fake_ocr([])
     assert ocr.analyze(png(), cfg).logged_out is False
+
+
+# -- Der Knopf schlaegt den Erledigt-Marker --------------------------------------------------------
+#
+# Anlass aus dem Betrieb: dreimal "heute schon eingecheckt" bei unveraendertem Muenzstand (10),
+# und zwei Stunden nach dem letzten dieser Laeufe liess sich am selben Tag noch eingesammelt
+# werden (10 -> 25). Der Erledigt-Marker hatte gewonnen, und die Knopfsuche lief gar nicht erst.
+
+
+def test_a_visible_button_beats_the_tomorrow_marker(cfg, fake_ocr):
+    # "wenn Sie morgen vorbeischauen" steht als Vorschau auch dann auf der Seite, wenn heute
+    # noch nichts eingesammelt wurde.
+    fake_ocr([word("morgen", y=200), word("Sammeln", y=600)], button=word("Sammeln", y=600))
+    state = ocr.analyze(png(), cfg)
+    assert state.button is not None
+    assert state.done is False, "mit sichtbarem Knopf ist der Tag nicht erledigt"
+
+
+def test_the_marker_alone_still_means_done(cfg, fake_ocr):
+    fake_ocr([word("morgen", y=200)], button=None)
+    assert ocr.analyze(png(), cfg).done is True
+
+
+def test_the_button_is_searched_for_even_with_the_marker(cfg, monkeypatch):
+    # Der eigentliche Fehler war, dass die Suche uebersprungen wurde.
+    searched = []
+    monkeypatch.setattr(ocr, "read_words", lambda *a, **k: [word("morgen", y=200)])
+    monkeypatch.setattr(ocr, "find_button", lambda *a, **k: searched.append(True))
+    ocr.analyze(png(), cfg)
+    assert searched, "die Knopfsuche darf nicht vom Marker abgehaengt werden"

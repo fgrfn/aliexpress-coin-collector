@@ -12,6 +12,7 @@ DEST="${INSTALL_DIR:-/opt/aliexpress-coin-collector}"
 OLD="${OLD_INSTALL_DIR:-/opt/aliexpress-coins}"
 SVC_USER="coins"
 SERVICE="aliexpress-coin-collector"
+WRAPPER="/usr/local/bin/acc"
 OWNER="fgrfn"
 REPO="aliexpress-coin-collector"
 
@@ -173,6 +174,7 @@ do_uninstall() {
     for unit in $units; do
         rm -f "/etc/systemd/system/$unit"
     done
+    rm -f "$WRAPPER"
     if [ "$HAVE_SYSTEMD" = 1 ]; then
         systemctl daemon-reload
         echo "    Dienste gestoppt, deaktiviert und die systemd-Einheiten entfernt"
@@ -373,6 +375,25 @@ read_installed_version() {
     fi
 }
 
+# Kurzbefehl "acc" nach /usr/local/bin. Ohne ihn muss man sich cd, runuser und den Pfad ins
+# venv merken -- daran scheitert man genau dann, wenn man nachsehen will, was schiefging.
+write_wrapper() {
+    cat > "$WRAPPER" <<WRAP
+#!/bin/sh
+# Kurzbefehl fuer den AliExpress Coin Collector. Von install.sh angelegt.
+# Sorgt fuer das Arbeitsverzeichnis (die .env wird relativ gelesen) und den Dienstbenutzer
+# (sonst gehoeren neue Dateien in data/ danach root und der Dienst kommt nicht mehr dran).
+set -eu
+cd "$DEST"
+if [ "\$(id -un)" = "$SVC_USER" ]; then
+    exec .venv/bin/python -m aliexpress_coin_collector "\$@"
+fi
+exec runuser -u "$SVC_USER" -- .venv/bin/python -m aliexpress_coin_collector "\$@"
+WRAP
+    chmod 0755 "$WRAPPER"
+}
+
+
 # Baut die venv auf und aktualisiert die Abhaengigkeiten.
 build_venv() {
     [ -d "$DEST/.venv" ] || python3 -m venv "$DEST/.venv"
@@ -434,6 +455,7 @@ do_update() {
 
     echo "==> Python-Umgebung"
     build_venv
+    write_wrapper
     chmod 600 "$DEST/.env" 2>/dev/null || true
     chown -R "$SVC_USER": "$DEST" 2>/dev/null || true
 
@@ -815,6 +837,7 @@ echo "==> Python-Umgebung"
 [ -d "$DEST/.venv" ] || python3 -m venv "$DEST/.venv"
 "$DEST/.venv/bin/pip" install -q --upgrade pip
 "$DEST/.venv/bin/pip" install -q -r "$DEST/requirements.txt"
+write_wrapper
 
 echo "==> Konfiguration"
 if [ ! -f "$DEST/.env" ]; then
@@ -937,9 +960,9 @@ Naechste Schritte:
   2. Geraet freigeben (Dialog auf dem Geraet mit "Immer zulassen" bestaetigen):
        runuser -u $SVC_USER -- adb connect 192.168.1.50:5555
   3. Installation pruefen:
-       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector doctor
+       acc doctor
   4. Ersten echten Lauf machen:
-       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector once --force --no-notify
+       acc once --force --no-notify
   5. Wenn das klappt, Dienst starten:
        systemctl enable --now $SERVICE
 MSG
@@ -948,9 +971,9 @@ else
         cat <<MSG
 Naechste Schritte:
   1. Installation pruefen:
-       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector doctor
+       acc doctor
   2. Ersten echten Lauf machen:
-       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector once --force --no-notify
+       acc once --force --no-notify
   3. Wenn das klappt, Dienst starten:
        systemctl enable --now $SERVICE
 MSG
@@ -960,9 +983,9 @@ Naechste Schritte:
   1. Verbindung herstellen, sobald das Geraet erreichbar und freigegeben ist:
        runuser -u $SVC_USER -- adb connect $configured_serial
   2. Installation pruefen:
-       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector doctor
+       acc doctor
   3. Ersten echten Lauf machen:
-       cd $DEST && runuser -u $SVC_USER -- .venv/bin/python -m aliexpress_coin_collector once --force --no-notify
+       acc once --force --no-notify
   4. Wenn das klappt, Dienst starten:
        systemctl enable --now $SERVICE
 MSG

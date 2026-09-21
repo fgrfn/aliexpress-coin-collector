@@ -161,11 +161,17 @@ def analyze(
     text = " ".join(w.text for w in words)
 
     top_text = " ".join(w.text for w in words if w.cy < height * 0.5)
-    done = bool(re.search(r"\bmorgen", top_text, re.IGNORECASE))
+    marker = bool(re.search(r"\bmorgen", top_text, re.IGNORECASE))
 
-    button = None if done else find_button(img, words, cfg.button_labels, cfg.ocr_lang, thresholds, invert)
+    # Der Knopf ist das staerkere Signal: ist er da, ist noch nichts eingesammelt. Bis 0.10.0
+    # gewann der "morgen"-Marker, und die Knopfsuche lief dann gar nicht erst -- damit fiel ein
+    # ganzer Tag aus, sobald das Wort schon auf der halb geladenen Seite stand. Der Vorschautext
+    # "wenn Sie morgen vorbeischauen" steht dort naemlich in beiden Zustaenden.
+    # Ein Fehlgriff in die andere Richtung ist unwahrscheinlich: "gesammelt" und "verdienen"
+    # erreichen gegen "sammeln" nur 0.75 bzw. weniger und bleiben damit unter der Schwelle.
+    button = find_button(img, words, cfg.button_labels, cfg.ocr_lang, thresholds, invert)
     coins = read_coin_balance(words, width, height)
-    done = done and button is None
+    done = marker and button is None
     # Nur pruefen, wenn die Seite ohnehin nichts Brauchbares hergab (siehe looks_logged_out).
     logged_out = not button and not done and looks_logged_out(text, cfg.login_markers)
     return PageState(

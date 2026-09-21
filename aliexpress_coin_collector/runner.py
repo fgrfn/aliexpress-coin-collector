@@ -45,6 +45,13 @@ class RunResult:
 Analyzer = Callable[[bytes, Config], ocr.PageState]
 
 
+# So oft hintereinander muss der Erledigt-Zustand zu sehen sein, bevor er geglaubt wird.
+# Bei drei Sekunden Abstand sind das rund sechs Sekunden -- genug, damit ein noch fehlender
+# Knopf nachrendern kann. Gezaehlt und nicht die Uhr befragt: so haengt es nicht daran, wie
+# schnell die Schleife laeuft, und laesst sich ohne Warten pruefen.
+DONE_SETTLE_ROUNDS = 3
+
+
 def _wait_for_page(adb: Adb, cfg: Config, analyze: Analyzer, sleep: Callable[[float], None]):
     """Wartet, bis Button oder erledigt-Zustand sichtbar ist.
 
@@ -53,17 +60,29 @@ def _wait_for_page(adb: Adb, cfg: Config, analyze: Analyzer, sleep: Callable[[fl
     im Weg stand -- sonst bliebe es beim nichtssagenden "nichts erkannt".
     """
     deadline = time.monotonic() + cfg.page_timeout_s
-    png, state = b"", None
+    png, state, done_seen = b"", None, 0
     while True:
         png = adb.screenshot()
         state = analyze(png, cfg)
         log.debug("Seite: %s", state.describe())
         if state.width > state.height:
             log.warning("Screenshot ist im Querformat (%dx%d), Erkennung koennte scheitern", state.width, state.height)
-        if state.button or state.done:
+        if state.button:
             return state, png, state
+        if state.done:
+            # Nicht beim ersten Mal glauben: der Erledigt-Marker steht oft schon auf der halb
+            # geladenen Seite, waehrend der Sammeln-Knopf noch gar nicht gerendert ist. Wer hier
+            # zu frueh aufhoert, meldet "heute schon eingecheckt" und laesst den Tag ausfallen.
+            done_seen += 1
+            if done_seen >= DONE_SETTLE_ROUNDS:
+                return state, png, state
+            log.debug("Erledigt-Marker %d/%d, warte noch auf einen moeglichen Knopf", done_seen, DONE_SETTLE_ROUNDS)
+        else:
+            done_seen = 0
         if time.monotonic() >= deadline:
-            return None, png, state
+            # Beim Zeitablauf zaehlt der Marker auch ohne volle Bestaetigung -- sonst haette ein
+            # wirklich erledigter Tag am Ende gar kein Ergebnis.
+            return (state if state and state.done else None), png, state
         sleep(3)
 
 
