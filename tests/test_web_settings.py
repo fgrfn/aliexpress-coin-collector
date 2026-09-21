@@ -290,3 +290,55 @@ def test_the_offline_alert_can_be_switched_off(client, data_dir):
 def test_a_waiting_time_of_zero_is_refused(client, data_dir):
     client.post("/einstellungen/meldungen", data={"notify_on_offline": "1", "offline_alert_min": "0"})
     assert "offline_alert_min" not in stored(data_dir)
+
+
+# -- Testmeldung -------------------------------------------------------------------------------
+
+
+def test_the_test_button_is_disabled_without_a_webhook(client):
+    assert 'action="/einstellungen/test"' in client.get("/einstellungen").text
+    assert "Erst einen Webhook hinterlegen" in client.get("/einstellungen").text
+
+
+def test_the_test_message_goes_out_right_away(client, data_dir, monkeypatch):
+    # Bewusst nicht ueber die Auftragsablage: wer testet, will die Antwort sofort.
+    from aliexpress_coin_collector import notify
+
+    sent = []
+    monkeypatch.setattr(notify, "send", lambda hook, message, *a, **k: sent.append(message) or notify.Sent(True))
+    client.post("/einstellungen/meldungen", data={"discord_webhook": HOOK, "offline_alert_min": "30"})
+
+    response = client.post("/einstellungen/test")
+    assert response.status_code == 303
+    assert len(sent) == 1
+    assert sent[0].title == "🔔 Testmeldung"
+    assert not (data_dir / "commands").exists(), "kein Auftrag an den Dienst"
+
+
+def test_a_failed_test_says_why(client, monkeypatch):
+    from urllib.parse import unquote
+
+    from aliexpress_coin_collector import notify
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: notify.Sent(False, "Diesen Webhook gibt es nicht (mehr)."))
+    client.post("/einstellungen/meldungen", data={"discord_webhook": HOOK, "offline_alert_min": "30"})
+
+    client.post("/einstellungen/test")
+    assert "gibt es nicht" in unquote(client.cookies["acc_flash"])
+
+
+def test_a_test_without_a_webhook_is_refused_before_sending(client, monkeypatch):
+    from aliexpress_coin_collector import notify
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: pytest.fail("darf ohne Webhook nicht senden"))
+    assert client.post("/einstellungen/test").status_code == 303
+
+
+def test_the_test_is_behind_the_login(data_dir):
+    pytest.importorskip("httpx")
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    from aliexpress_coin_collector.web.app import create_app
+
+    auth.set_password(data_dir, PW, PW)
+    anonymous = fastapi_testclient.TestClient(create_app(Config.load(data_dir / "keine.env")), follow_redirects=False)
+    assert anonymous.post("/einstellungen/test").headers["location"] == "/login"

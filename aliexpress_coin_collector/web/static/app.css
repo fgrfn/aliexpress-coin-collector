@@ -1317,10 +1317,11 @@ h3.group {
     border-top: 1px solid var(--line);
 }
 
-/* Nur die allererste Zwischenueberschrift eines Formulars braucht keinen Trennstrich --
-   bewusst :first-child und nicht :first-of-type: in einem Formular, das mit Feldern beginnt,
-   trennt auch die erste Ueberschrift schon etwas ab. */
-form > h3.group:first-child {
+/* Die oberste Zwischenueberschrift einer Karte braucht keinen Trennstrich. Bewusst eine
+   eigene Klasse statt :first-child: sobald eine Karte mehrere Formulare enthaelt, steht die
+   Ueberschrift ploetzlich am Anfang eines spaeteren Formulars und verliert ihren Strich
+   genau dort, wo er gebraucht wird. */
+h3.group-first {
     margin-top: 4px;
     padding-top: 0;
     border-top: 0;

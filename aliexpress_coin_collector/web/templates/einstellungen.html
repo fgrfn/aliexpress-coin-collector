@@ -24,7 +24,7 @@
   <div class="card-head"><h2>Ablauf &amp; Verhalten</h2></div>
   <form method="post" action="/einstellungen/ablauf">
 
-    <h3 class="group">Zeitfenster</h3>
+    <h3 class="group group-first">Zeitfenster</h3>
     <div class="fields">
       <div class="field">
         <label for="ms">Morgens ab {{ saved('morning_start') }}</label>
@@ -170,6 +170,28 @@
       Geheimnis, wer ihn hat, kann in deinen Kanal schreiben. Eintragen ersetzt ihn, leer lassen
       behält ihn.
     </p>
+  </form>
+
+  {# Eigenes Formular: der Test soll gehen, ohne vorher zu speichern. #}
+  <form method="post" action="/einstellungen/test" class="btn-row" style="margin-top: 14px;">
+    <button class="btn btn-ghost" type="submit" {% if not has_webhook %}disabled{% endif %}>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3a5.5 5.5 0 0 0-5.5 5.5c0 4-2 5-2 5h15s-2-1-2-5A5.5 5.5 0 0 0 12 3ZM10.3 20.5a2 2 0 0 0 3.4 0"/>
+      </svg>
+      Testmeldung schicken
+    </button>
+  </form>
+  <p class="note">
+    {% if has_webhook %}
+      Schickt sofort eine Meldung in den Kanal — so siehst du, wie sie dort aussieht, und ob der
+      Webhook wirklich funktioniert. Sie führt gleich mit auf, wovon du künftig hörst.
+    {% else %}
+      Erst einen Webhook hinterlegen und speichern, dann lässt sich testen.
+    {% endif %}
+  </p>
+
+  <form method="post" action="/einstellungen/meldungen">
 
     <h3 class="group">Wann gemeldet wird</h3>
     <label class="opt">

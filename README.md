@@ -314,6 +314,24 @@ kein Ort für interne Adressen.
 Fehlschläge eines Laufs werden **immer** gemeldet und lassen sich nicht abschalten: eine
 Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
 
+### Testmeldung
+
+Ob der Webhook wirklich funktioniert, siehst du sonst erst beim nächsten Lauf. Darum ein Test —
+in der Oberfläche unter **Einstellungen → Benachrichtigungen** („Testmeldung schicken"), oder
+im Terminal:
+
+```bash
+python -m aliexpress_coin_collector notify-test
+```
+
+Die Testmeldung führt gleich mit auf, wovon du künftig hörst und wovon nicht. Schlägt sie fehl,
+steht der Grund im Klartext da statt einer HTTP-Nummer — „Diesen Webhook gibt es nicht (mehr)"
+ist die Antwort auf ein in Discord gelöschtes Ziel.
+
+Die Oberfläche schickt diese eine Meldung ausnahmsweise selbst statt über die Auftragsablage:
+es ist nur eine HTTPS-Anfrage, kein Zugriff aufs Gerät — und wer testet, will die Antwort sofort
+sehen und nicht dreißig Sekunden auf den nächsten Takt warten.
+
 ## Konfiguration
 
 Alle Werte stehen in der `.env` (Vorlage `.env.example`). Umgebungsvariablen haben Vorrang. Die

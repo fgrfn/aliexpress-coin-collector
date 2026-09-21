@@ -38,10 +38,12 @@ python -m aliexpress_coin_collector once --force --no-notify   # ein Lauf (fasst
 python -m aliexpress_coin_collector ocr bild.png --text        # Erkennung an Screenshot testen
 python -m aliexpress_coin_collector status                     # letzte Läufe + Summen
 python -m aliexpress_coin_collector schedule                   # geplante Uhrzeiten der nächsten Tage
+python -m aliexpress_coin_collector notify-test                # Testmeldung an Discord (ohne Gerät)
 python -m aliexpress_coin_collector.web                        # Weboberfläche (eigener Dienst)
 ```
 
-`once`, `doctor` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `--version` und die Tests brauchen kein Gerät.
+`once`, `doctor` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `notify-test`, `--version` und die Tests
+brauchen kein Gerät (`notify-test` braucht Netz nach draußen).
 
 Bei Änderungen an `install.sh` zusätzlich `bash -n install.sh` und `shellcheck install.sh`. Dieselben Prüfungen
 laufen in der CI.
@@ -57,7 +59,7 @@ aliexpress_coin_collector/
   scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen
   store.py      SQLite (Tabelle runs)
   notify.py     Discord-Webhook: Embeds bauen und schicken (wirft nie)
-  __main__.py   CLI: once | daemon | ocr | status | schedule | doctor
+  __main__.py   CLI: once | daemon | ocr | status | schedule | notify-test | doctor
   settings.py   zur Laufzeit änderbare Einstellungen (data/settings.json): überschreibt die .env
   commands.py   Auftragsablage Oberfläche → Dienst, Zustandsmeldung Dienst → Oberfläche
   logs.py       Protokolldatei des Dienstes: schreiben und wieder einlesen

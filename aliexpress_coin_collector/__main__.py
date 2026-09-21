@@ -7,7 +7,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import __version__, logs, ocr
+from . import __version__, logs, notify, ocr, scheduler
 from .adb import Adb, AdbError
 from .config import Config, ConfigError
 from .runner import run_once
@@ -100,6 +100,20 @@ def cmd_schedule(cfg: Config, args: argparse.Namespace) -> int:
         print(f"\nNaechster Lauf: {due:%Y-%m-%d %H:%M} (in {hours} h {minutes} min)")
     print("Der Abendlauf startet nur, wenn morgens nichts geklappt hat.")
     return 0
+
+
+def cmd_notify_test(cfg: Config, args: argparse.Namespace) -> int:
+    """Testmeldung an Discord. Fasst kein Geraet an, braucht nur Netz nach draussen."""
+    if not cfg.discord_webhook:
+        print("Kein Discord-Webhook hinterlegt (DISCORD_WEBHOOK_URL oder Weboberflaeche).", file=sys.stderr)
+        return 1
+    sent = notify.send(cfg.discord_webhook, scheduler.test_message(cfg))
+    if sent:
+        print("Testmeldung geschickt. Sie sollte jetzt im Kanal stehen.")
+        return 0
+    # Der Webhook selbst wird nie ausgegeben -- er ist ein Geheimnis.
+    print(f"Nicht zugestellt: {sent.detail}", file=sys.stderr)
+    return 1
 
 
 def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
@@ -207,6 +221,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("schedule", help="Geplante Uhrzeiten der naechsten Tage anzeigen")
     p.add_argument("-n", type=int, default=7, help="Anzahl Tage (Standard 7)")
     p.set_defaults(func=cmd_schedule)
+
+    p = sub.add_parser("notify-test", help="Testmeldung an Discord schicken (ohne Geraet)")
+    p.set_defaults(func=cmd_notify_test)
 
     p = sub.add_parser("doctor", help="Installation und Geraeteverbindung pruefen")
     p.set_defaults(func=cmd_doctor)

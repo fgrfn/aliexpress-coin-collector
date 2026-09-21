@@ -92,11 +92,35 @@ def _embed(message: Message, now: datetime | None = None, with_image: bool = Fal
     return embed
 
 
-def send(webhook: str, message: Message, screenshot: bytes | None = None, now: datetime | None = None) -> bool:
+# Was Discord auf einen kaputten Webhook antwortet. Die nackte Zahl hilft niemandem weiter.
+HTTP_REASONS = {
+    401: "Discord weist den Webhook zurück (nicht berechtigt).",
+    403: "Discord verweigert den Zugriff — der Webhook gehört womöglich zu einem anderen Kanal.",
+    404: "Diesen Webhook gibt es nicht (mehr). In Discord wurde er wohl gelöscht.",
+    429: "Zu viele Meldungen in kurzer Zeit, Discord bremst gerade.",
+}
+
+
+@dataclass(frozen=True)
+class Sent:
+    """Ausgang eines Sendeversuchs. `detail` ist fuer Menschen, nicht fuer Code.
+
+    Wahrheitswert wie ein bool, damit `if notify.send(...)` weiter lesbar bleibt -- der Grund
+    interessiert nur dort, wo jemand auf eine Antwort wartet, also bei der Testmeldung.
+    """
+
+    ok: bool
+    detail: str = ""
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
+def send(webhook: str, message: Message, screenshot: bytes | None = None, now: datetime | None = None) -> Sent:
     """Meldung schicken. Ohne Webhook landet sie nur im Protokoll. Wirft nie eine Ausnahme."""
     if not webhook:
         log.info("Discord nicht konfiguriert, Meldung nur im Log: %s", message.as_text())
-        return False
+        return Sent(False, "Es ist kein Discord-Webhook hinterlegt.")
     payload = {"embeds": [_embed(message, now, with_image=bool(screenshot))]}
     try:
         if screenshot:
@@ -111,8 +135,9 @@ def send(webhook: str, message: Message, screenshot: bytes | None = None, now: d
         if resp.status_code >= 300:
             # Der Webhook selbst steht in keiner Meldung -- er ist ein Geheimnis.
             log.warning("Discord antwortete mit HTTP %s: %s", resp.status_code, resp.text[:200])
-            return False
-        return True
+            reason = HTTP_REASONS.get(resp.status_code, f"Discord antwortete mit HTTP {resp.status_code}.")
+            return Sent(False, reason)
+        return Sent(True)
     except requests.RequestException as exc:
         log.warning("Discord-Meldung fehlgeschlagen: %s", exc)
-        return False
+        return Sent(False, f"Discord war nicht erreichbar: {type(exc).__name__}.")
