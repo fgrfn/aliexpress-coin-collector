@@ -133,7 +133,9 @@ def test_the_all_clear_is_green(posted):
 
 
 def test_without_a_webhook_nothing_is_sent_and_nothing_breaks(posted):
-    assert notify.send("", notify.Message(title="egal")) is False
+    sent = notify.send("", notify.Message(title="egal"))
+    assert not sent
+    assert "kein Discord-Webhook" in sent.detail
     assert posted == []
 
 
@@ -142,14 +144,58 @@ def test_a_network_error_is_swallowed(monkeypatch):
         raise requests.ConnectionError("kein Netz")
 
     monkeypatch.setattr(requests, "post", boom)
-    assert notify.send(HOOK, notify.Message(title="egal")) is False
+    sent = notify.send(HOOK, notify.Message(title="egal"))
+    assert not sent
+    assert "nicht erreichbar" in sent.detail
 
 
 def test_a_rejection_by_discord_is_swallowed(monkeypatch, caplog):
     monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResponse(400, "Bad Request"))
     with caplog.at_level("WARNING"):
-        assert notify.send(HOOK, notify.Message(title="egal")) is False
+        assert not notify.send(HOOK, notify.Message(title="egal"))
     assert "streng-geheim" not in caplog.text, "der Webhook ist ein Geheimnis"
+
+
+def test_a_deleted_webhook_is_explained_not_just_numbered(monkeypatch):
+    # "HTTP 404" sagt niemandem, dass er den Webhook in Discord geloescht hat.
+    monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResponse(404, "Unknown Webhook"))
+    sent = notify.send(HOOK, notify.Message(title="egal"))
+    assert not sent
+    assert "gelöscht" in sent.detail
+
+
+def test_a_reason_never_contains_the_webhook(monkeypatch):
+    monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResponse(404, f"Unknown Webhook {HOOK}"))
+    assert "streng-geheim" not in notify.send(HOOK, notify.Message(title="egal")).detail
+
+
+# -- Testmeldung -------------------------------------------------------------------------------
+
+
+def test_the_test_message_lists_what_will_be_reported(posted, cfg):
+    from dataclasses import replace
+
+    loud = replace(cfg, notify_on_success=True, notify_on_already_done=False, notify_on_offline=True)
+    assert notify.send(HOOK, scheduler.test_message(loud), now=NOW)
+
+    body = embed(posted)
+    assert body["title"] == "🔔 Testmeldung"
+    values = {f["name"]: f["value"] for f in body["fields"]}
+    assert values["Münzen gesammelt"] == "wird gemeldet"
+    assert values["Heute schon eingecheckt"] == "wird nicht gemeldet"
+    assert "30 Minuten" in values["Gerät nicht erreichbar"]
+    assert "immer" in values["Fehlgeschlagener Lauf"]
+
+
+def test_the_test_message_says_when_nothing_is_switched_on(posted, cfg):
+    from dataclasses import replace
+
+    quiet = replace(cfg, notify_on_success=False, notify_on_already_done=False, notify_on_offline=False)
+    notify.send(HOOK, scheduler.test_message(quiet), now=NOW)
+    values = {f["name"]: f["value"] for f in embed(posted)["fields"]}
+    assert values["Gerät nicht erreichbar"] == "wird nicht gemeldet"
+    # Fehlschlaege bleiben an, das ist Absicht und soll auch so dastehen.
+    assert "immer" in values["Fehlgeschlagener Lauf"]
 
 
 def test_an_overlong_text_is_cut_instead_of_being_refused(posted):
@@ -158,3 +204,37 @@ def test_an_overlong_text_is_cut_instead_of_being_refused(posted):
     body = embed(posted)
     assert len(body["title"]) == notify.MAX_TITLE
     assert len(body["description"]) == notify.MAX_DESCRIPTION
+
+
+# -- Testmeldung von der Kommandozeile -----------------------------------------------------------
+
+
+def test_the_cli_reports_success_with_exit_code_zero(cfg, monkeypatch, capsys):
+    from dataclasses import replace
+
+    from aliexpress_coin_collector import __main__
+
+    monkeypatch.setattr(__main__.notify, "send", lambda *a, **k: notify.Sent(True))
+    code = __main__.cmd_notify_test(replace(cfg, discord_webhook=HOOK), None)
+    assert code == 0
+    assert "geschickt" in capsys.readouterr().out
+
+
+def test_the_cli_fails_loudly_and_never_prints_the_webhook(cfg, monkeypatch, capsys):
+    from dataclasses import replace
+
+    from aliexpress_coin_collector import __main__
+
+    monkeypatch.setattr(__main__.notify, "send", lambda *a, **k: notify.Sent(False, "Discord war nicht erreichbar."))
+    code = __main__.cmd_notify_test(replace(cfg, discord_webhook=HOOK), None)
+    assert code == 1
+    out = capsys.readouterr()
+    assert "nicht erreichbar" in out.err
+    assert "streng-geheim" not in out.err + out.out
+
+
+def test_the_cli_says_when_no_webhook_is_configured(cfg, capsys):
+    from aliexpress_coin_collector import __main__
+
+    assert __main__.cmd_notify_test(cfg, None) == 1
+    assert "Kein Discord-Webhook" in capsys.readouterr().err

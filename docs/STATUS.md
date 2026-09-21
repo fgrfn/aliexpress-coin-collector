@@ -42,6 +42,9 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   mitgelieferte Schrift wirklich geladen, und dass keine Adresse nach außen zeigt.
 - `systemctl enable --now` für die Weboberfläche in `install.sh`: mit einer `systemctl`-Attrappe geprüft
   (Aufrufe, Erfolgs- und Fehlstartzweig). **Gegen echtes systemd ungetestet.**
+- Testmeldung (0.9.1): **nur mit Attrappen getestet.** Sie ist gerade der Weg, die offene
+  Frage von 0.9.0 selbst zu beantworten — ein Klick in der Oberfläche zeigt, wie die Embeds im
+  echten Kanal aussehen.
 - Discord-Embeds und Ausfallmeldung (0.9.0): **nur mit Attrappen getestet.** Der Aufbau der
   Nachricht ist gegen die Grenzen der Discord-API geprüft (Kürzen statt Ablehnen) und die
   Geräteadresse wird nachweislich verkürzt, aber **es wurde keine Meldung an einen echten
@@ -204,6 +207,15 @@ ueberschritten, lehnt Discord die **ganze** Nachricht ab -- lieber gekuerzt als 
 Die Ausfallmeldung (`Outage`) haelt nur fest, seit wann das Geraet weg ist und ob deswegen schon
 gemeldet wurde; geschickt wird im Takt. Je Ausfall genau eine Meldung, und die Entwarnung nur,
 wenn es vorher auch eine Stoerung gab -- sonst kaeme nach jedem kurzen Aussetzer ein Haken.
+
+Die **Testmeldung** schickt ausnahmsweise die Oberflaeche selbst statt ueber die Auftragsablage:
+es ist nur eine HTTPS-Anfrage, kein Zugriff aufs Geraet -- und wer testet, will die Antwort sofort
+sehen und nicht dreissig Sekunden auf den naechsten Takt warten. Sie laeuft im Threadpool, weil
+`requests` blockiert. Denselben Test gibt es als `notify-test` auf der Kommandozeile.
+
+`send()` gibt darum ein `Sent(ok, detail)` zurueck statt eines nackten bool: bei einem Test will
+jemand wissen *warum* es nicht ging. Der Grund steht im Klartext da ("Diesen Webhook gibt es nicht
+(mehr)") statt als HTTP-Nummer, und der Webhook selbst nie darin.
 
 Die Geraeteadresse geht nur verkuerzt hinaus (`commands.mask_serial`). Ein Chat-Kanal ist kein
 Ort fuer interne Adressen, und Discord-Nachrichten bleiben dort lange stehen.

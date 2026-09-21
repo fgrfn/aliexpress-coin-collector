@@ -34,7 +34,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, commands, logs, settings
+from .. import __version__, commands, logs, notify, scheduler, settings
 from ..config import Config, ConfigError
 from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for, with_current_settings
 from ..store import Attempt, Store
@@ -680,6 +680,29 @@ def create_app(cfg: Config) -> FastAPI:
         if gate is not None:
             return gate
         return _store(request, {"adb_serial": adb_serial.strip()}, "Geräteadresse")
+
+    @app.post("/einstellungen/test")
+    async def send_test(request: Request) -> Response:
+        """Testmeldung an Discord.
+
+        Die schickt die Oberflaeche ausnahmsweise selbst statt ueber die Auftragsablage: es ist
+        nur eine HTTPS-Anfrage, kein Zugriff aufs Geraet -- und wer einen Test ausloest, will die
+        Antwort sofort sehen und nicht dreissig Sekunden auf den naechsten Takt des Dienstes
+        warten. Blockierend ist sie trotzdem, deshalb im Threadpool.
+        """
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        active = current_cfg()
+        response = RedirectResponse("/einstellungen#meldungen", status_code=303)
+        if not active.discord_webhook:
+            return _flash(response, "Es ist kein Discord-Webhook hinterlegt.", "warn")
+
+        sent = await run_in_threadpool(notify.send, active.discord_webhook, scheduler.test_message(active))
+        if sent:
+            log.info("Testmeldung an Discord geschickt")
+            return _flash(response, "Testmeldung geschickt. Sie sollte jetzt im Kanal stehen.", "ok")
+        return _flash(response, f"Nicht zugestellt: {sent.detail}", "bad")
 
     @app.post("/einstellungen/meldungen")
     def save_notifications(

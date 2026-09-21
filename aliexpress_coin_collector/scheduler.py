@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
-from . import commands, notify, settings
+from . import __version__, commands, notify, settings
 from .adb import Adb
 from .config import Config, ConfigError
 from .runner import SUCCESS, Outcome, RunResult, run_once
@@ -268,6 +268,30 @@ def offline_message(minutes: int, serial: str) -> notify.Message:
             notify.Field("Adresse", commands.mask_serial(serial)),
         ),
         footer="Häufigste Ursache: Gerät aus, im Ruhezustand oder nach einem Neustart ohne adb tcpip",
+    )
+
+
+def test_message(cfg: Config) -> notify.Message:
+    """Testmeldung. Zeigt zugleich, was ueberhaupt gemeldet wird -- sonst weiss man nach dem
+    erfolgreichen Test immer noch nicht, wovon man kuenftig hoert."""
+    on, off = "wird gemeldet", "wird nicht gemeldet"
+    return notify.Message(
+        title="🔔 Testmeldung",
+        tone="info",
+        description=(
+            "Der Webhook funktioniert. So sehen die Meldungen des Coin Collectors aus — "
+            "Farbe nach Ausgang, Zahlen in eigenen Feldern."
+        ),
+        fields=(
+            notify.Field("Münzen gesammelt", on if cfg.notify_on_success else off),
+            notify.Field("Heute schon eingecheckt", on if cfg.notify_on_already_done else off),
+            notify.Field(
+                "Gerät nicht erreichbar",
+                f"{on} (nach {_duration(cfg.offline_alert_min)})" if cfg.notify_on_offline else off,
+            ),
+            notify.Field("Fehlgeschlagener Lauf", "wird immer gemeldet, mit Screenshot", inline=False),
+        ),
+        footer=f"Coin Collector {__version__}",
     )
 
 
