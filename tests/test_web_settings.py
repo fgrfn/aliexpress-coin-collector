@@ -271,3 +271,22 @@ def test_the_dashboard_shows_todays_times_and_links_to_the_settings(client):
     assert "Heute geplant" in body
     assert "/einstellungen#ablauf" in body
     assert 'action="/settings"' not in body, "das Formular ist umgezogen"
+
+
+def test_the_offline_alert_is_configurable(client, data_dir):
+    client.post(
+        "/einstellungen/meldungen",
+        data={"notify_on_offline": "1", "offline_alert_min": "90"},
+    )
+    assert stored(data_dir)["notify_on_offline"] is True
+    assert stored(data_dir)["offline_alert_min"] == 90
+
+
+def test_the_offline_alert_can_be_switched_off(client, data_dir):
+    client.post("/einstellungen/meldungen", data={"offline_alert_min": "30"})
+    assert stored(data_dir)["notify_on_offline"] is False
+
+
+def test_a_waiting_time_of_zero_is_refused(client, data_dir):
+    client.post("/einstellungen/meldungen", data={"notify_on_offline": "1", "offline_alert_min": "0"})
+    assert "offline_alert_min" not in stored(data_dir)

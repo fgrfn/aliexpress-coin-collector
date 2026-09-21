@@ -139,8 +139,24 @@ def with_current_settings(cfg: Config) -> Config:
     return updated
 
 
+KIND_LABELS = {"morning": "Morgenlauf", "evening": "Abendlauf", "manual": "Handlauf"}
+
+# Was bei einem Fehlschlag in der Meldung steht. Der Grund gehoert in Worte -- 'not_found' sagt
+# demjenigen, der die Meldung auf dem Handy liest, nichts.
+FAILURE_REASONS = {
+    Outcome.UNREACHABLE: (
+        "Gerät nicht erreichbar",
+        "Aus, im Ruhezustand, nicht im Netz — oder `adb tcpip 5555` fehlt.",
+    ),
+    Outcome.NOT_FOUND: ("Nichts erkannt", "Weder der Sammeln-Knopf noch der Erledigt-Zustand waren auf der Seite."),
+    Outcome.UNCONFIRMED: ("Nicht bestätigt", "Es wurde getippt, aber der Erfolg ließ sich danach nicht belegen."),
+    Outcome.ERROR: ("Unerwarteter Fehler", ""),
+}
+
+
 def describe(kind: str, result: RunResult) -> str:
-    label = {"morning": "Morgenlauf", "evening": "Abendlauf", "manual": "Handlauf"}.get(kind, kind)
+    """Eine Zeile fuer das Protokoll. Bewusst ohne Umlaute, wie der Rest der Log-Ausgabe."""
+    label = KIND_LABELS.get(kind, kind)
     if result.outcome == Outcome.CLAIMED:
         gain = ""
         if result.coins_before is not None and result.coins_after is not None:
@@ -149,6 +165,119 @@ def describe(kind: str, result: RunResult) -> str:
     if result.outcome == Outcome.ALREADY_DONE:
         return f"ℹ️ {label}: heute schon eingecheckt (Stand: {result.coins_after})"
     return f"⚠️ {label} fehlgeschlagen [{result.outcome.value}]: {result.message}"
+
+
+def message_for(kind: str, result: RunResult, final_attempt: bool = False) -> notify.Message:
+    """Dasselbe Ergebnis als Discord-Meldung: Farbe nach Ausgang, Zahlen in eigenen Feldern.
+
+    Getrennt von describe(), weil das Protokoll eine Zeile will und ohne Umlaute auskommt,
+    waehrend diese Meldung ein Mensch im Kanal liest.
+    """
+    label = KIND_LABELS.get(kind, kind)
+    duration = notify.Field("Dauer", f"{result.duration_s:.0f} s")
+
+    if result.outcome == Outcome.CLAIMED:
+        fields = []
+        if result.coins_before is not None and result.coins_after is not None:
+            fields.append(notify.Field("Zuwachs", f"+{result.coins_after - result.coins_before}"))
+        fields.append(notify.Field("Münzstand", notify.number(result.coins_after)))
+        return notify.Message(
+            title="✅ Münzen gesammelt",
+            tone="ok",
+            fields=(*fields, duration),
+            footer=label,
+        )
+
+    if result.outcome == Outcome.ALREADY_DONE:
+        return notify.Message(
+            title="ℹ️ Heute schon eingecheckt",
+            tone="info",
+            description="Der Check-in war bereits erledigt, es gab nichts mehr zu holen.",
+            fields=(notify.Field("Münzstand", notify.number(result.coins_after)), duration),
+            footer=label,
+        )
+
+    heading, explanation = FAILURE_REASONS.get(result.outcome, ("Fehlgeschlagen", ""))
+    description = explanation
+    if final_attempt:
+        description = f"{description}\n\n❌ **Das war der letzte Versuch für heute.**".strip()
+    return notify.Message(
+        title=f"⚠️ {label}: {heading}",
+        tone="bad" if final_attempt else "warn",
+        description=description,
+        fields=(notify.Field("Meldung", result.message or "—", inline=False), duration),
+        footer=label,
+    )
+
+
+# Erst nach dieser Zeit ohne Verbindung wird gemeldet. Kurze Aussetzer sind normal -- ein Handy
+# im Doze, ein Router, der neu startet. Eine Meldung nach dreissig Sekunden waere nur Laerm.
+OFFLINE_ALERT_MIN = 30
+
+
+@dataclass
+class Outage:
+    """Merkt sich, seit wann das Geraet weg ist und ob deswegen schon gemeldet wurde.
+
+    Reine Zustandshaltung: gibt nur zurueck, was zu melden waere, und schickt selbst nichts.
+    Damit laesst sich das Verhalten ohne Geraet und ohne Discord pruefen.
+    """
+
+    since: datetime | None = None
+    alerted: bool = False
+
+    def note(self, reachable: bool, now: datetime, after_min: int = OFFLINE_ALERT_MIN) -> str:
+        """Gibt '' (nichts zu tun), 'down' (Stoerung) oder 'up' (Entwarnung) zurueck.
+
+        Gemeldet wird je Ausfall genau einmal, und die Entwarnung nur, wenn es vorher auch
+        eine Stoerungsmeldung gab -- sonst kaeme nach jedem kurzen Aussetzer ein Haken.
+        """
+        if reachable:
+            was_alerted = self.alerted
+            self.since, self.alerted = None, False
+            return "up" if was_alerted else ""
+        if self.since is None:
+            self.since = now
+            return ""
+        if not self.alerted and now >= self.since + timedelta(minutes=after_min):
+            self.alerted = True
+            return "down"
+        return ""
+
+    def minutes(self, now: datetime) -> int:
+        return 0 if self.since is None else max(0, int((now - self.since).total_seconds()) // 60)
+
+
+def _duration(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} Minuten"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
+
+
+def offline_message(minutes: int, serial: str) -> notify.Message:
+    return notify.Message(
+        title="🔌 Gerät nicht erreichbar",
+        tone="bad",
+        description=(
+            "Der Dienst kommt seit einer Weile nicht an das Gerät. Geplante Läufe fallen aus, "
+            "bis die Verbindung wieder steht. Er versucht es weiter, mit wachsendem Abstand."
+        ),
+        fields=(
+            notify.Field("Seit", _duration(minutes)),
+            notify.Field("Adresse", commands.mask_serial(serial)),
+        ),
+        footer="Häufigste Ursache: Gerät aus, im Ruhezustand oder nach einem Neustart ohne adb tcpip",
+    )
+
+
+def back_message(minutes: int) -> notify.Message:
+    return notify.Message(
+        title="✅ Gerät wieder erreichbar",
+        tone="ok",
+        description="Die Verbindung steht wieder, der Zeitplan läuft normal weiter.",
+        fields=(notify.Field("Ausfall", _duration(minutes)),),
+    )
 
 
 def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final_attempt: bool = False) -> None:
@@ -163,15 +292,14 @@ def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final
             duration_s=round(result.duration_s, 1),
         )
     )
-    text = describe(kind, result)
-    log.info(text)
+    log.info(describe(kind, result))
 
     if result.outcome == Outcome.BUSY:
         return
     if result.ok:
         wanted = cfg.notify_on_success if result.outcome == Outcome.CLAIMED else cfg.notify_on_already_done
         if wanted:
-            notify.send_discord(cfg.discord_webhook, text)
+            notify.send(cfg.discord_webhook, message_for(kind, result))
         return
 
     if result.screenshot:
@@ -180,9 +308,7 @@ def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final
         (shots / f"{datetime.now():%Y%m%d-%H%M%S}-{result.outcome.value}.png").write_bytes(result.screenshot)
         for old in sorted(shots.glob("*.png"))[:-30]:  # nur die letzten 30 behalten
             old.unlink(missing_ok=True)
-    if final_attempt:
-        text += "\n❌ Das war der letzte Versuch fuer heute."
-    notify.send_discord(cfg.discord_webhook, text, result.screenshot)
+    notify.send(cfg.discord_webhook, message_for(kind, result, final_attempt), result.screenshot)
 
 
 # Abstaende zwischen zwei Verbindungsversuchen, in Minuten. Der erste Versuch kommt sofort,
@@ -330,6 +456,7 @@ def tick(
     version: str = "",
     announced: date | None = None,
     now: datetime | None = None,
+    outage: Outage | None = None,
 ) -> date | None:
     """Eine Runde des Dienstes. Gibt zurueck, fuer welchen Tag der Plan zuletzt gemeldet wurde.
 
@@ -339,7 +466,17 @@ def tick(
     now = now or datetime.now()
     cfg = with_current_settings(base_cfg)
     touch_heartbeat(cfg)
-    report_status(cfg, adb, version, reconnect, now)
+    state = report_status(cfg, adb, version, reconnect, now)
+
+    # Faellt das Geraet laenger aus, sagt der Dienst Bescheid -- sonst merkt man erst am
+    # ausbleibenden Erfolg, dass tagelang nichts lief. Je Ausfall genau eine Meldung.
+    if outage is not None:
+        # Dauer vor note() ablesen: die Entwarnung setzt den Beginn zurueck, danach waere sie null.
+        minutes = outage.minutes(now)
+        event = outage.note(state == "device", now, cfg.offline_alert_min)
+        if event and cfg.notify_on_offline:
+            message = offline_message(minutes, cfg.adb_serial) if event == "down" else back_message(minutes)
+            notify.send(cfg.discord_webhook, message)
 
     # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
     # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
@@ -380,7 +517,7 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
         cfg.evening_end,
     )
     announced: date | None = None
-    reconnect = Reconnect()
+    reconnect, outage = Reconnect(), Outage()
     while True:
-        announced = tick(cfg, adb, store, reconnect, version, announced)
+        announced = tick(cfg, adb, store, reconnect, version, announced, outage=outage)
         time.sleep(tick_s)

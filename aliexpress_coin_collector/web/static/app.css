@@ -1440,3 +1440,15 @@ input[type="number"] {
     color: var(--muted);
     margin-top: 4px;
 }
+
+/* Eine Zahl wie "30" braucht kein Feld ueber die halbe Karte. Die Einheit daneben soll
+   ausserdem nah am Wert stehen, sonst liest man sie nicht als zusammengehoerig. */
+.with-unit input[type="number"] {
+    flex: 0 1 130px;
+}
+
+/* Ein Feld, das zu einem Kaestchen darueber gehoert, braucht etwas Luft dazwischen --
+   sonst liest sich die Beschriftung wie eine zweite Zeile des Kaestchens. */
+.opt + .fields {
+    margin-top: 12px;
+}
