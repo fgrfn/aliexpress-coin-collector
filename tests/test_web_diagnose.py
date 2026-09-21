@@ -192,3 +192,27 @@ def test_the_sidebar_lists_every_area(client):
     body = client.get("/diagnose").text
     for label in ("Übersicht", "Verlauf", "Gerät", "Diagnose", "Einstellungen"):
         assert f">{label}</span>" in body, label
+
+
+def test_the_tool_says_whether_a_login_prompt_was_found(client, tmp_path, monkeypatch):
+    # Damit sich die Erkennung an einem echten Screenshot pruefen laesst, ohne einen Lauf
+    # abzuwarten: Bild hochladen, und die Seite sagt, ob die Anmelde-Marker greifen.
+    monkeypatch.setattr(
+        ocr,
+        "analyze",
+        lambda *a, **k: ocr.PageState(
+            button=None, done=False, coins=None, width=200, height=400, text="Bitte anmelden", logged_out=True
+        ),
+    )
+    body = client.post("/diagnose/erkennung", files={"bild": ("shot.png", png(), "image/png")}).text
+    assert "Anmelde-Marker gefunden" in body
+
+
+def test_an_ordinary_screenshot_shows_no_login_prompt(client, monkeypatch):
+    monkeypatch.setattr(
+        ocr,
+        "analyze",
+        lambda *a, **k: ocr.PageState(button=None, done=True, coins=1275, width=200, height=400, text=""),
+    )
+    body = client.post("/diagnose/erkennung", files={"bild": ("shot.png", png(), "image/png")}).text
+    assert "Anmelde-Marker gefunden" not in body

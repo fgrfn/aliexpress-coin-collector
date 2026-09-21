@@ -76,6 +76,12 @@ def _text(name: str, default: str) -> str:
     return value
 
 
+# Vorgabe fuer LOGIN_MARKERS. Steht hier und nicht in ocr.py, damit die Weboberflaeche sie lesen
+# kann, ohne cv2 und pytesseract in ihren Prozess zu ziehen. Kleingeschrieben, weil im
+# kleingeschriebenen Volltext gesucht wird.
+DEFAULT_LOGIN_MARKERS = ("anmelden", "einloggen", "anmeldung", "sign in", "log in", "登录")
+
+
 def _check_min(name: str, value: int, minimum: int) -> None:
     """Untergrenze eines Zahlenwerts pruefen."""
     if value < minimum:
@@ -131,6 +137,7 @@ class Config:
     confirm_timeout_s: int
     launch_retries: int
     button_labels: tuple[str, ...]
+    login_markers: tuple[str, ...]
     ocr_lang: str
     notify_on_success: bool
     notify_on_already_done: bool
@@ -151,6 +158,16 @@ class Config:
         if not labels:
             raise ConfigError("BUTTON_LABELS darf nicht leer sein")
 
+        # Kleingeschrieben, weil looks_logged_out im kleingeschriebenen Volltext sucht.
+        raw_markers = get("LOGIN_MARKERS")
+        markers = (
+            tuple(m.strip().lower() for m in raw_markers.split(",") if m.strip())
+            if raw_markers is not None
+            else DEFAULT_LOGIN_MARKERS
+        )
+        if not markers:
+            raise ConfigError("LOGIN_MARKERS darf nicht leer sein (weglassen setzt die Vorgabe)")
+
         data_dir = Path(get("DATA_DIR") or "./data")
         base: dict[str, Any] = {
             "adb_serial": (get("ADB_SERIAL") or "").strip(),
@@ -169,6 +186,7 @@ class Config:
             "confirm_timeout_s": _int("CONFIRM_TIMEOUT_S", 25),
             "launch_retries": _int("LAUNCH_RETRIES", 1),
             "button_labels": labels,
+            "login_markers": markers,
             "ocr_lang": _text("OCR_LANG", "deu"),
             "notify_on_success": _bool(get("NOTIFY_ON_SUCCESS") or "true"),
             "notify_on_already_done": _bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),

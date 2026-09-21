@@ -69,6 +69,12 @@
           <span class="key">Erledigt-Zustand</span>
           <span class="val">{{ "erkannt" if result.done else "nicht erkannt" }}</span>
         </div>
+        <div class="row">
+          <span class="key">Anmeldung nötig</span>
+          <span class="val {{ 'bad' if result.logged_out else '' }}">
+            {{ "ja, Anmelde-Marker gefunden" if result.logged_out else "nein" }}
+          </span>
+        </div>
         <div class="row-line">
           <span class="key">Münzstand</span>
           <span class="val">{{ result.coins|zahl }}</span>

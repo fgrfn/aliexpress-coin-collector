@@ -20,6 +20,7 @@ class Outcome(str, Enum):
     BUSY = "busy"  # Geraet in Benutzung, Lauf uebersprungen
     UNREACHABLE = "unreachable"  # ADB-Verbindung fehlt
     NOT_FOUND = "not_found"  # weder Button noch erledigt-Zustand erkannt
+    LOGIN_REQUIRED = "login_required"  # Seite verlangt eine Anmeldung
     UNCONFIRMED = "unconfirmed"  # getippt, aber Erfolg nicht bestaetigt
     ERROR = "error"  # unerwarteter Fehler
 
@@ -45,9 +46,14 @@ Analyzer = Callable[[bytes, Config], ocr.PageState]
 
 
 def _wait_for_page(adb: Adb, cfg: Config, analyze: Analyzer, sleep: Callable[[float], None]):
-    """Wartet, bis Button oder erledigt-Zustand sichtbar ist. Gibt (Zustand|None, letzter Screenshot) zurueck."""
+    """Wartet, bis Button oder erledigt-Zustand sichtbar ist.
+
+    Gibt (brauchbarer Zustand|None, letzter Screenshot, zuletzt gesehener Zustand|None) zurueck.
+    Der letzte Zustand wird auch im Fehlerfall gebraucht: er sagt, ob eine Anmeldeaufforderung
+    im Weg stand -- sonst bliebe es beim nichtssagenden "nichts erkannt".
+    """
     deadline = time.monotonic() + cfg.page_timeout_s
-    png = b""
+    png, state = b"", None
     while True:
         png = adb.screenshot()
         state = analyze(png, cfg)
@@ -55,9 +61,9 @@ def _wait_for_page(adb: Adb, cfg: Config, analyze: Analyzer, sleep: Callable[[fl
         if state.width > state.height:
             log.warning("Screenshot ist im Querformat (%dx%d), Erkennung koennte scheitern", state.width, state.height)
         if state.button or state.done:
-            return state, png
+            return state, png, state
         if time.monotonic() >= deadline:
-            return None, png
+            return None, png, state
         sleep(3)
 
 
@@ -110,20 +116,28 @@ def run_once(
             sleep(2)
 
         attempts = 1 + max(0, cfg.launch_retries)
-        state, png = None, b""
+        state, png, last = None, b"", None
         for n in range(1, attempts + 1):
             adb.force_stop(cfg.app_package)
             sleep(1)
             adb.start_url(cfg.coin_url, cfg.app_package)
             sleep(4)
-            state, png = _wait_for_page(adb, cfg, analyze, sleep)
+            state, png, last = _wait_for_page(adb, cfg, analyze, sleep)
             if state is not None:
                 break
             log.warning("Coin-Seite nicht erkannt (Startversuch %d/%d)", n, attempts)
         if state is None:
+            # Der letzte Screenshot sagt oft, warum: eine Anmeldeaufforderung ist der haeufigste
+            # Grund und die einzige Ursache, die der Dienst nicht selbst beheben kann.
+            if last is not None and last.logged_out:
+                return result(
+                    Outcome.LOGIN_REQUIRED,
+                    "Die App verlangt eine Anmeldung. Bitte in der AliExpress-App neu einloggen.",
+                    screenshot=png,
+                )
             return result(
                 Outcome.NOT_FOUND,
-                "Weder Check-in-Button noch erledigt-Zustand erkannt (Login abgelaufen? Popup? Layout geaendert?)",
+                "Weder Check-in-Button noch erledigt-Zustand erkannt (Popup? Layout geaendert?)",
                 screenshot=png,
             )
 

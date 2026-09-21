@@ -50,6 +50,7 @@ class Result:
     confidence: float
     position: str
     done: bool
+    logged_out: bool
     coins: int | None
     width: int
     height: int
@@ -119,6 +120,7 @@ def analyze(image: bytes, cfg: Config, threshold_raw: str = "", invert: bool = T
         confidence=round(button.conf, 1) if button else 0.0,
         position=f"{button.cx}, {button.cy}" if button else "",
         done=state.done,
+        logged_out=state.logged_out,
         coins=state.coins,
         width=state.width,
         height=state.height,

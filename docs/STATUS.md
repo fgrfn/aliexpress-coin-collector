@@ -53,6 +53,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   auf dem Produktivsystem stand "nicht erreichbar", während das Gerät erreichbar war, und erst
   ein Auftrag mit `ensure_connected` brachte es zurück. Dass die Erholung im Betrieb greift,
   ist damit aber noch nicht belegt; das zeigt sich erst beim nächsten echten Verbindungsabriss.
+- Erkennung einer abgelaufenen Anmeldung (0.10.0): **nur mit Attrappen getestet, und die Marker
+  selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
+  vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
+  Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
 - Etappe 4b (Einstellungen): gegen einen echt laufenden Webdienst geprüft — Speichern aller
   Abschnitte, Abweisen unhaltbarer Werte (Fenster verkehrt herum, Wiederholung nach dem Erzwingen,
   Text statt Zahl, Adresse ohne gültigen Port, Webhook ohne `https://`), und dass ein abgewiesener
@@ -278,8 +282,9 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    die CI bräuchte dafür `tesseract-ocr` und das passende Sprachpaket.
 3. **Umschaltzeit auswerten.** Aus der Tabelle `runs` ableiten, wann ein neuer Tag beginnt, und die Zeitfenster
    anpassen — das Abendfenster sollte nicht hinter dem Umschaltpunkt liegen, sonst sammelt es den nächsten Tag ein.
-4. **Login-Abgelaufen-Erkennung.** Ein eigener Marker im Screenshot, damit die Meldung "bitte neu einloggen" lautet
-   statt `not_found`.
+4. ~~**Login-Abgelaufen-Erkennung.**~~ Umgesetzt in 0.10.0 (`ocr.looks_logged_out`,
+   `Outcome.LOGIN_REQUIRED`). **Die Marker sind an keinem echten abgemeldeten Screenshot geprüft** —
+   sie sind begründete Vorgaben. Nachprüfbar ohne Wartezeit über das Werkzeug auf der Diagnose-Seite.
 5. **Popups wegtippen** (Bewertungsaufforderung, Update-Hinweis) statt daran zu scheitern.
 6. **Zusatzaufgaben** der Coin-Seite als eigene, austauschbare Module. Erst nach stabilem Check-in sinnvoll, und mit
    hohem Pflegeaufwand verbunden, weil die Aufgaben wechseln.

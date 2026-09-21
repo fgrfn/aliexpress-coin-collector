@@ -314,6 +314,24 @@ kein Ort für interne Adressen.
 Fehlschläge eines Laufs werden **immer** gemeldet und lassen sich nicht abschalten: eine
 Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
 
+### Abgelaufene Anmeldung
+
+Die Sitzung in der App läuft irgendwann ab. Bis Version 0.10.0 endete das als `not_found` — also
+täglich dieselbe nichtssagende Meldung „nichts erkannt", und man musste den Screenshot ansehen, um
+zu verstehen, warum seit Tagen nichts gesammelt wurde.
+
+Jetzt sucht die Erkennung in diesem Fall nach einer Anmeldeaufforderung und meldet
+**„Anmeldung nötig — bitte in der AliExpress-App neu einloggen"**, in Rot, weil das auf einen
+Menschen wartet und sich nicht von allein erledigt.
+
+**Die Prüfung läuft nur, wenn ohnehin weder der Sammeln-Knopf noch der Erledigt-Zustand gefunden
+wurde.** Ein Treffer kann damit einen gescheiterten Lauf genauer benennen, aber niemals einen
+erfolgreichen stören — im schlimmsten Fall klebt ein falsches Etikett auf einem Lauf, der so oder
+so nichts eingesammelt hätte. Die Marker stehen in `LOGIN_MARKERS`.
+
+Ob sie an deiner App greifen, prüfst du ohne Wartezeit: einen Screenshot des abgemeldeten
+Zustands unter **Diagnose** hochladen — dort steht jetzt eine Zeile „Anmeldung nötig".
+
 ### Testmeldung
 
 Ob der Webhook wirklich funktioniert, siehst du sonst erst beim nächsten Lauf. Darum ein Test —
@@ -351,6 +369,7 @@ in `data/settings.json` und überschreibt die `.env`.
 | **`CONFIRM_TIMEOUT_S`** | `25` | Wartezeit auf die Bestätigung nach dem Tap |
 | **`LAUNCH_RETRIES`** | `1` | Zusätzliche Startversuche mit App-Neustart |
 | `BUTTON_LABELS` | `Sammeln,Collect,Claim` | Mögliche Beschriftungen des Buttons |
+| `LOGIN_MARKERS` | `anmelden,einloggen,…` | Woran eine abgelaufene Anmeldung erkannt wird |
 | `OCR_LANG` | `deu` | Tesseract-Sprache |
 | **`NOTIFY_ON_SUCCESS` / `NOTIFY_ON_ALREADY_DONE`** | `true` / `false` | Wann Erfolgsmeldungen kommen (Fehler werden immer gemeldet) |
 | **`NOTIFY_ON_OFFLINE`** | `true` | Melden, wenn das Gerät länger nicht erreichbar ist |

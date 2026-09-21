@@ -148,6 +148,11 @@ FAILURE_REASONS = {
         "Gerät nicht erreichbar",
         "Aus, im Ruhezustand, nicht im Netz — oder `adb tcpip 5555` fehlt.",
     ),
+    Outcome.LOGIN_REQUIRED: (
+        "Anmeldung nötig",
+        "Die App verlangt eine Anmeldung. **Bitte in der AliExpress-App neu einloggen** — bis dahin "
+        "sammelt der Dienst nichts mehr. Das macht er absichtlich nicht selbst.",
+    ),
     Outcome.NOT_FOUND: ("Nichts erkannt", "Weder der Sammeln-Knopf noch der Erledigt-Zustand waren auf der Seite."),
     Outcome.UNCONFIRMED: ("Nicht bestätigt", "Es wurde getippt, aber der Erfolg ließ sich danach nicht belegen."),
     Outcome.ERROR: ("Unerwarteter Fehler", ""),
@@ -203,7 +208,9 @@ def message_for(kind: str, result: RunResult, final_attempt: bool = False) -> no
         description = f"{description}\n\n❌ **Das war der letzte Versuch für heute.**".strip()
     return notify.Message(
         title=f"⚠️ {label}: {heading}",
-        tone="bad" if final_attempt else "warn",
+        # Rot, sobald es von allein nicht mehr gut wird: beim letzten Versuch des Tages, und
+        # immer bei einer noetigen Anmeldung -- die wartet auf einen Menschen.
+        tone="bad" if final_attempt or result.outcome == Outcome.LOGIN_REQUIRED else "warn",
         description=description,
         fields=(notify.Field("Meldung", result.message or "—", inline=False), duration),
         footer=label,

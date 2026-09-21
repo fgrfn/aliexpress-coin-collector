@@ -126,6 +126,7 @@ def outcome_label(outcome: str) -> str:
         Outcome.ALREADY_DONE.value: "schon erledigt",
         Outcome.BUSY.value: "übersprungen",
         Outcome.UNREACHABLE.value: "nicht erreichbar",
+        Outcome.LOGIN_REQUIRED.value: "Anmeldung nötig",
         Outcome.NOT_FOUND.value: "nicht erkannt",
         Outcome.UNCONFIRMED.value: "unbestätigt",
         Outcome.ERROR.value: "Fehler",
