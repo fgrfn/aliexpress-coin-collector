@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, time
 from pathlib import Path
+from typing import Any
 
 from . import settings
+
+log = logging.getLogger(__name__)
 
 DEFAULT_URL = (
     "https://m.aliexpress.com/p/coin-index/index.html"
@@ -141,56 +145,65 @@ class Config:
         _load_dotenv(Path(env_file))
         get = os.environ.get
 
-        serial = (get("ADB_SERIAL") or "").strip()
-        if not serial:
-            raise ConfigError("ADB_SERIAL fehlt (z. B. 192.168.1.50:5555), siehe .env.example")
-        _check_serial(serial)
-
         labels = tuple(s.strip() for s in (get("BUTTON_LABELS") or "Sammeln,Collect,Claim").split(",") if s.strip())
         if not labels:
             raise ConfigError("BUTTON_LABELS darf nicht leer sein")
 
         data_dir = Path(get("DATA_DIR") or "./data")
-        # settings.json ueberschreibt die Fenster aus der .env. Bewusst hier und nicht erst im
-        # Dienst, damit CLI, Dienst und Weboberflaeche dieselben Zeiten anzeigen.
-        overrides = settings.load(data_dir)
-        windows = {
+        base: dict[str, Any] = {
+            "adb_serial": (get("ADB_SERIAL") or "").strip(),
+            "adb_path": get("ADB_PATH") or "adb",
+            "app_package": get("APP_PACKAGE") or "com.alibaba.aliexpresshd",
+            "coin_url": get("COIN_URL") or DEFAULT_URL,
+            "discord_webhook": (get("DISCORD_WEBHOOK_URL") or "").strip(),
             "morning_start": _time(get("MORNING_START") or "07:00"),
             "morning_end": _time(get("MORNING_END") or "10:00"),
             "evening_start": _time(get("EVENING_START") or "19:00"),
             "evening_end": _time(get("EVENING_END") or "21:00"),
+            "skip_if_awake": _bool(get("SKIP_IF_AWAKE") or "true"),
+            "busy_retry_min": _int("BUSY_RETRY_MIN", 15),
+            "busy_max_wait_min": _int("BUSY_MAX_WAIT_MIN", 120),
+            "page_timeout_s": _int("PAGE_TIMEOUT_S", 90),
+            "confirm_timeout_s": _int("CONFIRM_TIMEOUT_S", 25),
+            "launch_retries": _int("LAUNCH_RETRIES", 1),
+            "button_labels": labels,
+            "ocr_lang": _text("OCR_LANG", "deu"),
+            "notify_on_success": _bool(get("NOTIFY_ON_SUCCESS") or "true"),
+            "notify_on_already_done": _bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
+            "data_dir": data_dir,
+            "log_level": (get("LOG_LEVEL") or "INFO").strip().upper(),
         }
-        windows.update(overrides.windows)
 
-        cfg = cls(
-            adb_serial=serial,
-            adb_path=get("ADB_PATH") or "adb",
-            app_package=get("APP_PACKAGE") or "com.alibaba.aliexpresshd",
-            coin_url=get("COIN_URL") or DEFAULT_URL,
-            discord_webhook=(get("DISCORD_WEBHOOK_URL") or "").strip(),
-            morning_start=windows["morning_start"],
-            morning_end=windows["morning_end"],
-            evening_start=windows["evening_start"],
-            evening_end=windows["evening_end"],
-            skip_if_awake=_bool(get("SKIP_IF_AWAKE") or "true"),
-            busy_retry_min=_int("BUSY_RETRY_MIN", 15),
-            busy_max_wait_min=_int("BUSY_MAX_WAIT_MIN", 120),
-            page_timeout_s=_int("PAGE_TIMEOUT_S", 90),
-            confirm_timeout_s=_int("CONFIRM_TIMEOUT_S", 25),
-            launch_retries=_int("LAUNCH_RETRIES", 1),
-            button_labels=labels,
-            ocr_lang=_text("OCR_LANG", "deu"),
-            notify_on_success=_bool(get("NOTIFY_ON_SUCCESS") or "true"),
-            notify_on_already_done=_bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
-            data_dir=data_dir,
-            log_level=(get("LOG_LEVEL") or "INFO").strip().upper(),
-            settings_changed_at=overrides.changed_at,
-        )
-        cfg._validate()
+        # settings.json ueberschreibt die .env. Bewusst hier und nicht erst im Dienst, damit CLI,
+        # Dienst und Weboberflaeche dieselben Werte sehen.
+        overrides = settings.load(data_dir)
+        try:
+            return cls._build({**base, **overrides.values}, overrides.changed_at)
+        except ConfigError as exc:
+            if not overrides.values:
+                raise
+            # Von Hand verstellte Werte duerfen den taeglichen Lauf nicht anhalten. Die .env ist
+            # die Rueckfallebene; ist die auch unbrauchbar, faellt das hier weiter auf.
+            log.warning("settings.json ergibt keine gueltige Einstellung, es gilt die .env: %s", exc)
+            return cls._build(base, None)
+
+    @classmethod
+    def _build(cls, values: dict[str, Any], changed_at: datetime | None) -> Config:
+        if not values["adb_serial"]:
+            raise ConfigError("ADB_SERIAL fehlt (z. B. 192.168.1.50:5555), siehe .env.example")
+        cfg = cls(**values, settings_changed_at=changed_at)
+        cfg.validate()
+        # Nur beim Laden, nicht in validate(): der Test legt eine Datei an und loescht sie wieder.
+        # validate() laeuft bei jedem Takt des Dienstes und bei jeder Anfrage der Oberflaeche --
+        # dort waere das unnoetige Schreibarbeit, und zwei gleichzeitige Pruefungen kaemen sich
+        # ueber dieselbe Pruefdatei in die Quere. DATA_DIR ist ohnehin nicht zur Laufzeit aenderbar.
+        _check_data_dir(cfg.data_dir)
         return cfg
 
-    def _validate(self) -> None:
-        """Alle Werte pruefen, damit eine falsche .env sofort beim Start auffaellt."""
+    def validate(self) -> None:
+        """Alle Werte pruefen. Wird auch zur Laufzeit aufgerufen, wenn settings.json sich aendert,
+        und fasst darum nichts an -- sie prueft nur."""
+        _check_serial(self.adb_serial)
         _check_min("PAGE_TIMEOUT_S", self.page_timeout_s, 1)
         _check_min("CONFIRM_TIMEOUT_S", self.confirm_timeout_s, 1)
         _check_min("BUSY_RETRY_MIN", self.busy_retry_min, 1)
@@ -213,8 +226,6 @@ class Config:
                 f"MORNING_END ({self.morning_end:%H:%M}) muss vor oder auf EVENING_START "
                 f"({self.evening_start:%H:%M}) liegen, das Morgenfenster gehoert vor das Abendfenster"
             )
-
-        _check_data_dir(self.data_dir)
 
         if self.log_level not in _LOG_LEVELS:
             raise ConfigError(f"LOG_LEVEL muss einer von {', '.join(_LOG_LEVELS)} sein, nicht {self.log_level!r}")

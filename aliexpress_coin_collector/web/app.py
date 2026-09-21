@@ -35,8 +35,8 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__, commands, logs, settings
-from ..config import Config
-from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for
+from ..config import Config, ConfigError
+from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for, with_current_settings
 from ..store import Attempt, Store
 from . import auth, charts, data, imagecheck, view
 
@@ -140,11 +140,12 @@ def create_app(cfg: Config) -> FastAPI:
         return any(c.name == commands.RUN for c in commands.pending(active.data_dir))
 
     def current_cfg() -> Config:
-        """Fenster bei jeder Anfrage frisch lesen, damit die Seite nach dem Speichern stimmt."""
-        overrides = settings.load(cfg.data_dir)
-        if overrides.empty:
-            return cfg
-        return replace(cfg, **overrides.windows, settings_changed_at=overrides.changed_at)
+        """Einstellungen bei jeder Anfrage frisch lesen, damit die Seite nach dem Speichern stimmt.
+
+        Dieselbe Funktion wie im Dienst -- sonst zeigte die Oberflaeche Werte an, nach denen gar
+        nicht gearbeitet wird.
+        """
+        return with_current_settings(cfg)
 
     def page(name: str, request: Request, **values: object) -> str:
         base = {"version": __version__, "theme": theme_of(request), "nav": view.NAV, "current": "/"}
@@ -231,11 +232,11 @@ def create_app(cfg: Config) -> FastAPI:
             return gate
         if not auth.verify(cfg.data_dir, current):
             time_mod.sleep(FAILED_LOGIN_DELAY_S)
-            return HTMLResponse(dashboard_html(request, "Das bisherige Passwort stimmt nicht."), status_code=400)
+            return HTMLResponse(settings_html(request, "Das bisherige Passwort stimmt nicht."), status_code=400)
         try:
             auth.set_password(cfg.data_dir, password, repeat)
         except auth.PasswordError as exc:
-            return HTMLResponse(dashboard_html(request, str(exc)), status_code=400)
+            return HTMLResponse(settings_html(request, str(exc)), status_code=400)
         log.info("Passwort der Weboberflaeche geaendert")
         # Das neue Passwort aendert den Token, das alte Cookie ist damit wertlos.
         return RedirectResponse("/login", status_code=303)
@@ -256,7 +257,7 @@ def create_app(cfg: Config) -> FastAPI:
 
     # ------------------------------------------------------------------ Uebersicht
 
-    def dashboard_html(request: Request, pw_error: str = "") -> str:
+    def dashboard_html(request: Request) -> str:
         active = current_cfg()
         now = datetime.now()
         attempts = _read_attempts(active)
@@ -273,8 +274,6 @@ def create_app(cfg: Config) -> FastAPI:
             series=series,
             chart=charts.coin_chart(series),
             attempts=view.rows(attempts[:TABLE_LIMIT], _shots(active)),
-            min_length=auth.MIN_LENGTH,
-            pw_error=pw_error,
             **status,
         )
 
@@ -589,31 +588,121 @@ def create_app(cfg: Config) -> FastAPI:
         log.info("Lauf ueber die Weboberflaeche angefordert")
         return RedirectResponse("/", status_code=303)
 
-    @app.post("/settings")
-    def save_settings(
+    # ------------------------------------------------------------------ Einstellungen
+
+    def settings_html(request: Request, pw_error: str = "") -> str:
+        active = current_cfg()
+        now = datetime.now()
+        return page(
+            "einstellungen.html",
+            request,
+            title="Einstellungen",
+            subtitle="Was der Dienst tut, und womit er es tut",
+            current="/einstellungen",
+            cfg=active,
+            plan=plan_for(now.date(), active),
+            # Der Webhook selbst wird nie an den Browser gegeben, nur ob einer hinterlegt ist.
+            has_webhook=bool(active.discord_webhook),
+            stored=set(settings.load(cfg.data_dir).values),
+            min_length=auth.MIN_LENGTH,
+            pw_error=pw_error,
+            flash=_take_flash(request),
+            **service_values(),
+        )
+
+    @app.get("/einstellungen", response_class=HTMLResponse)
+    def settings_page(request: Request) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        response = HTMLResponse(settings_html(request))
+        response.delete_cookie(FLASH_COOKIE)
+        return response
+
+    def _store(request: Request, values: dict[str, object], what: str) -> Response:
+        """Einstellungen pruefen und ablegen.
+
+        Geprueft wird, indem die Werte probeweise in die laufende Konfiguration eingesetzt und
+        mit deren eigenen Regeln geprueft werden -- so koennen Oberflaeche und Dienst nicht
+        auseinanderlaufen. Erst danach wird geschrieben.
+        """
+        response = RedirectResponse("/einstellungen", status_code=303)
+        try:
+            replace(current_cfg(), **values).validate()
+        except ConfigError as exc:
+            return _flash(response, in_words(str(exc)), "bad")
+        try:
+            settings.save(cfg.data_dir, values)
+        except (OSError, ValueError) as exc:
+            log.warning("Einstellungen nicht speicherbar: %s", exc)
+            return _flash(response, "Die Einstellungen ließen sich nicht speichern.", "bad")
+        # Bewusst ohne Werte: hier stehen Geraeteadresse und Webhook drin.
+        log.info("%s ueber die Weboberflaeche geaendert", what)
+        return _flash(response, f"{what} gespeichert. Der Dienst übernimmt das binnen 30 Sekunden.", "ok")
+
+    @app.post("/einstellungen/ablauf")
+    def save_schedule(
         request: Request,
-        morning_start: str = Form(...),
-        morning_end: str = Form(...),
-        evening_start: str = Form(...),
-        evening_end: str = Form(...),
+        morning_start: str = Form(default=""),
+        morning_end: str = Form(default=""),
+        evening_start: str = Form(default=""),
+        evening_end: str = Form(default=""),
+        skip_if_awake: str = Form(default=""),
+        busy_retry_min: str = Form(default=""),
+        busy_max_wait_min: str = Form(default=""),
+        page_timeout_s: str = Form(default=""),
+        confirm_timeout_s: str = Form(default=""),
+        launch_retries: str = Form(default=""),
     ) -> Response:
         gate = _gate(request)
         if gate is not None:
             return gate
         try:
-            windows = {
+            values: dict[str, object] = {
                 "morning_start": _parse_time(morning_start),
                 "morning_end": _parse_time(morning_end),
                 "evening_start": _parse_time(evening_start),
                 "evening_end": _parse_time(evening_end),
+                "skip_if_awake": bool(skip_if_awake),
+                "busy_retry_min": _parse_int("Wiederholung", busy_retry_min),
+                "busy_max_wait_min": _parse_int("Spätestens erzwingen", busy_max_wait_min),
+                "page_timeout_s": _parse_int("Wartezeit auf die Seite", page_timeout_s),
+                "confirm_timeout_s": _parse_int("Wartezeit auf die Bestätigung", confirm_timeout_s),
+                "launch_retries": _parse_int("Erneut öffnen", launch_retries),
             }
-            _check_windows(windows)
         except ValueError as exc:
-            body = page("fehler.html", request, title="Ungültige Eingabe", message=str(exc))
-            return HTMLResponse(body, status_code=400)
-        settings.save(cfg.data_dir, windows)
-        log.info("Zeitfenster ueber die Weboberflaeche geaendert")
-        return RedirectResponse("/", status_code=303)
+            return _flash(RedirectResponse("/einstellungen", status_code=303), str(exc), "bad")
+        return _store(request, values, "Ablauf & Verhalten")
+
+    @app.post("/einstellungen/geraet")
+    def save_device(request: Request, adb_serial: str = Form(default="")) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        return _store(request, {"adb_serial": adb_serial.strip()}, "Geräteadresse")
+
+    @app.post("/einstellungen/meldungen")
+    def save_notifications(
+        request: Request,
+        discord_webhook: str = Form(default=""),
+        remove_webhook: str = Form(default=""),
+        notify_on_success: str = Form(default=""),
+        notify_on_already_done: str = Form(default=""),
+    ) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        values: dict[str, object] = {
+            "notify_on_success": bool(notify_on_success),
+            "notify_on_already_done": bool(notify_on_already_done),
+        }
+        # Das Feld kommt immer leer an -- der hinterlegte Webhook wird nie in die Seite
+        # geschrieben. Leer heisst darum "unveraendert", geleert wird nur auf Ansage.
+        if remove_webhook:
+            values["discord_webhook"] = ""
+        elif discord_webhook.strip():
+            values["discord_webhook"] = discord_webhook.strip()
+        return _store(request, values, "Benachrichtigungen")
 
     @app.get("/shot/{name}")
     def screenshot(request: Request, name: str) -> Response:
@@ -639,14 +728,35 @@ def _parse_time(value: str) -> dtime:
         raise ValueError(f"Ungültige Uhrzeit: {value!r}, erwartet HH:MM") from exc
 
 
-def _check_windows(windows: dict[str, dtime]) -> None:
-    """Dieselben Regeln wie in Config._validate, damit Oberflaeche und Dienst nicht auseinanderlaufen."""
-    if windows["morning_end"] < windows["morning_start"]:
-        raise ValueError("Das Morgenfenster endet vor seinem Beginn.")
-    if windows["evening_end"] < windows["evening_start"]:
-        raise ValueError("Das Abendfenster endet vor seinem Beginn.")
-    if windows["morning_end"] > windows["evening_start"]:
-        raise ValueError("Das Morgenfenster muss vor dem Abendfenster liegen.")
+def _parse_int(label: str, value: str) -> int:
+    try:
+        return int(value.strip())
+    except ValueError as exc:
+        raise ValueError(f"„{label}“ erwartet eine ganze Zahl, nicht {value!r}.") from exc
+
+
+# Geprueft wird mit den Regeln der Konfiguration, und die kennt nur .env-Namen. Auf der
+# Einstellungsseite steht aber nirgends BUSY_RETRY_MIN -- also werden sie fuer die Meldung
+# durch die Beschriftung ersetzt, unter der man den Wert tatsaechlich sieht.
+FIELD_NAMES = {
+    "BUSY_RETRY_MIN": "„Dann erneut versuchen nach“",
+    "BUSY_MAX_WAIT_MIN": "„Spätestens erzwingen nach“",
+    "PAGE_TIMEOUT_S": "„Warten auf die Coin-Seite“",
+    "CONFIRM_TIMEOUT_S": "„Warten auf die Bestätigung“",
+    "LAUNCH_RETRIES": "„App erneut öffnen“",
+    "MORNING_START": "„Morgens ab“",
+    "MORNING_END": "„Morgens bis“",
+    "EVENING_START": "„Abends ab“",
+    "EVENING_END": "„Abends bis“",
+    "ADB_SERIAL": "Die Geräteadresse",
+    "DISCORD_WEBHOOK_URL": "Der Discord-Webhook",
+}
+
+
+def in_words(message: str) -> str:
+    for name, label in FIELD_NAMES.items():
+        message = message.replace(name, label)
+    return message
 
 
 def adopt_env_password(cfg: Config) -> None:

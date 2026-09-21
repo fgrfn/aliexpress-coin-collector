@@ -9,7 +9,7 @@ from datetime import time as dtime
 
 from . import commands, notify, settings
 from .adb import Adb
-from .config import Config
+from .config import Config, ConfigError
 from .runner import SUCCESS, Outcome, RunResult, run_once
 from .store import Attempt, Store
 
@@ -125,11 +125,18 @@ def take_request(cfg: Config) -> bool:
 
 
 def with_current_settings(cfg: Config) -> Config:
-    """Fenster aus settings.json nachladen, damit eine Aenderung ohne Neustart ankommt."""
+    """Einstellungen aus settings.json nachladen, damit eine Aenderung ohne Neustart ankommt."""
     overrides = settings.load(cfg.data_dir)
     if overrides.empty:
         return cfg
-    return replace(cfg, **overrides.windows, settings_changed_at=overrides.changed_at)
+    updated = replace(cfg, **overrides.values, settings_changed_at=overrides.changed_at)
+    try:
+        updated.validate()
+    except ConfigError as exc:
+        # Von Hand verstellte Werte duerfen den laufenden Dienst nicht aus dem Tritt bringen.
+        log.warning("settings.json ergibt keine gueltige Einstellung, es bleibt beim bisherigen Stand: %s", exc)
+        return cfg
+    return updated
 
 
 def describe(kind: str, result: RunResult) -> str:

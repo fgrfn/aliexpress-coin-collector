@@ -1298,3 +1298,145 @@ input[type="number"] {
         padding: 10px 4px;
     }
 }
+
+/* ---------------------------------------------------------------- Einstellungen */
+.lead {
+    margin: 0 0 20px;
+    max-width: 70ch;
+}
+
+/* Zwischenueberschrift innerhalb einer Karte: ordnet ein langes Formular, ohne dass jeder
+   Abschnitt eine eigene Karte und damit einen eigenen Speichern-Knopf braucht. */
+h3.group {
+    font: 600 12px/1 var(--body);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 26px 0 12px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+/* Nur die allererste Zwischenueberschrift eines Formulars braucht keinen Trennstrich --
+   bewusst :first-child und nicht :first-of-type: in einem Formular, das mit Feldern beginnt,
+   trennt auch die erste Ueberschrift schon etwas ab. */
+form > h3.group:first-child {
+    margin-top: 4px;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.tag {
+    display: inline-block;
+    font: 600 10px/1 var(--body);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--brand);
+    background: var(--brand-soft);
+    border-radius: 5px;
+    padding: 3px 5px;
+    margin-left: 4px;
+    vertical-align: 1px;
+}
+
+.field-wide {
+    grid-column: 1 / -1;
+}
+
+/* Zahl und Einheit gehoeren zusammen, damit "15" nicht ohne "Minuten" dasteht. */
+.with-unit {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.with-unit input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.unit-label {
+    font: 500 12.5px/1 var(--body);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+input[type="number"] {
+    font: 400 14px/1 var(--body);
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 11px 12px;
+    min-height: var(--tap);
+    width: 100%;
+}
+
+/* Wie .check, aber fuer Kaestchen mit erklaerender Zeile darunter. */
+.opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 0;
+    cursor: pointer;
+}
+
+.opt input {
+    width: 17px;
+    height: 17px;
+    margin-top: 1px;
+    flex: none;
+    accent-color: var(--brand);
+}
+
+.opt > span {
+    display: block;
+    font: 500 13.5px/1.4 var(--body);
+    min-width: 0;
+}
+
+.opt-note {
+    display: block;
+    font: 400 12.5px/1.5 var(--body);
+    color: var(--muted);
+    margin-top: 3px;
+}
+
+.form-foot {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+/* ---------------------------------------------------------------- Tagesplan */
+.plan-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+}
+
+.plan-slot {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    padding: 14px 16px;
+}
+
+.plan-slot .label {
+    font: 600 11px/1 var(--body);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.plan-slot .value {
+    font: 600 26px/1.15 var(--display);
+    margin-top: 7px;
+    font-variant-numeric: tabular-nums;
+}
+
+.plan-slot .sub {
+    font: 400 12.5px/1.4 var(--body);
+    color: var(--muted);
+    margin-top: 4px;
+}

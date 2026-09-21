@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% macro saved(key) %}
+  {%- if key in stored %}<span class="tag">geändert</span>{% endif -%}
+{% endmacro %}
+
+{% block content %}
+
+{% if flash %}
+  <div class="card banner" style="border-left-color: var(--{{ flash.tone }}); background: var(--{{ flash.tone }}-soft);">
+    <strong style="color: var(--{{ flash.tone }});">{{ flash.text }}</strong>
+  </div>
+{% endif %}
+
+<p class="note lead">
+  Was hier steht, überschreibt die <code>.env</code> und liegt in <code>data/settings.json</code>.
+  Der Dienst liest die Datei bei jedem Takt neu — eine Änderung ist binnen 30 Sekunden wirksam,
+  ohne Neustart. Mit <span class="tag">geändert</span> markierte Werte weichen von der
+  <code>.env</code> ab.
+</p>
+
+<!-- ------------------------------------------------------------------ Ablauf -->
+<section class="card" id="ablauf">
+  <div class="card-head"><h2>Ablauf &amp; Verhalten</h2></div>
+  <form method="post" action="/einstellungen/ablauf">
+
+    <h3 class="group">Zeitfenster</h3>
+    <div class="fields">
+      <div class="field">
+        <label for="ms">Morgens ab {{ saved('morning_start') }}</label>
+        <input id="ms" type="time" name="morning_start" value="{{ cfg.morning_start.strftime('%H:%M') }}" required>
+      </div>
+      <div class="field">
+        <label for="me">bis {{ saved('morning_end') }}</label>
+        <input id="me" type="time" name="morning_end" value="{{ cfg.morning_end.strftime('%H:%M') }}" required>
+      </div>
+      <div class="field">
+        <label for="es">Abends ab {{ saved('evening_start') }}</label>
+        <input id="es" type="time" name="evening_start" value="{{ cfg.evening_start.strftime('%H:%M') }}" required>
+      </div>
+      <div class="field">
+        <label for="ee">bis {{ saved('evening_end') }}</label>
+        <input id="ee" type="time" name="evening_end" value="{{ cfg.evening_end.strftime('%H:%M') }}" required>
+      </div>
+    </div>
+    <p class="note">
+      Innerhalb des Fensters würfelt der Dienst je Tag eine feste Uhrzeit — damit der Check-in
+      nicht jeden Tag auf die Minute gleich fällt. Heute: Morgenlauf
+      <strong>{{ plan.morning_at.strftime('%H:%M') }}</strong>, Abendlauf
+      <strong>{{ plan.evening_at.strftime('%H:%M') }}</strong>. Eine Änderung gilt sofort, aber
+      nicht rückwirkend: liegt die neu gewürfelte Zeit schon in der Vergangenheit, läuft heute
+      nichts mehr. Der Abendlauf startet ohnehin nur, wenn morgens nichts geklappt hat.
+    </p>
+
+    <h3 class="group">Wenn das Gerät gerade benutzt wird</h3>
+    <label class="opt">
+      <input type="checkbox" name="skip_if_awake" value="1" {% if cfg.skip_if_awake %}checked{% endif %}>
+      <span>
+        Nicht starten, solange der Bildschirm an ist {{ saved('skip_if_awake') }}
+        <span class="opt-note">Sonst tippt der Dienst mitten hinein, während jemand das Handy in der Hand hat.</span>
+      </span>
+    </label>
+    <div class="fields">
+      <div class="field">
+        <label for="brm">Dann erneut versuchen nach {{ saved('busy_retry_min') }}</label>
+        <div class="with-unit">
+          <input id="brm" type="number" name="busy_retry_min" min="1" value="{{ cfg.busy_retry_min }}" required>
+          <span class="unit-label">Minuten</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="bmw">Spätestens erzwingen nach {{ saved('busy_max_wait_min') }}</label>
+        <div class="with-unit">
+          <input id="bmw" type="number" name="busy_max_wait_min" min="2" value="{{ cfg.busy_max_wait_min }}" required>
+          <span class="unit-label">Minuten</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      „Erzwingen“ heißt: der Lauf startet auch bei eingeschaltetem Bildschirm, damit der Tag
+      nicht ganz ausfällt. Der Wert muss größer sein als die Wiederholung.
+    </p>
+
+    <h3 class="group">Geduld</h3>
+    <div class="fields">
+      <div class="field">
+        <label for="pts">Warten auf die Coin-Seite {{ saved('page_timeout_s') }}</label>
+        <div class="with-unit">
+          <input id="pts" type="number" name="page_timeout_s" min="1" value="{{ cfg.page_timeout_s }}" required>
+          <span class="unit-label">Sekunden</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cts">Warten auf die Bestätigung {{ saved('confirm_timeout_s') }}</label>
+        <div class="with-unit">
+          <input id="cts" type="number" name="confirm_timeout_s" min="1" value="{{ cfg.confirm_timeout_s }}" required>
+          <span class="unit-label">Sekunden</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="lr">App erneut öffnen {{ saved('launch_retries') }}</label>
+        <div class="with-unit">
+          <input id="lr" type="number" name="launch_retries" min="0" value="{{ cfg.launch_retries }}" required>
+          <span class="unit-label">mal</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      Ein langsames Netz oder ein müdes Gerät braucht länger. Zu kurz gesetzt bricht der Lauf ab,
+      bevor die Seite überhaupt steht; zu lang gesetzt hängt er unnötig am Gerät.
+    </p>
+
+    <div class="btn-row form-foot">
+      <button class="btn" type="submit">Ablauf speichern</button>
+    </div>
+  </form>
+</section>
+
+<!-- ------------------------------------------------------------------ Gerät -->
+<section class="card" id="geraet">
+  <div class="card-head"><h2>Gerät</h2></div>
+  <form method="post" action="/einstellungen/geraet">
+    <div class="fields">
+      <div class="field field-wide">
+        <label for="serial">Adresse {{ saved('adb_serial') }}</label>
+        <input id="serial" type="text" name="adb_serial" value="{{ cfg.adb_serial }}"
+               spellcheck="false" autocapitalize="off" autocomplete="off" required>
+      </div>
+    </div>
+    <div class="btn-row form-foot">
+      <button class="btn" type="submit">Adresse speichern</button>
+    </div>
+  </form>
+  <p class="note">
+    Entweder <code>host:port</code> für ADB über WLAN (der Normalfall) oder eine
+    USB-Seriennummer. <strong>Es wird nur gespeichert, nicht verbunden</strong> — ob die neue
+    Adresse wirklich erreichbar ist, zeigt „Verbindung prüfen“ auf der Seite
+    <a href="/geraet">Gerät</a>. Stimmt sie nicht, kommt der nächste Lauf nicht zustande;
+    die alte Adresse steht dann noch in der <code>.env</code>.
+  </p>
+</section>
+
+<!-- ------------------------------------------------------------------ Meldungen -->
+<section class="card" id="meldungen">
+  <div class="card-head">
+    <h2>Benachrichtigungen</h2>
+    <span class="pill pill-{{ 'ok' if has_webhook else 'warn' }}">
+      {{ "Webhook hinterlegt" if has_webhook else "kein Webhook" }}
+    </span>
+  </div>
+  <form method="post" action="/einstellungen/meldungen">
+    <div class="fields">
+      <div class="field field-wide">
+        <label for="hook">Discord-Webhook {{ saved('discord_webhook') }}</label>
+        <input id="hook" type="password" name="discord_webhook" value="" autocomplete="off"
+               spellcheck="false" placeholder="{{ 'leer lassen = unverändert' if has_webhook else 'https://discord.com/api/webhooks/…' }}">
+      </div>
+    </div>
+    {% if has_webhook %}
+      <label class="opt">
+        <input type="checkbox" name="remove_webhook" value="1">
+        <span>
+          Hinterlegten Webhook entfernen
+          <span class="opt-note">Danach schickt der Dienst gar keine Meldungen mehr, sammelt aber weiter.</span>
+        </span>
+      </label>
+    {% endif %}
+    <p class="note">
+      Das Feld ist absichtlich leer und zeigt den gespeicherten Wert nie an: ein Webhook ist ein
+      Geheimnis, wer ihn hat, kann in deinen Kanal schreiben. Eintragen ersetzt ihn, leer lassen
+      behält ihn.
+    </p>
+
+    <h3 class="group">Wann gemeldet wird</h3>
+    <label class="opt">
+      <input type="checkbox" name="notify_on_success" value="1" {% if cfg.notify_on_success %}checked{% endif %}>
+      <span>Wenn Münzen gesammelt wurden {{ saved('notify_on_success') }}</span>
+    </label>
+    <label class="opt">
+      <input type="checkbox" name="notify_on_already_done" value="1" {% if cfg.notify_on_already_done %}checked{% endif %}>
+      <span>
+        Wenn heute schon eingecheckt war {{ saved('notify_on_already_done') }}
+        <span class="opt-note">Meist Rauschen — standardmäßig aus.</span>
+      </span>
+    </label>
+    <p class="note">
+      Fehlschläge werden immer gemeldet, mit Screenshot. Das lässt sich hier nicht abschalten:
+      eine Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
+    </p>
+
+    <div class="btn-row form-foot">
+      <button class="btn" type="submit">Benachrichtigungen speichern</button>
+    </div>
+  </form>
+</section>
+
+<!-- ------------------------------------------------------------------ Zugang -->
+<section class="card" id="zugang">
+  <div class="card-head"><h2>Zugang</h2></div>
+  {% if pw_error %}<p class="bad" role="alert">{{ pw_error }}</p>{% endif %}
+  <form method="post" action="/password" class="fields">
+    <div class="field">
+      <label for="pwc">Bisheriges Passwort</label>
+      <input id="pwc" type="password" name="current" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label for="pwn">Neues</label>
+      <input id="pwn" type="password" name="password" minlength="{{ min_length }}"
+             autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label for="pwr">Wiederholen</label>
+      <input id="pwr" type="password" name="repeat" minlength="{{ min_length }}"
+             autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <button class="btn" type="submit">Passwort ändern</button>
+    </div>
+  </form>
+  <p class="note">
+    Mindestens {{ min_length }} Zeichen. Nach dem Ändern sind alle angemeldeten Browser
+    abgemeldet, auch dieser — das Sitzungsmerkmal wird aus dem Passwort abgeleitet.
+  </p>
+</section>
+
+<!-- ------------------------------------------------------------------ Rest -->
+<section class="card">
+  <div class="card-head"><h2>Nur in der <code>.env</code></h2></div>
+  <p class="note" style="margin-top: 0;">
+    Woran die Erkennung hängt, bleibt bewusst außerhalb dieser Seite:
+    <code>BUTTON_LABELS</code>, <code>OCR_LANG</code>, <code>COIN_URL</code>,
+    <code>APP_PACKAGE</code>, <code>ADB_PATH</code>, <code>DATA_DIR</code> und
+    <code>LOG_LEVEL</code>. Ein Vertipper dort ließe den täglichen Lauf ins Leere greifen, ohne
+    dass es auffiele — und wieder herausfinden, warum, müsste man dann über die
+    <a href="/diagnose">Diagnose</a>. Hell und dunkel steht unten in der Seitenleiste; das ist
+    keine Einstellung des Dienstes, sondern eine dieses Browsers.
+  </p>
+</section>
+
+{% endblock %}
