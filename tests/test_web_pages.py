@@ -202,3 +202,26 @@ def test_a_stall_is_announced_on_the_front_page(client, tmp_path):
 def test_a_healthy_history_shows_no_banner(client, tmp_path):
     seed(tmp_path, [run(3, after=10), run(2, after=25), run(1, after=40), run(0, after=55)])
     assert "Erfolg gemeldet, aber nichts gesammelt" not in client.get("/").text
+
+
+def test_static_files_carry_the_version_against_stale_caches(client):
+    """Sonst behaelt der Browser nach einem Update das alte app.css."""
+    from aliexpress_coin_collector import __version__
+
+    body = client.get("/").text
+    assert f"/static/app.css?v={__version__}" in body
+    assert client.get(f"/static/app.css?v={__version__}").status_code == 200
+
+
+def test_both_copies_of_the_mark_have_their_own_gradient_ids(client):
+    """Das Zeichen steht zweimal in der Seite: Kopfzeile schmal, Seitenleiste breit.
+
+    Bei gleichen IDs gewinnt die erste, und die liegt in der gerade ausgeblendeten
+    Haelfte -- dann fehlt in der Seitenleiste der orange Schwung.
+    """
+    body = client.get("/").text
+    for stamp in ("bar", "nav"):
+        assert f'id="{stamp}Hot"' in body
+        assert f"url(#{stamp}Hot)" in body
+        assert f'id="{stamp}Gold"' in body
+    assert 'id="mkHot"' not in body
