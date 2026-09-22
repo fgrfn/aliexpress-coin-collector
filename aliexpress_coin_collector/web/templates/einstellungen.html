@@ -24,7 +24,7 @@
   <div class="card-head"><h2>Ablauf &amp; Verhalten</h2></div>
   <form method="post" action="/einstellungen/ablauf">
 
-    <h3 class="group group-first">Zeitfenster</h3>
+    <h3 class="group group-first">Morgenlauf</h3>
     <div class="fields">
       <div class="field">
         <label for="ms">Morgens ab {{ saved('morning_start') }}</label>
@@ -34,6 +34,22 @@
         <label for="me">bis {{ saved('morning_end') }}</label>
         <input id="me" type="time" name="morning_end" value="{{ cfg.morning_end.strftime('%H:%M') }}" required>
       </div>
+    </div>
+    <p class="note">
+      Heute gewürfelt: <strong>{{ plan.morning_at.strftime('%H:%M') }}</strong>.
+    </p>
+
+    <h3 class="group">Abendlauf</h3>
+    <label class="opt">
+      <input type="checkbox" name="evening_enabled" value="1" {% if cfg.evening_enabled %}checked{% endif %}>
+      <span>
+        Abends noch einmal versuchen {{ saved('evening_enabled') }}
+        <span class="opt-note">
+          Abgeschaltet läuft nur der Morgenlauf — geht dabei etwas schief, fällt der Tag aus.
+        </span>
+      </span>
+    </label>
+    <div class="fields">
       <div class="field">
         <label for="es">Abends ab {{ saved('evening_start') }}</label>
         <input id="es" type="time" name="evening_start" value="{{ cfg.evening_start.strftime('%H:%M') }}" required>
@@ -44,13 +60,23 @@
       </div>
     </div>
     <p class="note">
-      Innerhalb des Fensters würfelt der Dienst je Tag eine feste Uhrzeit — damit der Check-in
-      nicht jeden Tag auf die Minute gleich fällt. Heute: Morgenlauf
-      <strong>{{ plan.morning_at.strftime('%H:%M') }}</strong>, Abendlauf
-      <strong>{{ plan.evening_at.strftime('%H:%M') }}</strong>. Eine Änderung gilt sofort, aber
-      nicht rückwirkend: liegt die neu gewürfelte Zeit schon in der Vergangenheit, läuft heute
-      nichts mehr. Der Abendlauf startet ohnehin nur, wenn morgens nichts geklappt hat.
+      {% if cfg.evening_enabled %}
+        Heute gewürfelt: <strong>{{ plan.evening_at.strftime('%H:%M') }}</strong> — startet nur,
+        wenn morgens nichts geklappt hat.
+      {% else %}
+        Abgeschaltet. Die Zeiten bleiben gespeichert und gelten wieder, sobald der Haken sitzt.
+      {% endif %}
     </p>
+    <details class="why">
+      <summary>Wie die Uhrzeit zustande kommt</summary>
+      <p>
+        Innerhalb des Fensters würfelt der Dienst je Tag eine feste Uhrzeit, damit der Check-in
+        nicht jeden Tag auf die Minute gleich fällt. Eine Änderung gilt sofort, aber nicht
+        rückwirkend: liegt die neu gewürfelte Zeit schon in der Vergangenheit, läuft heute
+        nichts mehr. Mit Abendlauf muss das Morgenfenster davor liegen; ohne ihn darf es
+        irgendwo am Tag liegen, und der Morgenlauf bleibt bis Mitternacht fällig.
+      </p>
+    </details>
 
     <h3 class="group">Wenn das Gerät gerade benutzt wird</h3>
     <label class="opt">
@@ -76,10 +102,13 @@
         </div>
       </div>
     </div>
-    <p class="note">
-      „Erzwingen“ heißt: der Lauf startet auch bei eingeschaltetem Bildschirm, damit der Tag
-      nicht ganz ausfällt. Der Wert muss größer sein als die Wiederholung.
-    </p>
+    <details class="why">
+      <summary>Was „erzwingen“ bedeutet</summary>
+      <p>
+        Der Lauf startet dann auch bei eingeschaltetem Bildschirm, damit der Tag nicht ganz
+        ausfällt. Der Wert muss größer sein als die Wiederholung.
+      </p>
+    </details>
 
     <h3 class="group">Geduld</h3>
     <div class="fields">
@@ -105,10 +134,13 @@
         </div>
       </div>
     </div>
-    <p class="note">
-      Ein langsames Netz oder ein müdes Gerät braucht länger. Zu kurz gesetzt bricht der Lauf ab,
-      bevor die Seite überhaupt steht; zu lang gesetzt hängt er unnötig am Gerät.
-    </p>
+    <details class="why">
+      <summary>Welche Werte sinnvoll sind</summary>
+      <p>
+        Ein langsames Netz oder ein müdes Gerät braucht länger. Zu kurz gesetzt bricht der Lauf
+        ab, bevor die Seite überhaupt steht; zu lang gesetzt hängt er unnötig am Gerät.
+      </p>
+    </details>
 
     <div class="btn-row form-foot">
       <button class="btn" type="submit">Ablauf speichern</button>
@@ -132,12 +164,17 @@
     </div>
   </form>
   <p class="note">
-    Entweder <code>host:port</code> für ADB über WLAN (der Normalfall) oder eine
-    USB-Seriennummer. <strong>Es wird nur gespeichert, nicht verbunden</strong> — ob die neue
-    Adresse wirklich erreichbar ist, zeigt „Verbindung prüfen“ auf der Seite
-    <a href="/geraet">Gerät</a>. Stimmt sie nicht, kommt der nächste Lauf nicht zustande;
-    die alte Adresse steht dann noch in der <code>.env</code>.
+    Entweder <code>host:port</code> für ADB über WLAN (der Normalfall) oder eine USB-Seriennummer.
   </p>
+  <details class="why">
+    <summary>Was beim Speichern passiert</summary>
+    <p>
+      <strong>Es wird nur gespeichert, nicht verbunden</strong> — ob die neue Adresse wirklich
+      erreichbar ist, zeigt „Verbindung prüfen“ auf der Seite <a href="/geraet">Gerät</a>.
+      Stimmt sie nicht, kommt der nächste Lauf nicht zustande; die alte Adresse steht dann noch
+      in der <code>.env</code>.
+    </p>
+  </details>
 </section>
 
 <!-- ------------------------------------------------------------------ Meldungen -->
@@ -165,11 +202,13 @@
         </span>
       </label>
     {% endif %}
-    <p class="note">
-      Das Feld ist absichtlich leer und zeigt den gespeicherten Wert nie an: ein Webhook ist ein
-      Geheimnis, wer ihn hat, kann in deinen Kanal schreiben. Eintragen ersetzt ihn, leer lassen
-      behält ihn.
-    </p>
+    <details class="why">
+      <summary>Warum das Feld leer ist</summary>
+      <p>
+        Es zeigt den gespeicherten Wert nie an: ein Webhook ist ein Geheimnis, wer ihn hat, kann
+        in deinen Kanal schreiben. Eintragen ersetzt ihn, leer lassen behält ihn.
+      </p>
+    </details>
   </form>
 
   {# Eigenes Formular: der Test soll gehen, ohne vorher zu speichern. #}
@@ -236,15 +275,18 @@
       </div>
     </div>
     <p class="note">
-      Kurze Aussetzer sind normal — ein Handy im Ruhezustand, ein Router, der neu startet. Zu
-      kurz gesetzt meldet sich der Dienst ständig, zu lang gesetzt merkst du einen echten
-      Ausfall erst am ausbleibenden Erfolg.
+      Fehlschläge eines Laufs werden immer gemeldet, mit Screenshot — das lässt sich hier nicht
+      abschalten.
     </p>
-    <p class="note">
-      Fehlschläge eines Laufs werden immer gemeldet, mit Screenshot. Das lässt sich hier nicht
-      abschalten: eine Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer
-      als keine.
-    </p>
+    <details class="why">
+      <summary>Wie lange warten, bis ein Ausfall gemeldet wird</summary>
+      <p>
+        Kurze Aussetzer sind normal — ein Handy im Ruhezustand, ein Router, der neu startet. Zu
+        kurz gesetzt meldet sich der Dienst ständig, zu lang gesetzt merkst du einen echten
+        Ausfall erst am ausbleibenden Erfolg. Fehlschläge bleiben davon unberührt: eine
+        Automatik, die stillschweigend aufhört zu funktionieren, ist schlimmer als keine.
+      </p>
+    </details>
 
     <div class="btn-row form-foot">
       <button class="btn" type="submit">Benachrichtigungen speichern</button>

@@ -23,6 +23,7 @@ ABLAUF = {
     "morning_end": "09:00",
     "evening_start": "18:00",
     "evening_end": "20:00",
+    "evening_enabled": "1",
     "skip_if_awake": "1",
     "busy_retry_min": "12",
     "busy_max_wait_min": "90",
@@ -95,6 +96,7 @@ def test_saving_the_schedule_stores_every_field(client, data_dir):
         "morning_end": dtime(9, 0),
         "evening_start": dtime(18, 0),
         "evening_end": dtime(20, 0),
+        "evening_enabled": True,
         "skip_if_awake": True,
         "busy_retry_min": 12,
         "busy_max_wait_min": 90,
@@ -122,8 +124,8 @@ def test_a_changed_value_is_marked_as_such(client):
     mark = '<span class="tag">geändert</span>'
     assert client.get("/einstellungen").text.count(mark) == 1, "nur die Legende"
     client.post("/einstellungen/ablauf", data=ABLAUF)
-    # Die zehn gespeicherten Werte plus die Legende.
-    assert client.get("/einstellungen").text.count(mark) == 11
+    # Die elf gespeicherten Werte plus die Legende.
+    assert client.get("/einstellungen").text.count(mark) == 12
 
 
 # -- Geprueft wird mit den Regeln des Dienstes --------------------------------------------------
@@ -342,3 +344,28 @@ def test_the_test_is_behind_the_login(data_dir):
     auth.set_password(data_dir, PW, PW)
     anonymous = fastapi_testclient.TestClient(create_app(Config.load(data_dir / "keine.env")), follow_redirects=False)
     assert anonymous.post("/einstellungen/test").headers["location"] == "/login"
+
+
+# -- Abendlauf abschaltbar ----------------------------------------------------------------------
+
+
+def test_the_evening_run_can_be_switched_off(client, data_dir):
+    client.post("/einstellungen/ablauf", data={**ABLAUF, "evening_enabled": ""})
+    assert stored(data_dir)["evening_enabled"] is False
+    body = client.get("/einstellungen").text
+    assert "Abgeschaltet." in body
+
+
+def test_without_the_evening_run_the_morning_window_may_sit_late(client, data_dir):
+    """Neun bis zwoelf statt sechs bis neun -- mit Abendlauf waere das abgelehnt worden."""
+    spaet = {**ABLAUF, "evening_enabled": "", "morning_start": "09:00", "morning_end": "12:00"}
+    assert client.post("/einstellungen/ablauf", data=spaet).status_code == 303
+    assert stored(data_dir)["morning_end"] == dtime(12, 0)
+
+
+def test_the_dashboard_drops_the_evening_slot_when_it_is_off(client, data_dir):
+    assert "Abendlauf" in client.get("/").text
+    client.post("/einstellungen/ablauf", data={**ABLAUF, "evening_enabled": ""})
+    body = client.get("/").text
+    assert "Der Abendlauf ist abgeschaltet" in body
+    assert '<div class="label">Abendlauf</div>' not in body
