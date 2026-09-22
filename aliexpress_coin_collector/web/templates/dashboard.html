@@ -66,15 +66,21 @@
       <div class="value">{{ plan.morning_at.strftime('%H:%M') }}</div>
       <div class="sub">Fenster {{ cfg.morning_start.strftime('%H:%M') }}–{{ cfg.morning_end.strftime('%H:%M') }}</div>
     </div>
-    <div class="plan-slot">
-      <div class="label">Abendlauf</div>
-      <div class="value">{{ plan.evening_at.strftime('%H:%M') }}</div>
-      <div class="sub">Fenster {{ cfg.evening_start.strftime('%H:%M') }}–{{ cfg.evening_end.strftime('%H:%M') }}</div>
-    </div>
+    {% if cfg.evening_enabled %}
+      <div class="plan-slot">
+        <div class="label">Abendlauf</div>
+        <div class="value">{{ plan.evening_at.strftime('%H:%M') }}</div>
+        <div class="sub">Fenster {{ cfg.evening_start.strftime('%H:%M') }}–{{ cfg.evening_end.strftime('%H:%M') }}</div>
+      </div>
+    {% endif %}
   </div>
   <p class="note">
-    Die Uhrzeit wird je Tag innerhalb des Fensters gewürfelt und bleibt dann fest. Der Abendlauf
-    startet nur, wenn morgens nichts geklappt hat.
+    Die Uhrzeit wird je Tag innerhalb des Fensters gewürfelt und bleibt dann fest.
+    {% if cfg.evening_enabled %}
+      Der Abendlauf startet nur, wenn morgens nichts geklappt hat.
+    {% else %}
+      Der Abendlauf ist abgeschaltet — misslingt der Morgenlauf, fällt der Tag aus.
+    {% endif %}
   </p>
 </section>
 

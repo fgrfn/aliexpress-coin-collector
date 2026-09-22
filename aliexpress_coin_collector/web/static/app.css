@@ -1409,6 +1409,59 @@ input[type="number"] {
     border-top: 1px solid var(--line);
 }
 
+/* Erklaerender Text, der nur beim Nachfragen erscheint. Die Einstellungsseite war sonst mehr
+   Fliesstext als Formular; wer den Hintergrund braucht, klappt ihn auf. */
+.why {
+    margin-top: 8px;
+}
+
+.why summary {
+    font: 500 12.5px/1.4 var(--body);
+    color: var(--muted);
+    cursor: pointer;
+    min-height: var(--tap);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    /* Das eigene Dreieck faellt mit display:flex ohnehin weg, und ein gedrehtes Zeichen
+       laesst sich zuverlaessiger gross genug bekommen als der Standardmarker. */
+    list-style: none;
+}
+
+.why summary::-webkit-details-marker {
+    display: none;
+}
+
+.why summary::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-right: 1.6px solid currentColor;
+    border-bottom: 1.6px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+}
+
+.why[open] summary::before {
+    transform: rotate(45deg);
+}
+
+.why summary:hover {
+    color: var(--text);
+}
+
+.why p {
+    margin: 2px 0 0;
+    padding: 11px 13px;
+    font: 400 12.5px/1.6 var(--body);
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    max-width: 72ch;
+}
+
 /* ---------------------------------------------------------------- Tagesplan */
 .plan-row {
     display: grid;

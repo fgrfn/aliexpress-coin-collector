@@ -130,6 +130,7 @@ class Config:
     morning_end: time
     evening_start: time
     evening_end: time
+    evening_enabled: bool
     skip_if_awake: bool
     busy_retry_min: int
     busy_max_wait_min: int
@@ -181,6 +182,7 @@ class Config:
             "morning_end": _time(get("MORNING_END") or "10:00"),
             "evening_start": _time(get("EVENING_START") or "19:00"),
             "evening_end": _time(get("EVENING_END") or "21:00"),
+            "evening_enabled": _bool(get("EVENING_ENABLED") or "true"),
             "skip_if_awake": _bool(get("SKIP_IF_AWAKE") or "true"),
             "busy_retry_min": _int("BUSY_RETRY_MIN", 15),
             "busy_max_wait_min": _int("BUSY_MAX_WAIT_MIN", 120),
@@ -242,13 +244,15 @@ class Config:
                 f"({self.busy_max_wait_min}) sein, sonst wird nie erzwungen gestartet"
             )
 
-        for name, start, end in (
-            ("Morgenfenster", self.morning_start, self.morning_end),
-            ("Abendfenster", self.evening_start, self.evening_end),
-        ):
+        windows = [("Morgenfenster", self.morning_start, self.morning_end)]
+        if self.evening_enabled:
+            windows.append(("Abendfenster", self.evening_start, self.evening_end))
+        for name, start, end in windows:
             if end < start:
                 raise ConfigError(f"Ende des {name}s ({end:%H:%M}) liegt vor dessen Beginn ({start:%H:%M})")
-        if self.morning_end > self.evening_start:
+        # Ohne Abendlauf darf das Morgenfenster liegen, wo es will -- die abendlichen Werte
+        # stehen dann zwar noch in der Konfiguration, spielen aber keine Rolle mehr.
+        if self.evening_enabled and self.morning_end > self.evening_start:
             raise ConfigError(
                 f"MORNING_END ({self.morning_end:%H:%M}) muss vor oder auf EVENING_START "
                 f"({self.evening_start:%H:%M}) liegen, das Morgenfenster gehoert vor das Abendfenster"

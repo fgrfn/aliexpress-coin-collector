@@ -31,6 +31,7 @@ SETTINGS_FILE = "settings.json"
 WINDOW_KEYS = ("morning_start", "morning_end", "evening_start", "evening_end")
 # Ja/Nein.
 FLAG_KEYS = (
+    "evening_enabled",
     "skip_if_awake",
     "notify_on_success",
     "notify_on_already_done",
