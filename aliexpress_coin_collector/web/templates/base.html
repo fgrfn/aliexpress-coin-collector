@@ -22,7 +22,7 @@
            stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
         <path d="M4 7h16M4 12h16M4 17h16"/>
       </svg>
-      {% include "partials/mark.html" with context %}
+      {% with mark_id = "bar" %}{% include "partials/mark.html" with context %}{% endwith %}
       <span class="brand-name">{{ title }}</span>
       <span class="nav-spacer"></span>
       <span class="dot {{ 'dot-ok' if alive else 'dot-bad' }}"
@@ -38,7 +38,7 @@
   {# --- Seitenleiste ------------------------------------------------------ #}
   <nav class="sidebar" aria-label="Hauptnavigation">
     <a class="brand" href="/">
-      {% include "partials/mark.html" with context %}
+      {% with mark_id = "nav" %}{% include "partials/mark.html" with context %}{% endwith %}
       <span class="brand-name">Coin&nbsp;Collector</span>
     </a>
     {% include "partials/nav.html" with context %}
