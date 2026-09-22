@@ -70,7 +70,10 @@ def next_due(now: datetime, cfg: Config, today_attempts: list[Attempt], horizon_
         if any(a.outcome in SUCCESS_VALUES for a in attempts):
             continue  # an diesem Tag ist nichts mehr zu tun
         done_kinds = {a.kind for a in attempts if a.outcome != Outcome.BUSY.value}
-        for kind, at in (("morning", plan.morning_at), ("evening", plan.evening_at)):
+        kinds = [("morning", plan.morning_at)]
+        if cfg.evening_enabled:
+            kinds.append(("evening", plan.evening_at))
+        for kind, at in kinds:
             if at > now and kind not in done_kinds:
                 return at
     return None
@@ -85,9 +88,13 @@ def decide(now: datetime, plan: Plan, attempts: list[Attempt], cfg: Config) -> D
     busy = [a for a in attempts if a.outcome == Outcome.BUSY.value]
     done_kinds = {a.kind for a in real}
 
-    if now >= plan.evening_at and "evening" not in done_kinds:
-        kind, base = "evening", plan.evening_at
-    elif plan.morning_at <= now < plan.evening_at and "morning" not in done_kinds:
+    # Ohne Abendlauf gibt es keine obere Grenze fuer den Morgenlauf: er bleibt bis Tagesende
+    # faellig. Sonst waere ein Morgenfenster hinter der (dann bedeutungslosen) Abendzeit tot.
+    evening_at = plan.evening_at if cfg.evening_enabled else None
+
+    if evening_at is not None and now >= evening_at and "evening" not in done_kinds:
+        kind, base = "evening", evening_at
+    elif plan.morning_at <= now and (evening_at is None or now < evening_at) and "morning" not in done_kinds:
         kind, base = "morning", plan.morning_at
     else:
         return None
@@ -644,9 +651,9 @@ def tick(
     plan = plan_for(now.date(), cfg)
     if announced != now.date():
         log.info(
-            "Heute: Morgenlauf ab %s, Abendlauf ab %s",
+            "Heute: Morgenlauf ab %s, %s",
             plan.morning_at.strftime("%H:%M"),
-            plan.evening_at.strftime("%H:%M"),
+            f"Abendlauf ab {plan.evening_at:%H:%M}" if cfg.evening_enabled else "Abendlauf abgeschaltet",
         )
         announced = now.date()
 

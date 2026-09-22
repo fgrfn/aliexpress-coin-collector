@@ -78,10 +78,10 @@ def cmd_schedule(cfg: Config, args: argparse.Namespace) -> int:
     store = Store(cfg.data_dir)
     by_day = {now.date(): store.for_day(now.date())}
 
-    print(
-        f"Fenster: morgens {cfg.morning_start:%H:%M}-{cfg.morning_end:%H:%M}, "
-        f"abends {cfg.evening_start:%H:%M}-{cfg.evening_end:%H:%M}"
+    abends = (
+        f"abends {cfg.evening_start:%H:%M}-{cfg.evening_end:%H:%M}" if cfg.evening_enabled else "abends abgeschaltet"
     )
+    print(f"Fenster: morgens {cfg.morning_start:%H:%M}-{cfg.morning_end:%H:%M}, {abends}")
     print(f"{'Datum':12} {'Morgenlauf':11} {'Abendlauf':11} Stand")
     for day, plan in next_runs(now.date(), cfg, max(1, args.n)):
         attempts = by_day.get(day, [])
@@ -89,7 +89,8 @@ def cmd_schedule(cfg: Config, args: argparse.Namespace) -> int:
             stand = ", ".join(f"{a.kind}={a.outcome}" for a in attempts)
         else:
             stand = "heute noch offen" if day == now.date() else ""
-        print(f"{day:%Y-%m-%d}   {plan.morning_at:%H:%M}       {plan.evening_at:%H:%M}       {stand}")
+        abend = f"{plan.evening_at:%H:%M}" if cfg.evening_enabled else "--:--"
+        print(f"{day:%Y-%m-%d}   {plan.morning_at:%H:%M}       {abend}       {stand}")
 
     due = next_due(now, cfg, by_day[now.date()])
     if due is None:
@@ -98,7 +99,10 @@ def cmd_schedule(cfg: Config, args: argparse.Namespace) -> int:
         rest = due - now
         hours, minutes = divmod(int(rest.total_seconds()) // 60, 60)
         print(f"\nNaechster Lauf: {due:%Y-%m-%d %H:%M} (in {hours} h {minutes} min)")
-    print("Der Abendlauf startet nur, wenn morgens nichts geklappt hat.")
+    if cfg.evening_enabled:
+        print("Der Abendlauf startet nur, wenn morgens nichts geklappt hat.")
+    else:
+        print("Der Abendlauf ist abgeschaltet, es bleibt beim Morgenlauf.")
     return 0
 
 
@@ -176,7 +180,8 @@ def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
         ok = False
 
     plan = plan_for(now.date(), cfg)
-    print(f"     Heute geplant: Morgenlauf {plan.morning_at:%H:%M}, Abendlauf {plan.evening_at:%H:%M}")
+    abend = f"Abendlauf {plan.evening_at:%H:%M}" if cfg.evening_enabled else "Abendlauf abgeschaltet"
+    print(f"     Heute geplant: Morgenlauf {plan.morning_at:%H:%M}, {abend}")
     try:
         store = Store(cfg.data_dir)
         today = store.for_day(now.date())

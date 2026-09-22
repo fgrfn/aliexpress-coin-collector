@@ -37,6 +37,9 @@ OCR (Tesseract) gefunden. Ergebnisse gehen per Discord raus, jeder Lauf landet i
 **Zeitplan:** Ein Lauf zu einer zufälligen, pro Tag festen Uhrzeit im Morgenfenster (Standard 07:00–10:00). Schlägt er
 fehl, gibt es einen einzigen Nachholversuch im Abendfenster (Standard 19:00–21:00). Gelingt bis dahin nichts, kommt eine
 Discord-Meldung mit Screenshot. Die Uhrzeiten hängen nur vom Datum ab und überleben Neustarts des Dienstes.
+Der Abendlauf lässt sich abschalten (`EVENING_ENABLED=false` oder der Haken auf der Seite „Einstellungen“); dann läuft
+nur morgens, das Morgenfenster darf beliebig liegen — etwa 09:00–12:00 — und ein misslungener Lauf wird an diesem Tag
+nicht nachgeholt.
 
 ## Voraussetzungen
 
@@ -413,6 +416,7 @@ in `data/settings.json` und überschreibt die `.env`.
 | **`DISCORD_WEBHOOK_URL`** | leer | Webhook für Meldungen (leer = nur Log) |
 | **`MORNING_START` / `MORNING_END`** | `07:00` / `10:00` | Fenster für den Morgenlauf |
 | **`EVENING_START` / `EVENING_END`** | `19:00` / `21:00` | Fenster für den Nachholversuch |
+| **`EVENING_ENABLED`** | `true` | Abendlauf überhaupt einplanen. Auf `false` läuft nur morgens — das Morgenfenster darf dann frei liegen, ein misslungener Morgenlauf wird aber nicht nachgeholt |
 | **`SKIP_IF_AWAKE`** | `true` | Nicht starten, solange der Bildschirm an ist. Bei einem reinen Automatisierungsgerät `false` |
 | **`BUSY_RETRY_MIN`** | `15` | Abstand der Wiederholung, wenn das Gerät in Benutzung ist |
 | **`BUSY_MAX_WAIT_MIN`** | `120` | Danach wird trotz eingeschaltetem Bildschirm gestartet |

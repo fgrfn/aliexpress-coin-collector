@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -108,3 +109,42 @@ def test_next_due_ignores_busy_attempts(cfg):
     plan = plan_for(DAY, cfg)
     busy = att(plan.morning_at - timedelta(minutes=10), "morning", "busy")
     assert next_due(plan.morning_at - timedelta(minutes=5), cfg, [busy]) == plan.morning_at
+
+
+# --- Abendlauf abschaltbar -----------------------------------------------
+
+
+def no_evening(cfg):
+    return replace(cfg, evening_enabled=False)
+
+
+def test_no_evening_run_when_switched_off(cfg):
+    off = no_evening(cfg)
+    plan = plan_for(DAY, off)
+    now = plan.evening_at + timedelta(minutes=5)
+    d = decide(now, plan, [att(plan.morning_at, "morning", "claimed")], off)
+    assert d is None
+
+
+def test_morning_stays_due_all_day_without_the_evening_run(cfg):
+    """Sonst waere ein Morgenlauf, der bis zur Abendzeit nicht zustande kam, einfach weg."""
+    off = no_evening(cfg)
+    plan = plan_for(DAY, off)
+    now = plan.evening_at + timedelta(hours=1)
+    d = decide(now, plan, [], off)
+    assert d and d.kind == "morning"
+
+
+def test_failed_morning_is_not_retried_without_the_evening_run(cfg):
+    off = no_evening(cfg)
+    plan = plan_for(DAY, off)
+    now = plan.evening_at + timedelta(minutes=5)
+    assert decide(now, plan, [att(plan.morning_at, "morning", "error")], off) is None
+
+
+def test_next_due_skips_the_evening_run_when_switched_off(cfg):
+    off = no_evening(cfg)
+    plan = plan_for(DAY, off)
+    tomorrow = plan_for(DAY + timedelta(days=1), off)
+    now = plan.morning_at + timedelta(minutes=1)
+    assert next_due(now, off, [att(plan.morning_at, "morning", "error")]) == tomorrow.morning_at

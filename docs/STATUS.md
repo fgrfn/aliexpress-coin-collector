@@ -60,6 +60,9 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Abschaltbarer Abendlauf (0.13.0): **nur mit Attrappen getestet.** Entscheidung, Prüfung der
+  Konfiguration, Formular und Anzeige sind durch Tests gedeckt; ob der Dienst mit abgeschaltetem
+  Abendlauf über mehrere Tage so läuft, ist noch nicht im Betrieb gesehen.
 - Stillstandswächter (0.12.0): **mit Attrappen getestet**, gegen das echte Fehlermuster aus der
   Datenbank nachgestellt (sechs Tage „erledigt" bei Stand 10) und das Banner in Chromium angesehen.
   Die Discord-Meldung ging in keinen echten Kanal.
@@ -138,6 +141,10 @@ können Anpassungen erfordern.
   (`claimed`/`already_done`); `busy` zählt nicht als Versuch; höchstens ein echter Versuch je Art; der Abendlauf
   startet auch dann, wenn morgens nichts lief; nach `BUSY_RETRY_MIN` wird erneut versucht, nach `BUSY_MAX_WAIT_MIN`
   wird trotz eingeschaltetem Bildschirm gestartet.
+- **`EVENING_ENABLED=false` nimmt den Abendlauf ganz heraus.** Dann entfällt die obere Grenze des Morgenlaufs: er
+  bleibt bis Mitternacht fällig, statt mit der Abendzeit zu verfallen — sonst wäre ein Morgenfenster hinter der
+  (dann bedeutungslosen) Abendzeit tot. Auch die Prüfung „Morgenfenster vor Abendfenster“ entfällt, das Fenster
+  darf also frei liegen. Preis: ein misslungener Morgenlauf wird an diesem Tag nicht nachgeholt.
 - `handle_result` schreibt in SQLite, meldet per Discord (Fehler immer, Erfolge je nach `NOTIFY_ON_*`, `busy` nie),
   legt Fehler-Screenshots in `data/shots/` ab (die letzten 30) und ergänzt beim Abendlauf den Hinweis, dass es der
   letzte Versuch des Tages war.

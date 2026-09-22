@@ -18,6 +18,7 @@ ENV_VARS = (
     "MORNING_END",
     "EVENING_START",
     "EVENING_END",
+    "EVENING_ENABLED",
     "SKIP_IF_AWAKE",
     "BUSY_RETRY_MIN",
     "BUSY_MAX_WAIT_MIN",
@@ -269,3 +270,33 @@ def test_webhook_without_https_rejected_without_leaking_secret(env: pytest.Monke
 def test_button_labels_empty_rejected(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
     env.setenv("BUTTON_LABELS", " , ")
     assert "BUTTON_LABELS" in fails(tmp_path)
+
+
+# --- Abendlauf abschaltbar -----------------------------------------------
+
+
+def test_evening_is_enabled_by_default(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert load(tmp_path).evening_enabled is True
+
+
+def test_morning_window_may_sit_anywhere_without_the_evening_run(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Ohne Abendlauf gibt es kein Fenster, vor dem das Morgenfenster liegen muesste."""
+    env.setenv("MORNING_START", "09:00")
+    env.setenv("MORNING_END", "22:00")
+    env.setenv("EVENING_ENABLED", "false")
+    cfg = load(tmp_path)
+    assert cfg.evening_enabled is False
+    assert cfg.morning_end.hour == 22
+
+
+def test_morning_window_must_stay_before_the_evening_run(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("MORNING_END", "22:00")
+    assert "MORNING_END" in fails(tmp_path)
+
+
+def test_unused_evening_window_is_not_checked(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Die abendlichen Werte bleiben stehen, spielen aber keine Rolle mehr."""
+    env.setenv("EVENING_START", "21:00")
+    env.setenv("EVENING_END", "19:00")
+    env.setenv("EVENING_ENABLED", "false")
+    assert load(tmp_path).evening_enabled is False
