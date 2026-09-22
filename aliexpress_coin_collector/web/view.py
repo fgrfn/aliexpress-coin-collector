@@ -13,6 +13,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from .. import __version__
 from ..commands import Command, Status, mask_serial
 from ..store import Attempt
 from . import data
@@ -104,9 +105,14 @@ def german_number(value: object) -> str:
 
 
 def static_url(name: str) -> str:
-    """Adresse einer mitgelieferten Datei. Eigene Funktion, damit spaeter ein Stempel gegen
-    veraltete Zwischenspeicher dazukann, ohne jede Vorlage anzufassen."""
-    return f"/static/{name}"
+    """Adresse einer mitgelieferten Datei, mit der Version als Stempel.
+
+    Ohne ihn behaelt der Browser nach einem Update das alte app.css: die Vorlagen kommen
+    frisch vom Server, das Stylesheet aber aus dem Zwischenspeicher, und die Seite sieht
+    kaputt statt neu aus. Mit der Version im Namen holt er es nach jedem Update genau
+    einmal neu.
+    """
+    return f"/static/{name}?v={__version__}"
 
 
 # ---------------------------------------------------------------------------- Aufbereitung
