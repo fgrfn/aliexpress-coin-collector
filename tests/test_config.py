@@ -26,6 +26,11 @@ ENV_VARS = (
     "HA_URL",
     "HA_TOKEN",
     "HA_PREFIX",
+    "MQTT_HOST",
+    "MQTT_PORT",
+    "MQTT_USER",
+    "MQTT_PASSWORD",
+    "MQTT_DISCOVERY_PREFIX",
     "SKIP_IF_AWAKE",
     "BUSY_RETRY_MIN",
     "BUSY_MAX_WAIT_MIN",
@@ -360,3 +365,33 @@ def test_a_prefix_that_would_make_a_broken_entity_id_is_refused(env: pytest.Monk
     env.setenv("HA_TOKEN", "geheim")
     env.setenv("HA_PREFIX", "Coin Collector")
     assert "HA_PREFIX" in fails(tmp_path)
+
+
+def test_mqtt_is_off_without_a_broker(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = load(tmp_path)
+    assert cfg.mqtt_host == ""
+    assert cfg.mqtt_port == 1883
+    assert cfg.mqtt_discovery_prefix == "homeassistant"
+
+
+def test_a_broker_without_credentials_is_allowed(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("MQTT_HOST", "homeassistant.local")
+    assert load(tmp_path).mqtt_host == "homeassistant.local"
+
+
+def test_an_impossible_mqtt_port_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("MQTT_HOST", "homeassistant.local")
+    env.setenv("MQTT_PORT", "70000")
+    assert "MQTT_PORT" in fails(tmp_path)
+
+
+def test_a_discovery_prefix_with_a_space_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("MQTT_HOST", "homeassistant.local")
+    env.setenv("MQTT_DISCOVERY_PREFIX", "home assistant")
+    assert "MQTT_DISCOVERY_PREFIX" in fails(tmp_path)
+
+
+def test_slashes_around_the_discovery_prefix_are_trimmed(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("MQTT_HOST", "homeassistant.local")
+    env.setenv("MQTT_DISCOVERY_PREFIX", "/hass/")
+    assert load(tmp_path).mqtt_discovery_prefix == "hass"

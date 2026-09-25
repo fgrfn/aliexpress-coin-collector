@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aliexpress-coin-collector"
-version = "0.14.0"
+version = "0.15.0"
 description = "Sammelt den taeglichen AliExpress-Coin-Check-in automatisch ein (Android per ADB + OCR)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +15,7 @@ dependencies = [
     "numpy>=1.26",
     "pytesseract>=0.3.10",
     "requests>=2.31",
+    "paho-mqtt>=2.0",
 ]
 
 [project.optional-dependencies]

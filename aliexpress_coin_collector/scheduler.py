@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 
-from . import __version__, commands, homeassistant, notify, settings, stats
+from . import __version__, commands, homeassistant, mqtt, notify, settings, stats
 from .adb import Adb, Battery
 from .config import Config, ConfigError
 from .runner import SUCCESS, Outcome, RunResult, read_battery, run_once
@@ -740,6 +740,7 @@ def tick(
     outage: Outage | None = None,
     battery: BatteryWatch | None = None,
     publisher: homeassistant.Publisher | None = None,
+    broker: mqtt.Publisher | None = None,
 ) -> date | None:
     """Eine Runde des Dienstes. Gibt zurueck, fuer welchen Tag der Plan zuletzt gemeldet wurde.
 
@@ -813,15 +814,15 @@ def tick(
             battery.note(result.battery, datetime.now(), cfg.battery_low_pct, cfg.battery_hot_c)
 
     # Ganz zum Schluss, damit der Zustand alles von dieser Runde enthaelt.
-    if publisher is not None:
+    if publisher is not None or broker is not None:
         recent = store.recent(1)
-        entries = homeassistant.states(
-            cfg,
-            battery.last if battery is not None else None,
-            recent[0] if recent else None,
-            state == "device",
-        )
-        publisher.publish(cfg, entries, now)
+        last = recent[0] if recent else None
+        reading = battery.last if battery is not None else None
+        reachable = state == "device"
+        if publisher is not None:
+            publisher.publish(cfg, homeassistant.states(cfg, reading, last, reachable), now)
+        if broker is not None:
+            broker.publish(cfg, reading, last, reachable)
     return announced
 
 
@@ -837,9 +838,31 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
     reconnect, outage, battery = Reconnect(), Outage(), BatteryWatch()
     publisher = homeassistant.Publisher() if cfg.ha_url else None
     if publisher is not None:
-        log.info("Home Assistant angebunden, Entitaeten mit dem Praefix %s", cfg.ha_prefix)
-    while True:
-        announced = tick(
-            cfg, adb, store, reconnect, version, announced, outage=outage, battery=battery, publisher=publisher
+        log.info("Home Assistant ueber die REST-API angebunden, Praefix %s", cfg.ha_prefix)
+    broker = mqtt.Publisher() if cfg.mqtt_host else None
+    if broker is not None and not broker.start(cfg):
+        broker = None
+    if publisher is not None and broker is not None:
+        log.warning(
+            "REST-API und MQTT sind beide eingerichtet. Home Assistant bekommt dann zwei Saetze "
+            "Entitaeten fuer dieselben Werte -- besser einen der beiden Wege abschalten."
         )
-        time.sleep(tick_s)
+    try:
+        while True:
+            announced = tick(
+                cfg,
+                adb,
+                store,
+                reconnect,
+                version,
+                announced,
+                outage=outage,
+                battery=battery,
+                publisher=publisher,
+                broker=broker,
+            )
+            time.sleep(tick_s)
+    finally:
+        # Ordentlich abmelden, damit die Entitaeten nicht erst ueber das Testament ausfallen.
+        if broker is not None:
+            broker.stop(cfg)

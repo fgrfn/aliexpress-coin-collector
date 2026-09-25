@@ -2,6 +2,8 @@ opencv-python-headless>=4.8
 numpy>=1.26
 pytesseract>=0.3.10
 requests>=2.31
+# Nur fuer den MQTT-Weg nach Home Assistant. Ohne MQTT_HOST wird das Modul nie geladen.
+paho-mqtt>=2.0
 
 # Weboberflaeche (optionaler zweiter Dienst, siehe README)
 fastapi>=0.110

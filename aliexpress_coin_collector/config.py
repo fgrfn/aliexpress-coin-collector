@@ -117,6 +117,24 @@ def _check_ha(url: str, token: str, prefix: str) -> None:
         )
 
 
+def _check_mqtt(host: str, port: int, discovery_prefix: str) -> None:
+    """Der MQTT-Weg, falls ein Broker gesetzt ist.
+
+    Benutzername und Passwort sind nicht Pflicht: ein Broker im eigenen Netz laeuft durchaus
+    ohne Anmeldung. Der Discovery-Praefix dagegen muss stimmen, sonst horcht Home Assistant
+    an einem Zweig, in den nie etwas geschrieben wird.
+    """
+    if not host:
+        return
+    if not 1 <= port <= 65535:
+        raise ConfigError(f"MQTT_PORT muss zwischen 1 und 65535 liegen, nicht {port}")
+    if not discovery_prefix or any(c.isspace() for c in discovery_prefix):
+        raise ConfigError(
+            f"MQTT_DISCOVERY_PREFIX ist ungueltig: {discovery_prefix!r}. Ueblich ist "
+            "'homeassistant' -- derselbe Wert, der in Home Assistant unter MQTT eingestellt ist"
+        )
+
+
 def _check_serial(serial: str) -> None:
     """ADB_SERIAL auf host:port oder USB-Seriennummer pruefen."""
     if not _SERIAL_RE.match(serial):
@@ -181,6 +199,11 @@ class Config:
     ha_url: str
     ha_token: str
     ha_prefix: str
+    mqtt_host: str
+    mqtt_port: int
+    mqtt_user: str
+    mqtt_password: str
+    mqtt_discovery_prefix: str
     data_dir: Path
     log_level: str
     # Zeitpunkt der letzten Aenderung aus settings.json, None wenn es keine gibt.
@@ -241,6 +264,13 @@ class Config:
             "ha_url": (get("HA_URL") or "").strip().rstrip("/"),
             "ha_token": (get("HA_TOKEN") or "").strip(),
             "ha_prefix": (get("HA_PREFIX") or "coin_collector").strip(),
+            # Ohne Broker bleibt auch dieser Weg aus. Beide zugleich sind erlaubt, ergeben aber
+            # zwei Saetze Entitaeten fuer dieselbe Sache -- der Dienst warnt dann beim Start.
+            "mqtt_host": (get("MQTT_HOST") or "").strip(),
+            "mqtt_port": _int("MQTT_PORT", 1883),
+            "mqtt_user": (get("MQTT_USER") or "").strip(),
+            "mqtt_password": get("MQTT_PASSWORD") or "",
+            "mqtt_discovery_prefix": (get("MQTT_DISCOVERY_PREFIX") or "homeassistant").strip().strip("/"),
             "data_dir": data_dir,
             "log_level": (get("LOG_LEVEL") or "INFO").strip().upper(),
         }
@@ -286,6 +316,7 @@ class Config:
         _check_range("BATTERY_LOW_PCT", self.battery_low_pct, 1, 99)
         _check_range("BATTERY_HOT_C", self.battery_hot_c, 20, 80)
         _check_ha(self.ha_url, self.ha_token, self.ha_prefix)
+        _check_mqtt(self.mqtt_host, self.mqtt_port, self.mqtt_discovery_prefix)
         if self.busy_retry_min >= self.busy_max_wait_min:
             raise ConfigError(
                 f"BUSY_RETRY_MIN ({self.busy_retry_min}) muss kleiner als BUSY_MAX_WAIT_MIN "
