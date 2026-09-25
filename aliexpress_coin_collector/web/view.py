@@ -142,6 +142,34 @@ class Last:
     kind: str
 
 
+@dataclass(frozen=True)
+class BatteryTile:
+    """Der Akku, wie ihn die Kachel zeigt."""
+
+    level: str
+    tone: str
+    sub: str
+
+
+def battery_tile(attempts: list[Attempt], low_pct: int = 25, hot_c: int = 40) -> BatteryTile | None:
+    """Ladestand, Temperatur und Alter des Werts.
+
+    Die Faerbung folgt denselben Schwellen wie die Meldungen des Dienstes -- eine Kachel, die
+    gruen bleibt, waehrend eine Warnung im Kanal steht, waere schlimmer als gar keine.
+    """
+    a = data.latest_battery(attempts)
+    if a is None:
+        return None
+    tone = ""
+    if a.battery_level <= low_pct or (a.battery_temp_c is not None and a.battery_temp_c >= hot_c):
+        tone = "bad" if a.battery_level <= low_pct else "warn"
+    teile = [a.battery_status or "Zustand unbekannt"]
+    if a.battery_temp_c is not None:
+        teile.append(f"{a.battery_temp_c:.1f} °C".replace(".", ","))
+    teile.append(f"{a.ts:%d.%m. %H:%M}")
+    return BatteryTile(level=f"{a.battery_level} %", tone=tone, sub=" · ".join(teile))
+
+
 _TONE = {"ok": "ok", "warn": "warn", "bad": "bad"}
 
 

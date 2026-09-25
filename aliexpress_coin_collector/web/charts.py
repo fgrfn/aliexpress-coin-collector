@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from markupsafe import Markup
 
-from .data import DayPoint, DayShare
+from .data import BatteryPoint, DayPoint, DayShare
 
 # Die Klasse traegt die Skalierung: eine Regel fuer alle svg wuerde auch das Logo aufblasen.
 _OPEN = '<svg class="chart" viewBox="0 0 {w} {h}" role="img" aria-label="{label}">'
@@ -166,6 +166,73 @@ def gain_chart(points: list[DayPoint], width: int = 950, height: int = 150) -> M
         parts.append(
             f'<text x="{x:.1f}" y="{height - 6}" text-anchor="{anchor}" font-size="11" '
             f'fill="var(--muted)">{point.day:%d.%m.}</text>'
+        )
+    parts.append("</svg>")
+    return Markup("".join(parts))
+
+
+def battery_chart(points: list[BatteryPoint], low_pct: int = 25, width: int = 950, height: int = 180) -> Markup:
+    """Ladestand als Linie, feste Skala von 0 bis 100.
+
+    Anders als beim Muenzstand waere eine mitwachsende Skala hier irrefuehrend: ein Verlauf
+    zwischen 98 und 100 Prozent saehe dann aus wie ein Absturz. Die Schwelle, ab der gewarnt
+    wird, steht als Linie mit drin -- sonst sagt die Kurve allein wenig.
+    """
+    if len(points) < 2:
+        return Markup(
+            '<p class="note" style="margin-top: 0;">Noch zu wenige Messwerte für einen Verlauf. '
+            "Der Akkustand wird seit Version 0.14.0 mitgeschrieben.</p>"
+        )
+
+    pad_l, pad_r, pad_t, pad_b = 46, 10, 12, 26
+    inner_w, inner_h = width - pad_l - pad_r, height - pad_t - pad_b
+    last = len(points) - 1
+
+    def x_at(i: int) -> float:
+        return pad_l + inner_w * i / last
+
+    def y_at(value: float) -> float:
+        return pad_t + inner_h - inner_h * max(0.0, min(100.0, value)) / 100
+
+    line = " ".join(f"{x_at(i):.1f},{y_at(p.level):.1f}" for i, p in enumerate(points))
+    area = f"{pad_l},{pad_t + inner_h} {line} {x_at(last):.1f},{pad_t + inner_h}"
+    label = _escape(
+        f"Ladestand von {points[0].day:%d.%m.%Y} bis {points[-1].day:%d.%m.%Y}, "
+        f"{points[0].level} auf {points[-1].level} Prozent"
+    )
+    parts = [_OPEN.format(w=width, h=height, label=label)]
+
+    for value in (0, 50, 100):
+        y = y_at(value)
+        parts.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{width - pad_r}" y2="{y:.1f}" stroke="var(--line)"/>')
+        parts.append(
+            f'<text x="{pad_l - 9}" y="{y + 4:.1f}" text-anchor="end" font-size="11" fill="var(--muted)">{value}</text>'
+        )
+
+    y_low = y_at(low_pct)
+    parts.append(
+        f'<line x1="{pad_l}" y1="{y_low:.1f}" x2="{width - pad_r}" y2="{y_low:.1f}" stroke="var(--bad)" '
+        'stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>'
+    )
+    # Linksbuendig: rechts endet die Kurve, und dort lag die Beschriftung genau darueber.
+    parts.append(
+        f'<text x="{pad_l + 4}" y="{y_low - 5:.1f}" text-anchor="start" font-size="10" '
+        f'fill="var(--bad)">Warnschwelle {low_pct} %</text>'
+    )
+
+    parts.append(f'<polygon points="{area}" fill="var(--ok)" opacity="0.10"/>')
+    parts.append(
+        f'<polyline points="{line}" fill="none" stroke="var(--ok)" stroke-width="2.2" '
+        'stroke-linejoin="round" stroke-linecap="round"/>'
+    )
+    parts.append(
+        f'<circle cx="{x_at(last):.1f}" cy="{y_at(points[-1].level):.1f}" r="4" fill="var(--ok)" '
+        'stroke="var(--surface)" stroke-width="2"/>'
+    )
+    for day, i, anchor in ((points[0].day, 0, "start"), (points[-1].day, last, "end")):
+        parts.append(
+            f'<text x="{x_at(i):.1f}" y="{height - 7}" text-anchor="{anchor}" font-size="11" '
+            f'fill="var(--muted)">{day:%d.%m.}</text>'
         )
     parts.append("</svg>")
     return Markup("".join(parts))

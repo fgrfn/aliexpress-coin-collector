@@ -294,6 +294,124 @@
   </form>
 </section>
 
+<!-- ------------------------------------------------------------------ Akku -->
+<section class="card" id="akku">
+  <div class="card-head">
+    <h2>Akku</h2>
+    {% if battery %}<span class="pill pill-{{ battery.tone or 'ok' }}">{{ battery.level }}</span>{% endif %}
+  </div>
+  <form method="post" action="/einstellungen/akku">
+    <div class="fields">
+      <div class="field">
+        <label for="bpm">Nachsehen alle {{ saved('battery_poll_min') }}</label>
+        <div class="with-unit">
+          <input id="bpm" type="number" name="battery_poll_min" min="0" value="{{ cfg.battery_poll_min }}" required>
+          <span class="unit-label">Minuten</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="blp">Warnen unter {{ saved('battery_low_pct') }}</label>
+        <div class="with-unit">
+          <input id="blp" type="number" name="battery_low_pct" min="1" max="99" value="{{ cfg.battery_low_pct }}" required>
+          <span class="unit-label">Prozent</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="bhc">Warnen ab {{ saved('battery_hot_c') }}</label>
+        <div class="with-unit">
+          <input id="bhc" type="number" name="battery_hot_c" min="20" max="80" value="{{ cfg.battery_hot_c }}" required>
+          <span class="unit-label">Grad</span>
+        </div>
+      </div>
+    </div>
+    <label class="opt">
+      <input type="checkbox" name="notify_on_battery" value="1" {% if cfg.notify_on_battery %}checked{% endif %}>
+      <span>
+        Auffälligkeiten am Akku melden {{ saved('notify_on_battery') }}
+        <span class="opt-note">Kein Strom, Ladestand unten, zu warm, oder das Gerät meldet einen Schaden.</span>
+      </span>
+    </label>
+    <p class="note">
+      Das Abfragen ist ein reiner Lesezugriff — es weckt nichts und tippt nichts an. 0 Minuten
+      schaltet es ab, dann zählt nur, was ein Lauf nebenbei mitbringt.
+    </p>
+    <details class="why">
+      <summary>Warum sich das lohnt, obwohl das Gerät am Strom hängt</summary>
+      <p>
+        Gerade dann: Fällt das Netzteil aus, sieht man das sonst an nichts — bis der Akku leer
+        ist und das Gerät ausgeht. Danach ist auch die ADB-Verbindung weg, und die lässt sich
+        nur per USB-Kabel am Gerät wiederherstellen. Die Warnung „hängt nicht am Strom“ ist
+        die einzige, die vorher kommt.
+      </p>
+    </details>
+    <div class="btn-row form-foot">
+      <button class="btn" type="submit">Akku speichern</button>
+    </div>
+  </form>
+</section>
+
+<!-- ------------------------------------------------------------------ Home Assistant -->
+<section class="card" id="homeassistant">
+  <div class="card-head">
+    <h2>Home Assistant</h2>
+    <span class="pill pill-{{ 'ok' if cfg.ha_url and has_ha_token else 'warn' }}">
+      {{ "angebunden" if cfg.ha_url and has_ha_token else "nicht angebunden" }}
+    </span>
+  </div>
+  <form method="post" action="/einstellungen/homeassistant">
+    <div class="fields">
+      <div class="field field-wide">
+        <label for="haurl">Adresse {{ saved('ha_url') }}</label>
+        <input id="haurl" type="text" name="ha_url" value="{{ cfg.ha_url }}" spellcheck="false"
+               autocapitalize="off" autocomplete="off" placeholder="http://homeassistant.local:8123">
+      </div>
+      <div class="field field-wide">
+        <label for="hatok">Langzeit-Token {{ saved('ha_token') }}</label>
+        <input id="hatok" type="password" name="ha_token" value="" autocomplete="off" spellcheck="false"
+               placeholder="{{ 'leer lassen = unverändert' if has_ha_token else 'aus dem eigenen Profil in Home Assistant' }}">
+      </div>
+      <div class="field">
+        <label for="hapre">Namensanfang {{ saved('ha_prefix') }}</label>
+        <input id="hapre" type="text" name="ha_prefix" value="{{ cfg.ha_prefix }}" spellcheck="false"
+               autocapitalize="off" autocomplete="off">
+      </div>
+    </div>
+    {% if has_ha_token %}
+      <label class="opt">
+        <input type="checkbox" name="remove_ha_token" value="1">
+        <span>
+          Anbindung entfernen
+          <span class="opt-note">
+            Löscht Adresse und Token. Danach meldet der Dienst nichts mehr nach Home Assistant.
+          </span>
+        </span>
+      </label>
+    {% endif %}
+    <p class="note">
+      Gemeldet werden Ladestand, Temperatur, letzter Lauf, Münzstand und ob das Gerät
+      erreichbar ist — als <code>sensor.{{ cfg.ha_prefix }}_…</code>.
+    </p>
+    <details class="why">
+      <summary>Wozu das gut ist, und was es nicht tut</summary>
+      <p>
+        Damit lässt sich in Home Assistant eine Steckdose nach Ladestand schalten, statt das
+        Handy dauerhaft voll zu laden. <strong>Dieser Dienst schaltet nichts</strong> — er
+        liefert nur die Zahlen. Das ist Absicht: ein Fehler beim Schalten trännte das Gerät vom
+        Strom und zerstörte genau das, was der Dienst am Laufen halten soll. Die Automatisierung
+        gehört nach Home Assistant, mit „Steckdose an“ als sicherem Rückfall.
+      </p>
+      <p>
+        Die Entitäten werden über die REST-API gesetzt und gehören zu keiner Integration. Nach
+        einem Neustart von Home Assistant sind sie darum kurz weg, bis der Dienst sie wieder
+        schickt — das passiert spätestens alle fünf Minuten.
+      </p>
+    </details>
+    <div class="btn-row form-foot">
+      <button class="btn" type="submit">Home Assistant speichern</button>
+    </div>
+  </form>
+</section>
+
 <!-- ------------------------------------------------------------------ Zugang -->
 <section class="card" id="zugang">
   <div class="card-head"><h2>Zugang</h2></div>
