@@ -89,6 +89,34 @@ def _check_min(name: str, value: int, minimum: int) -> None:
         raise ConfigError(f"{name} muss {expected} sein, nicht {value}")
 
 
+def _check_range(name: str, value: int, low: int, high: int) -> None:
+    """Zahlenwert innerhalb sinnvoller Grenzen. Eine Schwelle ausserhalb waere nie erreichbar."""
+    if not low <= value <= high:
+        raise ConfigError(f"{name} muss zwischen {low} und {high} liegen, nicht {value}")
+
+
+_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _check_ha(url: str, token: str, prefix: str) -> None:
+    """Die Home-Assistant-Anbindung, falls eine Adresse gesetzt ist.
+
+    Ohne Adresse ist die Anbindung aus, dann wird nichts weiter verlangt. Mit Adresse muss auch
+    ein Token da sein -- sonst liefe der Dienst und schickte still 401-Antworten ins Leere.
+    """
+    if not url:
+        return
+    if not url.startswith(("http://", "https://")):
+        raise ConfigError(f"HA_URL muss mit http:// oder https:// beginnen, nicht {url!r}")
+    if not token:
+        raise ConfigError("HA_URL ist gesetzt, HA_TOKEN fehlt: ohne Token weist Home Assistant jede Meldung ab")
+    if not _PREFIX_RE.match(prefix):
+        raise ConfigError(
+            f"HA_PREFIX ist ungueltig: {prefix!r}. Erlaubt sind Kleinbuchstaben, Ziffern und "
+            "Unterstriche, beginnend mit einem Buchstaben -- daraus werden die Namen der Entitaeten"
+        )
+
+
 def _check_serial(serial: str) -> None:
     """ADB_SERIAL auf host:port oder USB-Seriennummer pruefen."""
     if not _SERIAL_RE.match(serial):
@@ -146,6 +174,13 @@ class Config:
     offline_alert_min: int
     notify_weekly: bool
     notify_on_stall: bool
+    notify_on_battery: bool
+    battery_poll_min: int
+    battery_low_pct: int
+    battery_hot_c: int
+    ha_url: str
+    ha_token: str
+    ha_prefix: str
     data_dir: Path
     log_level: str
     # Zeitpunkt der letzten Aenderung aus settings.json, None wenn es keine gibt.
@@ -198,6 +233,14 @@ class Config:
             "offline_alert_min": _int("OFFLINE_ALERT_MIN", 30),
             "notify_weekly": _bool(get("NOTIFY_WEEKLY") or "true"),
             "notify_on_stall": _bool(get("NOTIFY_ON_STALL") or "true"),
+            "notify_on_battery": _bool(get("NOTIFY_ON_BATTERY") or "true"),
+            "battery_poll_min": _int("BATTERY_POLL_MIN", 15),
+            "battery_low_pct": _int("BATTERY_LOW_PCT", 25),
+            "battery_hot_c": _int("BATTERY_HOT_C", 40),
+            # Ohne Adresse bleibt die Anbindung aus; der Rest wird dann gar nicht erst geprueft.
+            "ha_url": (get("HA_URL") or "").strip().rstrip("/"),
+            "ha_token": (get("HA_TOKEN") or "").strip(),
+            "ha_prefix": (get("HA_PREFIX") or "coin_collector").strip(),
             "data_dir": data_dir,
             "log_level": (get("LOG_LEVEL") or "INFO").strip().upper(),
         }
@@ -238,6 +281,11 @@ class Config:
         _check_min("BUSY_MAX_WAIT_MIN", self.busy_max_wait_min, 1)
         _check_min("LAUNCH_RETRIES", self.launch_retries, 0)
         _check_min("OFFLINE_ALERT_MIN", self.offline_alert_min, 1)
+        # 0 ist erlaubt und heisst: nur bei einem Lauf nachsehen, nicht regelmaessig.
+        _check_min("BATTERY_POLL_MIN", self.battery_poll_min, 0)
+        _check_range("BATTERY_LOW_PCT", self.battery_low_pct, 1, 99)
+        _check_range("BATTERY_HOT_C", self.battery_hot_c, 20, 80)
+        _check_ha(self.ha_url, self.ha_token, self.ha_prefix)
         if self.busy_retry_min >= self.busy_max_wait_min:
             raise ConfigError(
                 f"BUSY_RETRY_MIN ({self.busy_retry_min}) muss kleiner als BUSY_MAX_WAIT_MIN "

@@ -3,15 +3,15 @@ from __future__ import annotations
 import logging
 import random
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 
-from . import __version__, commands, notify, settings, stats
-from .adb import Adb
+from . import __version__, commands, homeassistant, notify, settings, stats
+from .adb import Adb, Battery
 from .config import Config, ConfigError
-from .runner import SUCCESS, Outcome, RunResult, run_once
+from .runner import SUCCESS, Outcome, RunResult, read_battery, run_once
 from .store import Attempt, Store
 
 log = logging.getLogger(__name__)
@@ -390,6 +390,134 @@ def stall_message(stall: stats.Stall) -> notify.Message:
     )
 
 
+# --- Akku ---------------------------------------------------------------------------------
+
+# Wie oft der Akkustand abgefragt wird, wenn nichts anderes eingestellt ist. Der Aufruf ist
+# ein reiner Lesezugriff, weckt nichts und tippt nichts an -- alle 15 Minuten ist billig.
+BATTERY_POLL_MIN = 15
+
+# Was gemeldet wird, und wie es in der Meldung heisst.
+BATTERY_PROBLEMS = {
+    "power": (
+        "Hängt nicht am Strom",
+        "Das Gerät lädt nicht. Läuft der Akku leer, geht es aus — und nach dem Neustart ist "
+        "auch die ADB-Verbindung weg, die sich nur per USB wiederherstellen lässt. "
+        "Steckdose, Netzteil und Kabel prüfen.",
+    ),
+    "low": (
+        "Ladestand niedrig",
+        "Der Akku ist weit unten. Ohne Strom bleiben nur noch Stunden, bis das Gerät ausgeht.",
+    ),
+    "hot": (
+        "Zu warm",
+        "Wärme lässt den Akku schneller altern und ihn irgendwann aufblähen. Hülle ab, das "
+        "Gerät kühler und freier stellen.",
+    ),
+    "health": (
+        "Das Gerät meldet einen Akkuschaden",
+        "Android meldet den Akku ausdrücklich als nicht in Ordnung. Das sagt ein Gerät selten "
+        "grundlos — nachsehen, ob die Rückseite sich wölbt.",
+    ),
+}
+
+
+def battery_problems(reading: Battery, low_pct: int, hot_c: int) -> set[str]:
+    """Was an diesem Messwert nicht stimmt. Reine Logik, ohne Gedaechtnis und ohne Meldung.
+
+    Fehlende Werte ergeben kein Problem: ein Geraet, das die Temperatur nicht meldet, ist
+    deswegen nicht zu warm.
+    """
+    found = set()
+    # Auch am Kabel kann der Stand fallen, wenn das Netzteil zu schwach ist oder nichts liefert.
+    if not reading.plugged or reading.status == 3:
+        found.add("power")
+    if reading.level is not None and reading.level <= low_pct:
+        found.add("low")
+    if reading.temperature_c is not None and reading.temperature_c >= hot_c:
+        found.add("hot")
+    if not reading.healthy:
+        found.add("health")
+    return found
+
+
+@dataclass
+class BatteryWatch:
+    """Merkt sich den letzten Messwert und wovon schon einmal die Rede war.
+
+    Wie Outage reine Zustandshaltung: sie sagt nur, was zu melden waere, und schickt selbst
+    nichts. Je Problem genau eine Meldung, und eine Entwarnung erst, wenn alle weg sind.
+    """
+
+    last: Battery | None = None
+    at: datetime | None = None
+    alerted: set[str] = field(default_factory=set)
+
+    def due(self, now: datetime, every_min: int) -> bool:
+        if every_min <= 0:  # abgeschaltet: dann zaehlt nur, was ein Lauf nebenbei mitbringt
+            return False
+        return self.at is None or now >= self.at + timedelta(minutes=every_min)
+
+    def note(self, reading: Battery, now: datetime, low_pct: int, hot_c: int) -> tuple[set[str], bool]:
+        """Messwert uebernehmen. Gibt die neu aufgetretenen Probleme zurueck und ob Entwarnung faellig ist."""
+        self.last, self.at = reading, now
+        found = battery_problems(reading, low_pct, hot_c)
+        fresh = found - self.alerted
+        cleared = bool(self.alerted) and not found
+        self.alerted = found
+        return fresh, cleared
+
+
+def _battery_fields(reading: Battery) -> tuple[notify.Field, ...]:
+    fields = []
+    if reading.level is not None:
+        fields.append(notify.Field("Ladestand", f"{reading.level} %"))
+    if reading.temperature_c is not None:
+        fields.append(notify.Field("Temperatur", f"{reading.temperature_c:.1f} °C".replace(".", ",")))
+    fields.append(notify.Field("Zustand", reading.status_label))
+    return tuple(fields)
+
+
+def battery_message(problems: set[str], reading: Battery) -> notify.Message:
+    """Eine Meldung fuer alle gleichzeitig aufgetretenen Probleme, nicht eine je Problem."""
+    # Feste Reihenfolge, damit die Meldung nicht bei jedem Mal anders aussieht.
+    order = [key for key in BATTERY_PROBLEMS if key in problems]
+    heading = BATTERY_PROBLEMS[order[0]][0] if order else "Akku"
+    description = "\n\n".join(f"**{BATTERY_PROBLEMS[key][0]}** — {BATTERY_PROBLEMS[key][1]}" for key in order)
+    return notify.Message(
+        title=f"🔋 {heading}",
+        # Kein Strom heisst: es laeuft auf einen Totalausfall zu. Das ist kein gelber Hinweis.
+        tone="bad" if {"power", "health"} & problems else "warn",
+        description=description,
+        fields=_battery_fields(reading),
+        footer="Akku des Geräts",
+    )
+
+
+def battery_ok_message(reading: Battery) -> notify.Message:
+    return notify.Message(
+        title="🔋 Akku wieder in Ordnung",
+        tone="ok",
+        description="Die gemeldeten Auffälligkeiten am Akku sind weg.",
+        fields=_battery_fields(reading),
+    )
+
+
+def check_battery(cfg: Config, adb: Adb, watch: BatteryWatch, now: datetime) -> Battery | None:
+    """Akku abfragen, falls faellig, und melden, was sich geaendert hat. Wirft nie."""
+    if not watch.due(now, cfg.battery_poll_min):
+        return None
+    reading = read_battery(adb)
+    if reading is None:
+        return None
+    fresh, cleared = watch.note(reading, now, cfg.battery_low_pct, cfg.battery_hot_c)
+    if cfg.notify_on_battery:
+        if fresh:
+            notify.send(cfg.discord_webhook, battery_message(fresh, reading))
+        elif cleared:
+            notify.send(cfg.discord_webhook, battery_ok_message(reading))
+    return reading
+
+
 def test_message(cfg: Config) -> notify.Message:
     """Testmeldung. Zeigt zugleich, was ueberhaupt gemeldet wird -- sonst weiss man nach dem
     erfolgreichen Test immer noch nicht, wovon man kuenftig hoert."""
@@ -408,6 +536,12 @@ def test_message(cfg: Config) -> notify.Message:
                 "Gerät nicht erreichbar",
                 f"{on} (nach {_duration(cfg.offline_alert_min)})" if cfg.notify_on_offline else off,
             ),
+            notify.Field(
+                "Akku",
+                f"{on} (unter {cfg.battery_low_pct} %, ab {cfg.battery_hot_c} °C, ohne Strom)"
+                if cfg.notify_on_battery
+                else off,
+            ),
             notify.Field("Fehlgeschlagener Lauf", "wird immer gemeldet, mit Screenshot", inline=False),
         ),
         footer=f"Coin Collector {__version__}",
@@ -424,6 +558,7 @@ def back_message(minutes: int) -> notify.Message:
 
 
 def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final_attempt: bool = False) -> None:
+    battery = result.battery
     store.add(
         Attempt(
             ts=datetime.now(),
@@ -433,6 +568,9 @@ def handle_result(cfg: Config, store: Store, kind: str, result: RunResult, final
             coins_after=result.coins_after,
             message=result.message,
             duration_s=round(result.duration_s, 1),
+            battery_level=battery.level if battery else None,
+            battery_temp_c=battery.temperature_c if battery else None,
+            battery_status=battery.status_label if battery else "",
         )
     )
     log.info(describe(kind, result))
@@ -600,6 +738,8 @@ def tick(
     announced: date | None = None,
     now: datetime | None = None,
     outage: Outage | None = None,
+    battery: BatteryWatch | None = None,
+    publisher: homeassistant.Publisher | None = None,
 ) -> date | None:
     """Eine Runde des Dienstes. Gibt zurueck, fuer welchen Tag der Plan zuletzt gemeldet wurde.
 
@@ -620,6 +760,11 @@ def tick(
         if event and cfg.notify_on_offline:
             message = offline_message(minutes, cfg.adb_serial) if event == "down" else back_message(minutes)
             notify.send(cfg.discord_webhook, message)
+
+    # Der Akku, in groesserem Abstand als der Takt. Das ist die einzige Warnung, die vor einem
+    # toten Netzteil kommt, bevor das Geraet ausgeht -- danach waere auch ADB weg.
+    if battery is not None and state == "device":
+        check_battery(cfg, adb, battery, now)
 
     # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
     # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
@@ -662,6 +807,21 @@ def tick(
         log.info("Starte %s%s", decision.kind, " (erzwungen)" if decision.force else "")
         result = run_once(cfg, adb, force=decision.force)
         handle_result(cfg, store, decision.kind, result, final_attempt=decision.kind == "evening")
+        # Der Lauf hat gerade frisch nachgesehen -- das gilt auch fuer den Waechter, sonst
+        # fragte der gleich noch einmal dasselbe Geraet.
+        if battery is not None and result.battery is not None:
+            battery.note(result.battery, datetime.now(), cfg.battery_low_pct, cfg.battery_hot_c)
+
+    # Ganz zum Schluss, damit der Zustand alles von dieser Runde enthaelt.
+    if publisher is not None:
+        recent = store.recent(1)
+        entries = homeassistant.states(
+            cfg,
+            battery.last if battery is not None else None,
+            recent[0] if recent else None,
+            state == "device",
+        )
+        publisher.publish(cfg, entries, now)
     return announced
 
 
@@ -674,7 +834,12 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
         cfg.evening_end,
     )
     announced: date | None = None
-    reconnect, outage = Reconnect(), Outage()
+    reconnect, outage, battery = Reconnect(), Outage(), BatteryWatch()
+    publisher = homeassistant.Publisher() if cfg.ha_url else None
+    if publisher is not None:
+        log.info("Home Assistant angebunden, Entitaeten mit dem Praefix %s", cfg.ha_prefix)
     while True:
-        announced = tick(cfg, adb, store, reconnect, version, announced, outage=outage)
+        announced = tick(
+            cfg, adb, store, reconnect, version, announced, outage=outage, battery=battery, publisher=publisher
+        )
         time.sleep(tick_s)

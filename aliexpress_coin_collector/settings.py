@@ -38,6 +38,7 @@ FLAG_KEYS = (
     "notify_on_offline",
     "notify_weekly",
     "notify_on_stall",
+    "notify_on_battery",
 )
 # Ganze Zahlen.
 NUMBER_KEYS = (
@@ -47,10 +48,15 @@ NUMBER_KEYS = (
     "confirm_timeout_s",
     "launch_retries",
     "offline_alert_min",
+    "battery_poll_min",
+    "battery_low_pct",
+    "battery_hot_c",
 )
-# Text. `discord_webhook` ist ein Geheimnis und darf nirgends mitprotokolliert werden.
-TEXT_KEYS = ("adb_serial", "discord_webhook")
-SECRET_KEYS = ("discord_webhook",)
+# Text. `discord_webhook` und `ha_token` sind Geheimnisse und duerfen nirgends
+# mitprotokolliert werden -- wer sie hat, kann in den Kanal schreiben bzw. das ganze
+# Haus steuern.
+TEXT_KEYS = ("adb_serial", "discord_webhook", "ha_url", "ha_token", "ha_prefix")
+SECRET_KEYS = ("discord_webhook", "ha_token")
 
 KEYS = WINDOW_KEYS + FLAG_KEYS + NUMBER_KEYS + TEXT_KEYS
 

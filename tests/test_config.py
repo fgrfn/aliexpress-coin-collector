@@ -19,6 +19,13 @@ ENV_VARS = (
     "EVENING_START",
     "EVENING_END",
     "EVENING_ENABLED",
+    "NOTIFY_ON_BATTERY",
+    "BATTERY_POLL_MIN",
+    "BATTERY_LOW_PCT",
+    "BATTERY_HOT_C",
+    "HA_URL",
+    "HA_TOKEN",
+    "HA_PREFIX",
     "SKIP_IF_AWAKE",
     "BUSY_RETRY_MIN",
     "BUSY_MAX_WAIT_MIN",
@@ -300,3 +307,56 @@ def test_unused_evening_window_is_not_checked(env: pytest.MonkeyPatch, tmp_path:
     env.setenv("EVENING_END", "19:00")
     env.setenv("EVENING_ENABLED", "false")
     assert load(tmp_path).evening_enabled is False
+
+
+# --- Akku und Home Assistant ---------------------------------------------
+
+
+def test_battery_defaults_are_sane(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = load(tmp_path)
+    assert (cfg.battery_poll_min, cfg.battery_low_pct, cfg.battery_hot_c) == (15, 25, 40)
+    assert cfg.notify_on_battery is True
+
+
+def test_polling_can_be_switched_off_entirely(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("BATTERY_POLL_MIN", "0")
+    assert load(tmp_path).battery_poll_min == 0
+
+
+def test_a_threshold_that_could_never_be_reached_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("BATTERY_LOW_PCT", "0")
+    assert "BATTERY_LOW_PCT" in fails(tmp_path)
+    env.setenv("BATTERY_LOW_PCT", "25")
+    env.setenv("BATTERY_HOT_C", "5")
+    assert "BATTERY_HOT_C" in fails(tmp_path)
+
+
+def test_home_assistant_is_off_without_an_address(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = load(tmp_path)
+    assert cfg.ha_url == ""
+    assert cfg.ha_prefix == "coin_collector"
+
+
+def test_an_address_without_a_token_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Sonst liefe der Dienst und schickte still 401-Antworten ins Leere."""
+    env.setenv("HA_URL", "http://homeassistant.local:8123")
+    assert "HA_TOKEN" in fails(tmp_path)
+
+
+def test_an_address_without_a_scheme_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("HA_URL", "homeassistant.local:8123")
+    env.setenv("HA_TOKEN", "geheim")
+    assert "HA_URL" in fails(tmp_path)
+
+
+def test_a_trailing_slash_is_trimmed(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("HA_URL", "http://homeassistant.local:8123/")
+    env.setenv("HA_TOKEN", "geheim")
+    assert load(tmp_path).ha_url == "http://homeassistant.local:8123"
+
+
+def test_a_prefix_that_would_make_a_broken_entity_id_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env.setenv("HA_URL", "http://homeassistant.local:8123")
+    env.setenv("HA_TOKEN", "geheim")
+    env.setenv("HA_PREFIX", "Coin Collector")
+    assert "HA_PREFIX" in fails(tmp_path)
