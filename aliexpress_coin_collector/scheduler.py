@@ -775,10 +775,12 @@ def tick(
 
     # Der Akku, in groesserem Abstand als der Takt. Das ist die einzige Warnung, die vor einem
     # toten Netzteil kommt, bevor das Geraet ausgeht -- danach waere auch ADB weg.
+    gemessen = False
     if battery is not None and state == "device":
         # Nach einer frischen Messung noch einmal melden: sonst zeigte die Oberflaeche den
         # neuen Wert erst im naechsten Takt, also bis zu dreissig Sekunden spaeter.
-        if check_battery(cfg, adb, battery, now) is not None:
+        gemessen = check_battery(cfg, adb, battery, now) is not None
+        if gemessen:
             report_status(cfg, adb, version, reconnect, datetime.now(), battery)
 
     # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
@@ -835,6 +837,9 @@ def tick(
             battery.last if battery is not None else None,
             recent[0] if recent else None,
             state == "device",
+            # Auch unveraendert senden, wenn gerade gemessen wurde -- sonst schriebe
+            # Home Assistant den Sensor per expire_after ab, obwohl alles in Ordnung ist.
+            measured=gemessen,
         )
     return announced
 

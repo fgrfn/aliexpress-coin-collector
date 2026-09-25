@@ -60,6 +60,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Frist fuer veraltete Messwerte (0.16.1): **mit Attrappen getestet**, nicht gegen Home
+  Assistant. Dass `expire_after` dort wie erwartet greift, ist Konvention und hier ungeprueft.
+  Der Fallstrick dahinter ist dagegen belegt: ohne die Nachricht nach jeder Messung haette die
+  Frist den Sensor abgewuergt, sobald der Wert einmal stillstand.
 - Auftraege binnen einer Sekunde statt bis zu dreissig (0.16.1): **mit einer gestellten Uhr
   getestet**, nicht am laufenden Dienst. Die Warteschlange bleibt, nur die Pause zwischen zwei
   Takten wird in Sekundenscheiben geschlafen und dabei nach Auftraegen gesehen. Der schwere
@@ -189,6 +193,11 @@ können Anpassungen erfordern.
 - Die Discovery geht bei **jedem** Verbindungsaufbau erneut raus, nicht nur beim ersten: der Broker koennte
   zwischendurch neu gestartet worden sein und seine retained Nachrichten verloren haben. Dasselbe gilt fuer den
   zuletzt geschickten Zustand.
+- Die beiden Akkusensoren tragen `expire_after` (dreimal `BATTERY_POLL_MIN`), damit ein eingefrorener Ladestand in
+  Home Assistant nicht als aktueller Wert gilt. Weil der Zustand sonst nur bei Aenderung geht, ein am Netzteil
+  haengendes Handy aber tagelang auf 100 Prozent steht, wird nach **jeder** Messung gesendet: eine Nachricht heisst
+  "es wurde nachgesehen", keine Nachricht heisst "es wurde nicht gemessen". Ohne diese Kopplung waere die Frist
+  schaedlich statt nuetzlich.
 - Alle Entitaeten teilen sich ein Zustandsthema mit einer JSON-Nutzlast. Was der Dienst nicht kennt, fehlt darin;
   die Vorlagen machen mit `default('unknown')` daraus einen unbekannten Zustand statt einer erfundenen Null.
 - `paho-mqtt` wird beim Import abgefangen: fehlt es, sagt der Dienst das einmal deutlich und laeuft weiter. Eine

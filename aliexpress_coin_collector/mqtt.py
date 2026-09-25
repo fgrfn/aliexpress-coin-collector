@@ -82,9 +82,28 @@ def _template(key: str) -> str:
     return f"{{{{ value_json.{key} | default('unknown') }}}}"
 
 
+def measurement_ttl(cfg: Config) -> int | None:
+    """Nach wie vielen Sekunden ohne Messwert Home Assistant den Sensor abschreiben soll.
+
+    Das Testament faengt nur ab, dass der Dienst stirbt. Es faengt nicht ab, dass er lebt, aber
+    das Geraet nicht erreicht -- dann laege der letzte Ladestand retained im Broker und gaelte
+    als aktueller Wert. Genau das ist der zu erwartende Fall, wenn das Handy ohne Strom in den
+    tiefen Ruhezustand geht.
+
+    Dreimal der Messabstand: zwei ausgefallene Messungen sind noch kein Stillstand. Ohne
+    regelmaessiges Messen gibt es keine sinnvolle Frist -- dann bleibt der Wert eben stehen,
+    denn ein Lauf am Tag wuerde jede Frist reissen.
+    """
+    return cfg.battery_poll_min * 60 * 3 if cfg.battery_poll_min > 0 else None
+
+
 def entities(cfg: Config) -> list[Entity]:
     """Die Discovery-Konfiguration aller Entitaeten. Reine Funktion, ohne Broker pruefbar."""
     availability, state = topics(cfg)
+    ttl = measurement_ttl(cfg)
+    # Nur die Messwerte veralten. Erreichbarkeit geht in jedem Takt raus, und der letzte Lauf
+    # sowie der Muenzstand aendern sich von Natur aus nur einmal am Tag.
+    frist = {"expire_after": ttl} if ttl else {}
     common: dict[str, Any] = {
         "state_topic": state,
         "availability_topic": availability,
@@ -116,6 +135,7 @@ def entities(cfg: Config) -> list[Entity]:
             state_class="measurement",
             value_template=_template("level"),
             json_attributes_topic=state,
+            **frist,
         ),
         entity(
             "sensor",
@@ -125,6 +145,7 @@ def entities(cfg: Config) -> list[Entity]:
             unit_of_measurement="°C",
             state_class="measurement",
             value_template=_template("temperature"),
+            **frist,
         ),
         entity(
             "sensor",
@@ -252,16 +273,28 @@ class Publisher:
             return False
         return getattr(info, "rc", 0) == 0
 
-    def publish(self, cfg: Config, battery: Battery | None, last: Attempt | None, reachable: bool) -> bool:
+    def publish(
+        self,
+        cfg: Config,
+        battery: Battery | None,
+        last: Attempt | None,
+        reachable: bool,
+        measured: bool = False,
+    ) -> bool:
         """Zustand schicken, wenn sich etwas geaendert hat. Wirft nie.
 
         Anders als beim REST-Weg braucht es kein regelmaessiges Wiederholen: die Nachricht
         liegt retained im Broker und ueberlebt dort einen Neustart von Home Assistant.
+
+        Mit `measured` wird auch ein unveraenderter Zustand geschickt. Das gehoert zu
+        expire_after: das Handy haengt am Strom und steht tagelang auf 100 Prozent, es gaebe
+        also nichts zu melden -- und Home Assistant schriebe den Sensor ab, obwohl gerade
+        gemessen wurde. Eine Nachricht heisst so: es wurde nachgesehen.
         """
         if self.client is None:
             return False
         payload = state_payload(battery, last, reachable)
-        if payload == self.last_state:
+        if payload == self.last_state and not measured:
             return False
         _, state_topic = topics(cfg)
         if not self._send(state_topic, json.dumps(payload, ensure_ascii=False), retain=True):
