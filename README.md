@@ -462,13 +462,11 @@ in `data/settings.json` und überschreibt die `.env`.
 | **`BATTERY_POLL_MIN`** | `15` | Abstand der Akkuabfragen in Minuten, `0` schaltet sie ab |
 | **`BATTERY_LOW_PCT`** | `25` | Ab diesem Ladestand abwärts wird gewarnt |
 | **`BATTERY_HOT_C`** | `40` | Ab dieser Temperatur wird gewarnt |
-| **`HA_URL`** | leer | Adresse von Home Assistant, leer = Anbindung aus |
-| **`HA_TOKEN`** | leer | Langzeit-Token, Pflicht sobald `HA_URL` gesetzt ist |
-| **`HA_PREFIX`** | `coin_collector` | Namensanfang der Entitäten, für beide Wege |
-| **`MQTT_HOST`** | leer | Broker, leer = MQTT aus |
+| **`MQTT_HOST`** | leer | Broker, leer = Home-Assistant-Anbindung aus |
 | **`MQTT_PORT`** | `1883` | Port des Brokers |
 | **`MQTT_USER` / `MQTT_PASSWORD`** | leer | Zugangsdaten, falls der Broker welche verlangt |
 | **`MQTT_DISCOVERY_PREFIX`** | `homeassistant` | Muss zu der Einstellung in Home Assistant passen |
+| **`HA_PREFIX`** | `coin_collector` | Namensanfang der Entitäten |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |
 | `WEB_PORT` | `80` | Port der Weboberfläche (das Passwort wird auf der Seite vergeben, nicht hier) |
@@ -518,8 +516,8 @@ Reserve, nicht bei 15 %.
 
 ## Home Assistant
 
-Mit `HA_URL` und `HA_TOKEN` meldet der Dienst seinen Zustand an Home Assistant, als Entitäten
-mit dem Namensanfang aus `HA_PREFIX`:
+Mit `MQTT_HOST` meldet der Dienst seinen Zustand per MQTT Discovery an Home Assistant, als
+Entitäten mit dem Namensanfang aus `HA_PREFIX`, alle an einem Gerät „AliExpress Coin Collector":
 
 | Entität | Inhalt |
 |---|---|
@@ -529,42 +527,38 @@ mit dem Namensanfang aus `HA_PREFIX`:
 | `sensor.<prefix>_muenzen` | zuletzt erkannter Münzstand |
 | `binary_sensor.<prefix>_erreichbar` | ob das Gerät gerade antwortet |
 
-Das Token holt man sich in Home Assistant im eigenen Profil unter „Langzeit-Zugriffstoken". Es
-ist ein Geheimnis wie der Webhook: es steht nie in der Weboberfläche, nie im Protokoll und
-gehört nicht ins Repository.
+Gebraucht wird ein Broker — im Normalfall das Mosquitto-Add-on von Home Assistant. Lege dort
+einen eigenen Benutzer an und trage ihn unter `MQTT_USER` / `MQTT_PASSWORD` ein. Das Passwort
+wird wie der Discord-Webhook behandelt: nie in der Oberfläche, nie im Protokoll, nicht ins
+Repository.
+
+Die Themen liegen unter dem Namensanfang: `coin_collector/status` für die Verfügbarkeit und
+`coin_collector/state` für die Werte, dazu die Discovery-Nachrichten unter
+`homeassistant/…/config`. `MQTT_DISCOVERY_PREFIX` muss zu der Einstellung in Home Assistant
+passen.
 
 **Der Dienst schaltet in Home Assistant nichts.** Er liefert nur Werte. Das ist Absicht: eine
 Automatik, die sich selbst vom Strom trennen kann, zerstört im Fehlerfall genau das, was sie am
 Laufen halten soll. Die Entscheidung, wann eine Steckdose schaltet, gehört nach Home Assistant —
 dort gibt es Verfügbarkeitsbedingungen und Wartezeiten dafür.
 
-### Zwei Wege: REST-API oder MQTT
+### Warum MQTT und nicht die REST-API
 
-Es gibt zwei Anbindungen. Sie liefern dieselben Werte, aber nicht dieselbe Qualität:
+Bis 0.15.1 gab es zusätzlich einen Weg über die REST-API von Home Assistant (`HA_URL`,
+`HA_TOKEN`). Er ist entfallen, weil MQTT drei Dinge kann, die er nicht konnte:
 
-| | REST-API (`HA_URL`) | MQTT (`MQTT_HOST`) |
-|---|---|---|
-| Voraussetzung | nichts | ein Broker, z. B. das Mosquitto-Add-on |
-| Nach einem Neustart von Home Assistant | Entitäten kurz weg, bis der Dienst wieder sendet | sofort wieder da (retained) |
-| Wenn der Collector stirbt | letzter Wert bleibt stehen | Entitäten gehen auf **unavailable** |
-| Umbenennen, Bereich zuordnen | nein (keine `unique_id`) | ja |
-| Gerät im Geräteregister | nein | ja |
+- **Verfügbarkeit.** Der Broker bekommt ein Testament (Last Will). Stirbt der Dienst, setzt er
+  die Entitäten selbst auf `unavailable`, statt einen eingefrorenen Ladestand als aktuellen Wert
+  stehen zu lassen. Eine Steckdosenautomatik, die auf einem alten Wert weiterrechnet, weil der
+  Collector seit Stunden tot ist, ist genau die Art Fehler, die man nicht bemerkt.
+- **Bestand.** Konfiguration und Zustand liegen retained im Broker und überstehen einen Neustart
+  von Home Assistant. Über die REST-API gesetzte Entitäten gehören zu keiner Integration und
+  waren danach weg, bis der Dienst wieder sendete.
+- **Zugehörigkeit.** Die Entitäten haben eine `unique_id` und hängen an einem Gerät, lassen sich
+  also umbenennen und einem Bereich zuordnen.
 
-**Wenn ein Broker da ist, nimm MQTT.** Der entscheidende Punkt ist die Verfügbarkeit: über das
-Testament (Last Will) meldet der Broker den Ausfall des Dienstes selbst. Eine Steckdosenautomatik,
-die auf einem eingefrorenen Ladestand weiterrechnet, weil der Collector seit Stunden tot ist, ist
-genau die Art Fehler, die man nicht bemerkt.
-
-Für MQTT legst du in Home Assistant am besten einen eigenen Benutzer an und trägst ihn unter
-`MQTT_USER` / `MQTT_PASSWORD` ein. Das Passwort wird wie der Webhook behandelt: nie in der
-Oberfläche, nie im Protokoll.
-
-Beide Wege zugleich einzurichten ist erlaubt, ergibt aber zwei Sätze Entitäten für dieselben
-Werte. Der Dienst schreibt beim Start eine Warnung ins Protokoll.
-
-Die MQTT-Themen liegen unter dem Namensanfang aus `HA_PREFIX`: `coin_collector/status` für die
-Verfügbarkeit und `coin_collector/state` für die Werte, dazu die Discovery-Nachrichten unter
-`homeassistant/…/config`.
+Hast du `HA_URL` und `HA_TOKEN` noch in der `.env` oder in `data/settings.json` stehen, schadet
+das nichts — sie werden einfach nicht mehr gelesen.
 
 ## Ergebnisse und Fehlersuche
 

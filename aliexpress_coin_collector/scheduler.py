@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 
-from . import __version__, commands, homeassistant, mqtt, notify, settings, stats
+from . import __version__, commands, mqtt, notify, settings, stats
 from .adb import Adb, Battery
 from .config import Config, ConfigError
 from .runner import SUCCESS, Outcome, RunResult, read_battery, run_once
@@ -631,6 +631,7 @@ def report_status(
     version: str,
     reconnect: Reconnect | None = None,
     now: datetime | None = None,
+    battery: BatteryWatch | None = None,
 ) -> str:
     """Blick auf das Geraet fuer die Weboberflaeche. Gibt den Zustand zurueck.
 
@@ -668,7 +669,17 @@ def report_status(
     except Exception as exc:  # noqa: BLE001 - ein Fehler hier darf den Dienst nie anhalten
         log.debug("Zustand des Geraets nicht ermittelbar: %s", exc)
         state = "offline" if state == "unbekannt" else state
-    commands.write_status(cfg.data_dir, version, state, screen)
+    last = battery.last if battery is not None else None
+    commands.write_status(
+        cfg.data_dir,
+        version,
+        state,
+        screen,
+        battery_level=last.level if last else None,
+        battery_temp_c=last.temperature_c if last else None,
+        battery_status=last.status_label if last else "",
+        battery_at=battery.at if battery is not None else None,
+    )
     return state
 
 
@@ -739,7 +750,6 @@ def tick(
     now: datetime | None = None,
     outage: Outage | None = None,
     battery: BatteryWatch | None = None,
-    publisher: homeassistant.Publisher | None = None,
     broker: mqtt.Publisher | None = None,
 ) -> date | None:
     """Eine Runde des Dienstes. Gibt zurueck, fuer welchen Tag der Plan zuletzt gemeldet wurde.
@@ -750,7 +760,7 @@ def tick(
     now = now or datetime.now()
     cfg = with_current_settings(base_cfg)
     touch_heartbeat(cfg)
-    state = report_status(cfg, adb, version, reconnect, now)
+    state = report_status(cfg, adb, version, reconnect, now, battery)
 
     # Faellt das Geraet laenger aus, sagt der Dienst Bescheid -- sonst merkt man erst am
     # ausbleibenden Erfolg, dass tagelang nichts lief. Je Ausfall genau eine Meldung.
@@ -765,7 +775,10 @@ def tick(
     # Der Akku, in groesserem Abstand als der Takt. Das ist die einzige Warnung, die vor einem
     # toten Netzteil kommt, bevor das Geraet ausgeht -- danach waere auch ADB weg.
     if battery is not None and state == "device":
-        check_battery(cfg, adb, battery, now)
+        # Nach einer frischen Messung noch einmal melden: sonst zeigte die Oberflaeche den
+        # neuen Wert erst im naechsten Takt, also bis zu dreissig Sekunden spaeter.
+        if check_battery(cfg, adb, battery, now) is not None:
+            report_status(cfg, adb, version, reconnect, datetime.now(), battery)
 
     # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
     # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
@@ -778,7 +791,7 @@ def tick(
     # weiter den alten Zustand: ein erfolgreiches "Neu verbinden" waere bis zu 30 Sekunden
     # lang unsichtbar, und es saehe aus, als haette der Knopf nichts getan.
     if process_commands(cfg, adb, store):
-        report_status(cfg, adb, version, reconnect, datetime.now())
+        report_status(cfg, adb, version, reconnect, datetime.now(), battery)
 
     # Erfolg gemeldet, aber der Muenzstand bewegt sich nicht: dann laeuft zwar alles, bringt aber
     # nichts ein. Genau das blieb tagelang unbemerkt, weil die Quote auf 100 Prozent stand.
@@ -814,15 +827,14 @@ def tick(
             battery.note(result.battery, datetime.now(), cfg.battery_low_pct, cfg.battery_hot_c)
 
     # Ganz zum Schluss, damit der Zustand alles von dieser Runde enthaelt.
-    if publisher is not None or broker is not None:
+    if broker is not None:
         recent = store.recent(1)
-        last = recent[0] if recent else None
-        reading = battery.last if battery is not None else None
-        reachable = state == "device"
-        if publisher is not None:
-            publisher.publish(cfg, homeassistant.states(cfg, reading, last, reachable), now)
-        if broker is not None:
-            broker.publish(cfg, reading, last, reachable)
+        broker.publish(
+            cfg,
+            battery.last if battery is not None else None,
+            recent[0] if recent else None,
+            state == "device",
+        )
     return announced
 
 
@@ -836,17 +848,9 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
     )
     announced: date | None = None
     reconnect, outage, battery = Reconnect(), Outage(), BatteryWatch()
-    publisher = homeassistant.Publisher() if cfg.ha_url else None
-    if publisher is not None:
-        log.info("Home Assistant ueber die REST-API angebunden, Praefix %s", cfg.ha_prefix)
     broker = mqtt.Publisher() if cfg.mqtt_host else None
     if broker is not None and not broker.start(cfg):
         broker = None
-    if publisher is not None and broker is not None:
-        log.warning(
-            "REST-API und MQTT sind beide eingerichtet. Home Assistant bekommt dann zwei Saetze "
-            "Entitaeten fuer dieselben Werte -- besser einen der beiden Wege abschalten."
-        )
     try:
         while True:
             announced = tick(
@@ -858,7 +862,6 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
                 announced,
                 outage=outage,
                 battery=battery,
-                publisher=publisher,
                 broker=broker,
             )
             time.sleep(tick_s)

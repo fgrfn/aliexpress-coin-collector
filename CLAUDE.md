@@ -67,10 +67,9 @@ aliexpress_coin_collector/
   stats.py      Rechenregeln über der Historie (Quote, Zuwachs, Stillstand), von Dienst
                 und Oberfläche genutzt
   notify.py     Discord-Webhook: Embeds bauen und schicken (wirft nie)
-  homeassistant.py  Zustaende per REST-API nach Home Assistant melden (wirft nie). Meldet nur,
-                schaltet nie: eine Automatik, die sich selbst vom Strom trennen kann, ist keine
-  mqtt.py       derselbe Zustand per MQTT Discovery (wirft nie). Der bessere Weg, wenn ein
-                Broker da ist: Testament, retained Nachrichten, Geraet im Geraeteregister
+  mqtt.py       Zustaende per MQTT Discovery nach Home Assistant melden (wirft nie). Meldet
+                nur, schaltet nie: eine Automatik, die sich selbst vom Strom trennen kann, ist
+                keine. Testament, retained Nachrichten, Geraet im Geraeteregister
   __main__.py   CLI: once | daemon | ocr | status | schedule | notify-test | doctor
   settings.py   zur Laufzeit änderbare Einstellungen (data/settings.json): überschreibt die .env
   commands.py   Auftragsablage Oberfläche → Dienst, Zustandsmeldung Dienst → Oberfläche
@@ -84,7 +83,7 @@ aliexpress_coin_collector/
 tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings.py,
                 test_commands.py, test_daemon_commands.py, test_logs.py,
                 test_imagecheck.py, test_web_data.py, test_web_auth.py, test_battery.py,
-                test_store.py, test_homeassistant.py, test_mqtt.py (drei Tests darin
+                test_store.py, test_mqtt.py (drei Tests darin
                 brauchen ein installiertes mosquitto und werden sonst uebersprungen),
                 test_web_pages.py, test_web_device.py, test_web_diagnose.py,
                 test_web_stats.py, test_web_settings.py, test_notify.py,

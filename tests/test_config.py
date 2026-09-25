@@ -23,8 +23,6 @@ ENV_VARS = (
     "BATTERY_POLL_MIN",
     "BATTERY_LOW_PCT",
     "BATTERY_HOT_C",
-    "HA_URL",
-    "HA_TOKEN",
     "HA_PREFIX",
     "MQTT_HOST",
     "MQTT_PORT",
@@ -336,33 +334,8 @@ def test_a_threshold_that_could_never_be_reached_is_refused(env: pytest.MonkeyPa
     assert "BATTERY_HOT_C" in fails(tmp_path)
 
 
-def test_home_assistant_is_off_without_an_address(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    cfg = load(tmp_path)
-    assert cfg.ha_url == ""
-    assert cfg.ha_prefix == "coin_collector"
-
-
-def test_an_address_without_a_token_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Sonst liefe der Dienst und schickte still 401-Antworten ins Leere."""
-    env.setenv("HA_URL", "http://homeassistant.local:8123")
-    assert "HA_TOKEN" in fails(tmp_path)
-
-
-def test_an_address_without_a_scheme_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    env.setenv("HA_URL", "homeassistant.local:8123")
-    env.setenv("HA_TOKEN", "geheim")
-    assert "HA_URL" in fails(tmp_path)
-
-
-def test_a_trailing_slash_is_trimmed(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    env.setenv("HA_URL", "http://homeassistant.local:8123/")
-    env.setenv("HA_TOKEN", "geheim")
-    assert load(tmp_path).ha_url == "http://homeassistant.local:8123"
-
-
 def test_a_prefix_that_would_make_a_broken_entity_id_is_refused(env: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    env.setenv("HA_URL", "http://homeassistant.local:8123")
-    env.setenv("HA_TOKEN", "geheim")
+    """Gilt auch ohne Broker: aus dem Praefix werden die Namen der Entitaeten gebaut."""
     env.setenv("HA_PREFIX", "Coin Collector")
     assert "HA_PREFIX" in fails(tmp_path)
 

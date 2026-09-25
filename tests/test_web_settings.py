@@ -379,11 +379,6 @@ AKKU = {
     "battery_low_pct": "30",
     "battery_hot_c": "38",
 }
-HA = {
-    "ha_url": "http://homeassistant.local:8123",
-    "ha_token": "streng.geheimes.token",
-    "ha_prefix": "handy",
-}
 
 
 def test_saving_the_battery_section_stores_every_field(client, data_dir):
@@ -405,61 +400,6 @@ def test_a_threshold_that_could_never_be_reached_is_refused_here_too(client, dat
     assert stored(data_dir) == {}
 
 
-def test_saving_home_assistant_stores_address_and_prefix(client, data_dir):
-    assert client.post("/einstellungen/homeassistant", data=HA).status_code == 303
-    werte = stored(data_dir)
-    assert werte["ha_url"] == "http://homeassistant.local:8123"
-    assert werte["ha_prefix"] == "handy"
-
-
-def test_an_address_without_a_token_is_refused_here_too(client, data_dir):
-    client.post("/einstellungen/homeassistant", data={**HA, "ha_token": ""})
-    assert stored(data_dir) == {}
-
-
-def test_the_home_assistant_token_never_reaches_the_page(client, data_dir):
-    """Wer das Token hat, kann das ganze Haus steuern. Es wird nie zurueckgeschrieben."""
-    client.post("/einstellungen/homeassistant", data=HA)
-    body = client.get("/einstellungen").text
-    assert HA["ha_token"] not in body
-    assert "leer lassen = unverändert" in body
-
-
-def test_the_token_never_reaches_the_service_log(client, data_dir, caplog):
-    import logging
-
-    with caplog.at_level(logging.INFO):
-        client.post("/einstellungen/homeassistant", data=HA)
-    assert HA["ha_token"] not in caplog.text
-
-
-def test_an_empty_token_field_keeps_the_stored_one(client, data_dir):
-    client.post("/einstellungen/homeassistant", data=HA)
-    client.post("/einstellungen/homeassistant", data={**HA, "ha_token": "", "ha_prefix": "anders"})
-    werte = stored(data_dir)
-    assert werte["ha_token"] == HA["ha_token"]
-    assert werte["ha_prefix"] == "anders"
-
-
-def test_removing_the_link_clears_address_and_token_together(client, data_dir):
-    """Eine Adresse ohne Token waere eine Konfiguration, die der Dienst zu Recht ablehnt."""
-    client.post("/einstellungen/homeassistant", data=HA)
-    client.post("/einstellungen/homeassistant", data={**HA, "ha_token": "", "remove_ha_token": "1"})
-    werte = stored(data_dir)
-    assert werte["ha_token"] == ""
-    assert werte["ha_url"] == ""
-
-
-def test_a_prefix_that_would_break_the_entity_ids_is_refused(client, data_dir):
-    client.post("/einstellungen/homeassistant", data={**HA, "ha_prefix": "Mein Handy"})
-    assert stored(data_dir) == {}
-
-
-def test_an_empty_prefix_falls_back_to_the_default(client, data_dir):
-    client.post("/einstellungen/homeassistant", data={**HA, "ha_prefix": ""})
-    assert stored(data_dir)["ha_prefix"] == "coin_collector"
-
-
 # -- MQTT ---------------------------------------------------------------------------------------
 
 MQTT = {
@@ -468,6 +408,7 @@ MQTT = {
     "mqtt_user": "coin-collector",
     "mqtt_password": "streng-geheimes-broker-passwort",
     "mqtt_discovery_prefix": "homeassistant",
+    "ha_prefix": "handy",
 }
 
 
@@ -526,3 +467,18 @@ def test_removing_the_link_clears_broker_user_and_password(client, data_dir):
 def test_an_empty_discovery_prefix_falls_back_to_the_default(client, data_dir):
     client.post("/einstellungen/mqtt", data={**MQTT, "mqtt_discovery_prefix": ""})
     assert stored(data_dir)["mqtt_discovery_prefix"] == "homeassistant"
+
+
+def test_the_entity_prefix_is_saved_with_the_mqtt_section(client, data_dir):
+    client.post("/einstellungen/mqtt", data=MQTT)
+    assert stored(data_dir)["ha_prefix"] == "handy"
+
+
+def test_a_prefix_that_would_break_the_entity_ids_is_refused(client, data_dir):
+    client.post("/einstellungen/mqtt", data={**MQTT, "ha_prefix": "Mein Handy"})
+    assert stored(data_dir) == {}
+
+
+def test_an_empty_entity_prefix_falls_back_to_the_default(client, data_dir):
+    client.post("/einstellungen/mqtt", data={**MQTT, "ha_prefix": ""})
+    assert stored(data_dir)["ha_prefix"] == "coin_collector"

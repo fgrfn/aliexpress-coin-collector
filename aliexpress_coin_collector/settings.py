@@ -53,21 +53,18 @@ NUMBER_KEYS = (
     "battery_hot_c",
     "mqtt_port",
 )
-# Text. `discord_webhook` und `ha_token` sind Geheimnisse und duerfen nirgends
-# mitprotokolliert werden -- wer sie hat, kann in den Kanal schreiben bzw. das ganze
-# Haus steuern.
+# Text. `discord_webhook` und `mqtt_password` sind Geheimnisse und duerfen nirgends
+# mitprotokolliert werden -- wer sie hat, kann in den Kanal schreiben bzw. an den Broker.
 TEXT_KEYS = (
     "adb_serial",
     "discord_webhook",
-    "ha_url",
-    "ha_token",
     "ha_prefix",
     "mqtt_host",
     "mqtt_user",
     "mqtt_password",
     "mqtt_discovery_prefix",
 )
-SECRET_KEYS = ("discord_webhook", "ha_token", "mqtt_password")
+SECRET_KEYS = ("discord_webhook", "mqtt_password")
 
 KEYS = WINDOW_KEYS + FLAG_KEYS + NUMBER_KEYS + TEXT_KEYS
 
