@@ -1,10 +1,17 @@
 {# Auftragsschlange. Macht die Wartezeit sichtbar, statt sie zu verstecken:
    wer auf einen Knopf drueckt, soll sehen, dass der Auftrag liegt und noch nicht ausgefuehrt ist. #}
-<section class="card" hx-get="/teile/auftraege" hx-trigger="every 5s" hx-swap="outerHTML">
+{# Solange etwas offen ist, wird jede Sekunde nachgesehen statt alle fuenf: in dieser Zeit
+   will man zusehen, danach waere es Verschwendung. #}
+<section class="card" hx-get="/teile/auftraege"
+         hx-trigger="every {{ 1 if waiting else 5 }}s" hx-swap="outerHTML">
   <div class="card-head">
     <h2>Aufträge</h2>
     <span class="note" style="margin: 0;">
-      {% if waiting %}{{ waiting }} offen, {% endif %}vom Dienst alle 30 s abgeholt
+      {% if waiting %}
+        {{ waiting }} offen, wird gerade abgeholt
+      {% else %}
+        vom Dienst binnen einer Sekunde abgeholt
+      {% endif %}
     </span>
   </div>
 

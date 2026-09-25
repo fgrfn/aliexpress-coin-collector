@@ -60,6 +60,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Auftraege binnen einer Sekunde statt bis zu dreissig (0.16.1): **mit einer gestellten Uhr
+  getestet**, nicht am laufenden Dienst. Die Warteschlange bleibt, nur die Pause zwischen zwei
+  Takten wird in Sekundenscheiben geschlafen und dabei nach Auftraegen gesehen. Der schwere
+  Teil des Takts (ADB-Zustand, Bildschirm, Zeitplan) bleibt bei 30 s.
 - REST-Weg nach Home Assistant entfernt (0.16.0): eine Entfernung, kein neues Verhalten. Alte
   `HA_URL`/`HA_TOKEN` in `.env` oder `settings.json` werden schlicht nicht mehr gelesen, ein
   Update bricht daran also nicht.
@@ -207,7 +211,9 @@ können Anpassungen erfordern.
 - `handle_result` schreibt in SQLite, meldet per Discord (Fehler immer, Erfolge je nach `NOTIFY_ON_*`, `busy` nie),
   legt Fehler-Screenshots in `data/shots/` ab (die letzten 30) und ergänzt beim Abendlauf den Hinweis, dass es der
   letzte Versuch des Tages war.
-- `daemon` prüft alle 30 s und ruft bei einer Entscheidung `run_once` auf.
+- `daemon` prüft alle 30 s und ruft bei einer Entscheidung `run_once` auf. Die Pause dazwischen verschläft er
+  nicht am Stück: `wait_for_commands` schläft in Sekundenscheiben und sieht bei jeder nach Aufträgen, damit ein
+  Screenshot aus der Oberfläche nicht bis zu einer halben Minute liegt. Das kostet ein `listdir` je Sekunde.
 - `next_runs(day, cfg, days)` und `next_due(now, cfg, attempts)` sind reine Hilfsfunktionen für die Anzeige:
   die geplanten Uhrzeiten der nächsten Tage und der nächste noch ausstehende Lauf. Sie treffen keine
   Entscheidung und werden vom `schedule`-Befehl und von `doctor` genutzt.
