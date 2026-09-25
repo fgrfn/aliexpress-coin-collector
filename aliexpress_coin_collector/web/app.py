@@ -613,8 +613,6 @@ def create_app(cfg: Config) -> FastAPI:
             plan=plan_for(now.date(), active),
             # Der Webhook selbst wird nie an den Browser gegeben, nur ob einer hinterlegt ist.
             has_webhook=bool(active.discord_webhook),
-            # Dasselbe fuer das Home-Assistant-Token: nur ob eines da ist, nie welches.
-            has_ha_token=bool(active.ha_token),
             has_mqtt_password=bool(active.mqtt_password),
             battery=view.battery_tile(
                 _read_attempts(active), active.battery_low_pct, active.battery_hot_c, _status(active)
@@ -782,30 +780,6 @@ def create_app(cfg: Config) -> FastAPI:
             return _flash(RedirectResponse("/einstellungen", status_code=303), str(exc), "bad")
         return _store(request, values, "Akku")
 
-    @app.post("/einstellungen/homeassistant")
-    def save_homeassistant(
-        request: Request,
-        ha_url: str = Form(default=""),
-        ha_token: str = Form(default=""),
-        ha_prefix: str = Form(default=""),
-        remove_ha_token: str = Form(default=""),
-    ) -> Response:
-        gate = _gate(request)
-        if gate is not None:
-            return gate
-        # Das Kaestchen schaltet die Anbindung ab, nicht nur das Token: eine Adresse ohne Token
-        # waere eine Konfiguration, die der Dienst zu Recht ablehnt.
-        if remove_ha_token:
-            return _store(request, {"ha_url": "", "ha_token": ""}, "Home Assistant")
-        values: dict[str, object] = {
-            "ha_url": ha_url.strip().rstrip("/"),
-            "ha_prefix": ha_prefix.strip() or "coin_collector",
-        }
-        # Wie beim Webhook: das Token steht nie in der Seite, leer heisst darum unveraendert.
-        if ha_token.strip():
-            values["ha_token"] = ha_token.strip()
-        return _store(request, values, "Home Assistant")
-
     @app.post("/einstellungen/mqtt")
     def save_mqtt(
         request: Request,
@@ -814,6 +788,7 @@ def create_app(cfg: Config) -> FastAPI:
         mqtt_user: str = Form(default=""),
         mqtt_password: str = Form(default=""),
         mqtt_discovery_prefix: str = Form(default=""),
+        ha_prefix: str = Form(default=""),
         remove_mqtt: str = Form(default=""),
     ) -> Response:
         gate = _gate(request)
@@ -826,6 +801,7 @@ def create_app(cfg: Config) -> FastAPI:
             "mqtt_host": mqtt_host.strip(),
             "mqtt_user": mqtt_user.strip(),
             "mqtt_discovery_prefix": mqtt_discovery_prefix.strip().strip("/") or "homeassistant",
+            "ha_prefix": ha_prefix.strip() or "coin_collector",
         }
         try:
             values["mqtt_port"] = _parse_int("Port", mqtt_port) if mqtt_port.strip() else 1883
@@ -885,8 +861,6 @@ FIELD_NAMES = {
     "BATTERY_POLL_MIN": "„Nachsehen alle“",
     "BATTERY_LOW_PCT": "„Warnen unter“",
     "BATTERY_HOT_C": "„Warnen ab“",
-    "HA_URL": "Die Adresse von Home Assistant",
-    "HA_TOKEN": "Das Home-Assistant-Token",
     "HA_PREFIX": "Der Namensanfang der Entitäten",
     "MQTT_PORT": "Der MQTT-Port",
     "MQTT_DISCOVERY_PREFIX": "Der Discovery-Präfix",

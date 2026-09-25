@@ -60,6 +60,11 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- REST-Weg nach Home Assistant entfernt (0.16.0): eine Entfernung, kein neues Verhalten. Alte
+  `HA_URL`/`HA_TOKEN` in `.env` oder `settings.json` werden schlicht nicht mehr gelesen, ein
+  Update bricht daran also nicht.
+- Akkuwert live in der Oberflaeche (0.16.0): **mit Attrappen getestet.** Der Weg ueber die
+  Zustandsdatei ist durch Tests gedeckt, am laufenden Dienst wurde er nicht gesehen.
 - Update ueber den Installer (0.15.1): **beide Pfade von Hand durchgespielt** (frische
   Installation und Update auf dasselbe Ziel), allerdings ohne systemd -- der Container hat
   keines. Dass der Sammel-Dienst beim Update wirklich neu startet, ist damit **nicht am
@@ -156,7 +161,7 @@ schneidet `_ICON_NOISE` ab.
 Alle Bildbereiche sind **relative** Werte, kalibriert an 1200×1920 und 720×1280. Deutlich andere Seitenverhältnisse
 können Anpassungen erfordern.
 
-## 3b. Akku, Home Assistant und MQTT
+## 3b. Akku und Home Assistant (ueber MQTT)
 
 - `adb.parse_battery` ist eine reine Funktion über der Ausgabe von `dumpsys battery`. Fehlende Felder bleiben `None`;
   ein Gerät, das die Temperatur nicht meldet, gilt nicht als zu warm. `health` gilt nur bei einer ausdrücklichen
@@ -170,14 +175,11 @@ können Anpassungen erfordern.
   werden beim Start des Dienstes per `ALTER TABLE` nachgezogen. Die Oberfläche öffnet nur lesend und kann darum
   nichts migrieren; ihre Abfrage wird deshalb aus den vorhandenen Spalten zusammengesetzt und liest `NULL`, solange
   der Dienst noch nicht gelaufen ist.
-- `homeassistant.py` setzt Zustände über `POST /api/states/<entity_id>`. **Bekannte Eigenheit:** so gesetzte
-  Entitäten gehören zu keiner Integration und sind nach einem Neustart von Home Assistant weg. Darum geht
-  spätestens alle fünf Minuten wieder etwas raus, auch ohne Änderung.
 - Der Dienst schaltet in Home Assistant nichts, und das soll auch so bleiben: eine Automatik, die das Gerät vom
   Strom trennen kann, zerstört im Fehlerfall ihre eigene Grundlage (leerer Akku → Neustart → `adb tcpip` weg →
   nur per USB-Kabel zu heilen).
-- `mqtt.py` ist der zweite Weg und der bessere, wenn ein Broker da ist. Er kann drei Dinge, die die REST-API nicht
-  kann: ein Testament (Last Will), das die Entitaeten bei einem Ausfall des Dienstes auf `unavailable` setzt;
+- `mqtt.py` ist seit 0.16.0 der einzige Weg nach Home Assistant. Der fruehere REST-Weg (`homeassistant.py`) ist
+  entfallen; er konnte drei Dinge nicht, die MQTT kann: ein Testament (Last Will), das die Entitaeten bei einem Ausfall des Dienstes auf `unavailable` setzt;
   retained Nachrichten, die einen Neustart von Home Assistant ueberstehen; und `unique_id` plus Geraeteeintrag,
   wodurch sich die Entitaeten umbenennen und einem Bereich zuordnen lassen.
 - Die Discovery geht bei **jedem** Verbindungsaufbau erneut raus, nicht nur beim ersten: der Broker koennte
@@ -187,7 +189,7 @@ können Anpassungen erfordern.
   die Vorlagen machen mit `default('unknown')` daraus einen unbekannten Zustand statt einer erfundenen Null.
 - `paho-mqtt` wird beim Import abgefangen: fehlt es, sagt der Dienst das einmal deutlich und laeuft weiter. Eine
   Installation, die noch nicht aktualisiert hat, startet damit trotzdem.
-- `HA_TOKEN` und `MQTT_PASSWORD` sind Geheimnisse wie `DISCORD_WEBHOOK_URL`: in `settings.SECRET_KEYS`, nie in der Seite, nie im
+- `MQTT_PASSWORD` ist ein Geheimnis wie `DISCORD_WEBHOOK_URL`: in `settings.SECRET_KEYS`, nie in der Seite, nie im
   Protokoll. Dafür gibt es Tests.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)

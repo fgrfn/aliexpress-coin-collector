@@ -350,68 +350,6 @@
   </form>
 </section>
 
-<!-- ------------------------------------------------------------------ Home Assistant -->
-<section class="card" id="homeassistant">
-  <div class="card-head">
-    <h2>Home Assistant</h2>
-    <span class="pill pill-{{ 'ok' if cfg.ha_url and has_ha_token else 'warn' }}">
-      {{ "angebunden" if cfg.ha_url and has_ha_token else "nicht angebunden" }}
-    </span>
-  </div>
-  <form method="post" action="/einstellungen/homeassistant">
-    <div class="fields">
-      <div class="field field-wide">
-        <label for="haurl">Adresse {{ saved('ha_url') }}</label>
-        <input id="haurl" type="text" name="ha_url" value="{{ cfg.ha_url }}" spellcheck="false"
-               autocapitalize="off" autocomplete="off" placeholder="http://homeassistant.local:8123">
-      </div>
-      <div class="field field-wide">
-        <label for="hatok">Langzeit-Token {{ saved('ha_token') }}</label>
-        <input id="hatok" type="password" name="ha_token" value="" autocomplete="off" spellcheck="false"
-               placeholder="{{ 'leer lassen = unverändert' if has_ha_token else 'aus dem eigenen Profil in Home Assistant' }}">
-      </div>
-      <div class="field">
-        <label for="hapre">Namensanfang {{ saved('ha_prefix') }}</label>
-        <input id="hapre" type="text" name="ha_prefix" value="{{ cfg.ha_prefix }}" spellcheck="false"
-               autocapitalize="off" autocomplete="off">
-      </div>
-    </div>
-    {% if has_ha_token %}
-      <label class="opt">
-        <input type="checkbox" name="remove_ha_token" value="1">
-        <span>
-          Anbindung entfernen
-          <span class="opt-note">
-            Löscht Adresse und Token. Danach meldet der Dienst nichts mehr nach Home Assistant.
-          </span>
-        </span>
-      </label>
-    {% endif %}
-    <p class="note">
-      Gemeldet werden Ladestand, Temperatur, letzter Lauf, Münzstand und ob das Gerät
-      erreichbar ist — als <code>sensor.{{ cfg.ha_prefix }}_…</code>.
-    </p>
-    <details class="why">
-      <summary>Wozu das gut ist, und was es nicht tut</summary>
-      <p>
-        Damit lässt sich in Home Assistant eine Steckdose nach Ladestand schalten, statt das
-        Handy dauerhaft voll zu laden. <strong>Dieser Dienst schaltet nichts</strong> — er
-        liefert nur die Zahlen. Das ist Absicht: ein Fehler beim Schalten trännte das Gerät vom
-        Strom und zerstörte genau das, was der Dienst am Laufen halten soll. Die Automatisierung
-        gehört nach Home Assistant, mit „Steckdose an“ als sicherem Rückfall.
-      </p>
-      <p>
-        Die Entitäten werden über die REST-API gesetzt und gehören zu keiner Integration. Nach
-        einem Neustart von Home Assistant sind sie darum kurz weg, bis der Dienst sie wieder
-        schickt — das passiert spätestens alle fünf Minuten.
-      </p>
-    </details>
-    <div class="btn-row form-foot">
-      <button class="btn" type="submit">Home Assistant speichern</button>
-    </div>
-  </form>
-</section>
-
 <!-- ------------------------------------------------------------------ MQTT -->
 <section class="card" id="mqtt">
   <div class="card-head">
@@ -446,6 +384,11 @@
         <input id="mqd" type="text" name="mqtt_discovery_prefix" value="{{ cfg.mqtt_discovery_prefix }}"
                spellcheck="false" autocapitalize="off" autocomplete="off">
       </div>
+      <div class="field">
+        <label for="hapre">Namensanfang der Entitäten {{ saved('ha_prefix') }}</label>
+        <input id="hapre" type="text" name="ha_prefix" value="{{ cfg.ha_prefix }}"
+               spellcheck="false" autocapitalize="off" autocomplete="off">
+      </div>
     </div>
     {% if cfg.mqtt_host %}
       <label class="opt">
@@ -457,26 +400,24 @@
       </label>
     {% endif %}
     <p class="note">
-      Der bessere der beiden Wege, wenn ein Broker da ist — etwa das Mosquitto-Add-on. Lege
-      dafür in Home Assistant einen eigenen Benutzer an.
+      Braucht einen Broker, etwa das Mosquitto-Add-on. Lege dafür in Home Assistant einen
+      eigenen Benutzer an. Gemeldet werden Ladestand, Temperatur, letzter Lauf, Münzstand und
+      ob das Gerät erreichbar ist — als <code>sensor.{{ cfg.ha_prefix }}_…</code>.
     </p>
     <details class="why">
-      <summary>Was MQTT besser kann als die REST-API</summary>
+      <summary>Was der Dienst dort tut, und was nicht</summary>
+      <p>
+        <strong>Der Dienst schaltet in Home Assistant nichts</strong> — er liefert nur Werte.
+        Das ist Absicht: eine Automatik, die das Gerät vom Strom trennen kann, zerstört im
+        Fehlerfall ihre eigene Grundlage. Willst du die Steckdose nach Ladestand schalten,
+        gehört diese Entscheidung nach Home Assistant, mit „an“ als sicherem Rückfall.
+      </p>
       <p>
         <strong>Verfügbarkeit.</strong> Der Broker bekommt ein Testament mit. Stirbt der Dienst,
         setzt er die Entitäten von sich aus auf „unavailable“, statt dass ein eingefrorener
-        Ladestand als aktueller Wert stehen bleibt. Für eine Steckdosenautomatik ist genau das
-        der Punkt.
-      </p>
-      <p>
-        <strong>Bestand.</strong> Konfiguration und Zustand liegen im Broker und sind nach einem
-        Neustart von Home Assistant sofort wieder da. <strong>Zugehörigkeit.</strong> Die
-        Entitäten hängen an einem Gerät, haben eine feste Kennung und lassen sich darum
-        umbenennen und einem Bereich zuordnen.
-      </p>
-      <p>
-        Beide Wege zugleich einzurichten geht, ergibt in Home Assistant aber zwei Sätze
-        Entitäten für dieselben Werte. Besser einen davon abschalten.
+        Ladestand als aktueller Wert stehen bleibt. Für eine Steckdosenautomatik ist genau das
+        der Punkt. Konfiguration und Zustand liegen ausserdem im Broker und sind nach einem
+        Neustart von Home Assistant sofort wieder da.
       </p>
     </details>
     <div class="btn-row form-foot">
