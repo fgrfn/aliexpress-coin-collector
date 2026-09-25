@@ -9,6 +9,8 @@ set -euo pipefail
 SRC=""            # wird von resolve_src gesetzt: lokaler Quellbaum oder geladener Tarball
 WORK=""           # temporaeres Verzeichnis, wird von cleanup_work aufgeraeumt
 DEST="${INSTALL_DIR:-/opt/aliexpress-coin-collector}"
+# 1, sobald der Quelltext von GitHub geladen wurde (statt aus einem Quellbaum daneben).
+SELF_DOWNLOAD=0
 OLD="${OLD_INSTALL_DIR:-/opt/aliexpress-coins}"
 SVC_USER="coins"
 SERVICE="aliexpress-coin-collector"
@@ -369,7 +371,9 @@ read_installed_version() {
         out="$( cd "$DEST" && "$DEST/.venv/bin/python" -m aliexpress_coin_collector --version 2>/dev/null )" || out=""
     fi
     if [ -n "$out" ]; then
-        printf '%s\n' "$out" | awk 'NR==1'
+        # '--version' gibt "aliexpress_coin_collector 0.15.0" aus; hier interessiert nur die
+        # Nummer, sonst steht in jeder Meldung der Programmname doppelt.
+        printf '%s\n' "$out" | awk 'NR==1{print $NF}'
     else
         printf '%s\n' "unbekannt"
     fi
@@ -729,6 +733,7 @@ resolve_src() {
         return 0
     fi
 
+    SELF_DOWNLOAD=1
     echo "==> Kein Quellverzeichnis neben dem Skript, Quelltext wird von GitHub geladen"
     require_downloader
     command -v tar >/dev/null 2>&1 || { echo "tar fehlt, bitte installieren." >&2; exit 1; }
@@ -797,11 +802,22 @@ resolve_src
 IS_UPDATE=0
 if [ -d "$DEST" ]; then IS_UPDATE=1; fi
 
+VERSION_BEFORE="unbekannt"
 if [ "$IS_UPDATE" = 1 ]; then
+    VERSION_BEFORE="$(read_installed_version)"
     echo "==> Bestehende Installation in $DEST gefunden: Aktualisierung (keine Neuinstallation)"
+    echo "    Version vorher: $VERSION_BEFORE"
     echo "    .env, data/ und .android/ bleiben dabei unveraendert"
 else
     echo "==> Neuinstallation nach $DEST"
+fi
+
+# Lief der Sammel-Dienst schon, bekommt er den neuen Stand am Ende auch wirklich zu sehen.
+# Ohne das liefe er unbemerkt mit dem alten Code weiter -- ein Update, das halb wirkt, ist
+# schlimmer als keines: die Oberflaeche zeigte die neue Fassung, der Dienst arbeitete alt.
+COLLECTOR_WAS_ACTIVE=0
+if [ "$IS_UPDATE" = 1 ] && [ "$HAVE_SYSTEMD" = 1 ] && systemctl is-active --quiet "$SERVICE"; then
+    COLLECTOR_WAS_ACTIVE=1
 fi
 
 echo "==> Pakete installieren (adb, tesseract, python3-venv)"
@@ -890,11 +906,20 @@ if [ "$HAVE_SYSTEMD" = 1 ]; then
         fi
     fi
 
-    # Der Sammel-Dienst bleibt bewusst aus: er weckt das Geraet und tippt darauf. Das soll erst
-    # laufen, wenn 'doctor' und ein erster Lauf von Hand geklappt haben.
-    if [ "$IS_UPDATE" = 1 ]; then
-        echo "    Dienstdatei aktualisiert. Laeuft der Sammel-Dienst schon, wirkt die neue Version erst nach:"
-        echo "      systemctl restart $SERVICE"
+    # Ein Dienst, der noch nie lief, bleibt bewusst aus: er weckt das Geraet und tippt darauf,
+    # und das soll erst passieren, wenn 'doctor' und ein Lauf von Hand geklappt haben. Lief er
+    # dagegen schon, hat er diese Erlaubnis laengst -- dann gehoert er neu gestartet, sonst
+    # arbeitet er nach dem Update unbemerkt mit dem alten Code weiter.
+    if [ "$COLLECTOR_WAS_ACTIVE" = 1 ]; then
+        if systemctl restart "$SERVICE" >/dev/null 2>&1; then
+            echo "    Sammel-Dienst mit dem neuen Stand neu gestartet"
+        else
+            echo "    Sammel-Dienst liess sich nicht neu starten. Ursache zeigt:"
+            echo "      systemctl status $SERVICE"
+            echo "      journalctl -u $SERVICE -n 40 --no-pager"
+        fi
+    elif [ "$IS_UPDATE" = 1 ]; then
+        echo "    Dienstdatei aktualisiert. Der Sammel-Dienst lief nicht und bleibt aus."
     else
         echo "    Sammel-Dienst installiert, aber noch NICHT gestartet (er fasst das Geraet an)"
     fi
@@ -930,12 +955,30 @@ fi
 echo "==> Zeitzone pruefen"
 check_timezone
 
+VERSION_AFTER="$(read_installed_version)"
+
 if [ "$IS_UPDATE" = 1 ]; then
     echo ""
-    echo "Fertig. $DEST wurde aktualisiert (bestehende Daten und Einstellungen blieben erhalten)."
+    if [ "$VERSION_BEFORE" = "$VERSION_AFTER" ]; then
+        # Kein Sprung. Beim Selbstdownload ist die haeufigste Ursache ein Release-Tag, das auf
+        # einen aelteren Stand zeigt, als sein Name vermuten laesst. Ohne diesen Hinweis sucht
+        # man den Fehler in der Installation, wo keiner ist.
+        echo "Fertig. $DEST wurde aktualisiert, die Version blieb aber bei $VERSION_AFTER."
+        if [ "$SELF_DOWNLOAD" = 1 ]; then
+            echo "    Das ist kein Fehler der Installation: geladen wurde der Stand, auf den die"
+            echo "    neueste Veroeffentlichung zeigt. Zeigt ihr Tag auf einen aelteren Commit,"
+            echo "    kommt trotz neuer Versionsnummer der alte Code an. Pruefen mit:"
+            echo "      bash install.sh --ref main     # neuester Stand, auch unveroeffentlicht"
+        else
+            echo "    Der Quellbaum neben dem Skript hat dieselbe Version wie das Ziel."
+        fi
+    else
+        echo "Fertig. $DEST wurde aktualisiert: $VERSION_BEFORE -> $VERSION_AFTER."
+    fi
+    echo "Bestehende Daten und Einstellungen (.env, data/, .android/) blieben erhalten."
 else
     echo ""
-    echo "Fertig. $DEST wurde neu eingerichtet."
+    echo "Fertig. $DEST wurde neu eingerichtet (Version $VERSION_AFTER)."
 fi
 
 # Die naechsten Schritte richten sich danach, ob eine Geraete-Adresse eingetragen ist. Sie ohne
@@ -949,7 +992,17 @@ if [ -n "$configured_serial" ]; then
 fi
 
 echo ""
-if [ -z "$configured_serial" ]; then
+if [ "$IS_UPDATE" = 1 ] && [ -n "$configured_serial" ]; then
+    # Bei einem Update ist alles davon laengst erledigt. Die Anleitung zur Ersteinrichtung hier
+    # noch einmal auszugeben liest sich, als haette das Skript die Installation nicht erkannt.
+    echo "Nichts weiter zu tun. Zur Gegenprobe:"
+    echo "  acc status          # letzte Laeufe und Summen"
+    if [ "$COLLECTOR_WAS_ACTIVE" = 1 ]; then
+        echo "  systemctl status $SERVICE"
+    else
+        echo "  systemctl enable --now $SERVICE   # der Sammel-Dienst laeuft noch nicht"
+    fi
+elif [ -z "$configured_serial" ]; then
     cat <<MSG
 ACHTUNG: In $DEST/.env ist noch keine Geraete-Adresse eingetragen.
 Ohne sie startet weder 'doctor' noch der Dienst.

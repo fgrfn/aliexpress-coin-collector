@@ -85,6 +85,27 @@ systemctl enable --now aliexpress-coin-collector
 Scheitert nach einem `--update` der abschließende Rauchtest, stellt das Skript den vorherigen Stand selbst wieder her
 und startet den Dienst neu, falls er vorher lief.
 
+Beide Wege erkennen eine vorhandene Installation, nennen die Version vorher und nachher und **starten den
+Sammel-Dienst neu, wenn er schon lief** — sonst arbeitete er nach dem Update unbemerkt mit dem alten Code weiter.
+Lief er noch nie, bleibt er aus: er weckt das Gerät und tippt darauf, das soll erst nach `doctor` und einem Lauf
+von Hand passieren.
+
+### Welcher Stand installiert wird
+
+Ohne `--ref` nimmt der Installer die **neueste Veröffentlichung** von GitHub, nicht den neuesten Commit. Zeigt
+deren Tag auf einen älteren Stand, als der Name vermuten lässt, kommt trotz neuer Versionsnummer alter Code an —
+und die Oberfläche zeigt weiter die alte Version. Der Installer weist darauf hin, wenn die Version sich nicht
+geändert hat. Prüfen und erzwingen:
+
+```bash
+bash install.sh --ref main          # neuester Stand, auch unveröffentlicht
+bash install.sh --ref v0.15.0       # ein bestimmtes Tag
+acc --version                       # was tatsächlich läuft
+```
+
+Wer veröffentlicht, sollte das Tag deshalb **nach** dem Merge setzen und danach `git show <tag>:aliexpress_coin_collector/__init__.py`
+gegenprüfen.
+
 **Update von der Vorgängerversion `aliexpress-coins`:** wird erkannt, der alte Dienst gestoppt und das Verzeichnis
 samt `.env`, Datenbank und ADB-Freigabe an den neuen Ort verschoben.
 

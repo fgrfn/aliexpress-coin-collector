@@ -60,6 +60,11 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Update ueber den Installer (0.15.1): **beide Pfade von Hand durchgespielt** (frische
+  Installation und Update auf dasselbe Ziel), allerdings ohne systemd -- der Container hat
+  keines. Dass der Sammel-Dienst beim Update wirklich neu startet, ist damit **nicht am
+  laufenden System belegt**, nur die Bedingung davor (`systemctl is-active`) und der Rest der
+  Ausgabe. `bash -n` und `shellcheck` sind sauber.
 - MQTT-Discovery-Anbindung (0.15.0): **gegen einen echten Broker getestet, aber nicht gegen
   Home Assistant.** Drei Tests laufen gegen ein laufendes Mosquitto (`tests/test_mqtt.py`,
   werden ohne installiertes `mosquitto` uebersprungen, also auch in der CI): der Broker nimmt
