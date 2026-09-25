@@ -527,6 +527,10 @@ Entitäten mit dem Namensanfang aus `HA_PREFIX`, alle an einem Gerät „AliExpr
 | `sensor.<prefix>_muenzen` | zuletzt erkannter Münzstand |
 | `binary_sensor.<prefix>_erreichbar` | ob das Gerät gerade antwortet |
 
+Die Einstellungen greifen wie alle anderen binnen 30 Sekunden: der Dienst prüft bei jedem Takt,
+ob sich Broker, Zugangsdaten oder Präfix geändert haben, und baut den Anschluss dann neu auf. Ein
+Neustart ist nicht nötig.
+
 Gebraucht wird ein Broker — im Normalfall das Mosquitto-Add-on von Home Assistant. Lege dort
 einen eigenen Benutzer an und trage ihn unter `MQTT_USER` / `MQTT_PASSWORD` ein. Das Passwort
 wird wie der Discord-Webhook behandelt: nie in der Oberfläche, nie im Protokoll, nicht ins

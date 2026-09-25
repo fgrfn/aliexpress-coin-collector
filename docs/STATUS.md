@@ -60,6 +60,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- MQTT-Anschluss folgt den Einstellungen (0.16.2): **Fehler aus dem Betrieb**, gemeldet mit
+  "kommt nix bei HA an". Der Dienst entschied beim Start ein fuer alle Mal, ob MQTT laeuft --
+  wer die Broker-Daten spaeter in der Oberflaeche eintrug, wartete vergeblich, ohne jede
+  Fehlermeldung. Behoben und mit Attrappen getestet; am laufenden Dienst nicht nachgestellt.
 - Frist fuer veraltete Messwerte (0.16.1): **mit Attrappen getestet**, nicht gegen Home
   Assistant. Dass `expire_after` dort wie erwartet greift, ist Konvention und hier ungeprueft.
   Der Fallstrick dahinter ist dagegen belegt: ohne die Nachricht nach jeder Messung haette die
@@ -186,6 +190,10 @@ können Anpassungen erfordern.
 - Der Dienst schaltet in Home Assistant nichts, und das soll auch so bleiben: eine Automatik, die das Gerät vom
   Strom trennen kann, zerstört im Fehlerfall ihre eigene Grundlage (leerer Akku → Neustart → `adb tcpip` weg →
   nur per USB-Kabel zu heilen).
+- `scheduler.BrokerLink` haelt den Anschluss und zieht ihn bei jedem Takt an den aktuellen Einstellungen nach.
+  Praefix und Messabstand zaehlen mit, denn aus ihnen entstehen die Namen der Entitaeten und ihre Ablauffrist.
+  Beim Abmelden gilt die Einstellung, unter der angemeldet wurde -- sonst bliebe unter dem alten Namen eine
+  Entitaet stehen, die niemand mehr auf `unavailable` setzt.
 - `mqtt.py` ist seit 0.16.0 der einzige Weg nach Home Assistant. Der fruehere REST-Weg (`homeassistant.py`) ist
   entfallen; er konnte drei Dinge nicht, die MQTT kann: ein Testament (Last Will), das die Entitaeten bei einem Ausfall des Dienstes auf `unavailable` setzt;
   retained Nachrichten, die einen Neustart von Home Assistant ueberstehen; und `unique_id` plus Geraeteeintrag,
