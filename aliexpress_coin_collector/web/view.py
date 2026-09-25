@@ -151,23 +151,42 @@ class BatteryTile:
     sub: str
 
 
-def battery_tile(attempts: list[Attempt], low_pct: int = 25, hot_c: int = 40) -> BatteryTile | None:
+def battery_tile(
+    attempts: list[Attempt],
+    low_pct: int = 25,
+    hot_c: int = 40,
+    status: Status | None = None,
+) -> BatteryTile | None:
     """Ladestand, Temperatur und Alter des Werts.
+
+    Bevorzugt wird der Messwert, den der Dienst zuletzt gemeldet hat: er misst oefter, als ein
+    Lauf stattfindet, und in die Datenbank kommt nur, was ein Lauf mitbringt. Ohne diesen
+    Vorrang zeigte die Kachel einen bis zu einen Tag alten Stand, waehrend Discord und Home
+    Assistant laengst weiter waren. Meldet der Dienst nichts -- weil er steht oder die Messung
+    abgeschaltet ist -- gilt weiter der letzte Lauf.
 
     Die Faerbung folgt denselben Schwellen wie die Meldungen des Dienstes -- eine Kachel, die
     gruen bleibt, waehrend eine Warnung im Kanal steht, waere schlimmer als gar keine.
     """
-    a = data.latest_battery(attempts)
-    if a is None:
-        return None
+    if status is not None and status.battery_level is not None:
+        level, temp = status.battery_level, status.battery_temp_c
+        label, gemessen = status.battery_status, status.battery_at
+    else:
+        a = data.latest_battery(attempts)
+        if a is None:
+            return None
+        level, temp = a.battery_level, a.battery_temp_c
+        label, gemessen = a.battery_status, a.ts
+
     tone = ""
-    if a.battery_level <= low_pct or (a.battery_temp_c is not None and a.battery_temp_c >= hot_c):
-        tone = "bad" if a.battery_level <= low_pct else "warn"
-    teile = [a.battery_status or "Zustand unbekannt"]
-    if a.battery_temp_c is not None:
-        teile.append(f"{a.battery_temp_c:.1f} °C".replace(".", ","))
-    teile.append(f"{a.ts:%d.%m. %H:%M}")
-    return BatteryTile(level=f"{a.battery_level} %", tone=tone, sub=" · ".join(teile))
+    if level <= low_pct or (temp is not None and temp >= hot_c):
+        tone = "bad" if level <= low_pct else "warn"
+    teile = [label or "Zustand unbekannt"]
+    if temp is not None:
+        teile.append(f"{temp:.1f} °C".replace(".", ","))
+    if gemessen is not None:
+        teile.append(f"{gemessen:%d.%m. %H:%M}")
+    return BatteryTile(level=f"{level} %", tone=tone, sub=" · ".join(teile))
 
 
 _TONE = {"ok": "ok", "warn": "warn", "bad": "bad"}

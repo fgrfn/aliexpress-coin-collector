@@ -221,3 +221,105 @@ def test_a_mere_warning_stays_yellow():
 
 def test_the_all_clear_is_green():
     assert battery_ok_message(GUT).tone == "ok"
+
+
+# --- Der frische Wert in der Oberflaeche -------------------------------------
+
+
+def test_the_tile_prefers_the_live_reading_over_the_database():
+    """Der Dienst misst oefter als ein Lauf stattfindet -- sonst haengt die Kachel einen Tag hinterher."""
+    from datetime import datetime as dt
+
+    from aliexpress_coin_collector.commands import Status
+    from aliexpress_coin_collector.store import Attempt
+    from aliexpress_coin_collector.web import view
+
+    alt = [
+        Attempt(
+            ts=dt(2026, 9, 24, 8, 20),
+            kind="morning",
+            outcome="claimed",
+            battery_level=100,
+            battery_temp_c=30.0,
+            battery_status="lädt",
+        )
+    ]
+    live = Status(
+        written_at=dt(2026, 9, 25, 14, 0),
+        version="0.15.1",
+        battery_level=41,
+        battery_temp_c=33.5,
+        battery_status="entlädt",
+        battery_at=dt(2026, 9, 25, 13, 55),
+    )
+    kachel = view.battery_tile(alt, 25, 40, live)
+    assert kachel.level == "41 %"
+    assert "entlädt" in kachel.sub
+    assert "25.09. 13:55" in kachel.sub
+
+
+def test_without_a_live_reading_the_last_run_still_counts():
+    """Steht der Dienst oder ist die Messung abgeschaltet, ist der alte Wert besser als keiner."""
+    from datetime import datetime as dt
+
+    from aliexpress_coin_collector.commands import Status
+    from aliexpress_coin_collector.store import Attempt
+    from aliexpress_coin_collector.web import view
+
+    alt = [Attempt(ts=dt(2026, 9, 24, 8, 20), kind="morning", outcome="claimed", battery_level=100)]
+    leer = Status(written_at=dt(2026, 9, 25, 14, 0), version="0.15.1")
+    assert view.battery_tile(alt, 25, 40, leer).level == "100 %"
+    assert view.battery_tile(alt, 25, 40, None).level == "100 %"
+    assert view.battery_tile([], 25, 40, leer) is None
+
+
+def test_the_live_reading_is_coloured_by_the_same_thresholds():
+    from datetime import datetime as dt
+
+    from aliexpress_coin_collector.commands import Status
+    from aliexpress_coin_collector.web import view
+
+    def tile(level, temp=30.0):
+        live = Status(written_at=dt(2026, 9, 25, 14, 0), version="x", battery_level=level, battery_temp_c=temp)
+        return view.battery_tile([], 25, 40, live)
+
+    assert tile(80).tone == ""
+    assert tile(20).tone == "bad"
+    assert tile(80, temp=41.0).tone == "warn"
+
+
+def test_the_service_reports_the_battery_to_the_interface(tmp_path):
+    """Die Zustandsdatei ist der Weg vom Dienst zur Seite -- ohne ihn bliebe die Kachel alt."""
+    from aliexpress_coin_collector import commands
+
+    commands.write_status(
+        tmp_path,
+        "0.15.1",
+        "device",
+        False,
+        battery_level=64,
+        battery_temp_c=29.5,
+        battery_status="entlädt",
+        battery_at=JETZT,
+    )
+    zurueck = commands.read_status(tmp_path)
+    assert zurueck.battery_level == 64
+    assert zurueck.battery_temp_c == 29.5
+    assert zurueck.battery_status == "entlädt"
+    assert zurueck.battery_at == JETZT
+
+
+def test_an_older_status_file_without_the_battery_still_reads(tmp_path):
+    """Nach einem Update kann die Datei noch vom alten Dienst stammen."""
+    import json
+
+    from aliexpress_coin_collector import commands
+
+    (tmp_path / commands.STATUS_FILE).write_text(
+        json.dumps({"written_at": JETZT.isoformat(), "version": "0.13.1", "device_state": "device"}),
+        encoding="utf-8",
+    )
+    zurueck = commands.read_status(tmp_path)
+    assert zurueck is not None
+    assert zurueck.battery_level is None
+    assert zurueck.battery_status == ""

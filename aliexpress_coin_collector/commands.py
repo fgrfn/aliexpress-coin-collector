@@ -215,6 +215,14 @@ class Status:
     device_state: str = "unbekannt"
     screen_on: bool | None = None
     checked_at: datetime | None = None
+    # Letzter Akkumesswert des Dienstes. Er misst oefter, als ein Lauf stattfindet, und in die
+    # Datenbank kommt nur, was ein Lauf mitbringt -- ohne diesen Weg zeigte die Oberflaeche
+    # einen bis zu einen Tag alten Stand, waehrend Discord und Home Assistant laengst weiter
+    # waren. Als einfache Werte und nicht als Battery, damit diese Schicht nichts von adb weiss.
+    battery_level: int | None = None
+    battery_temp_c: float | None = None
+    battery_status: str = ""
+    battery_at: datetime | None = None
 
     @property
     def device_tone(self) -> str:
@@ -235,6 +243,10 @@ def write_status(
     device_state: str,
     screen_on: bool | None,
     now: datetime | None = None,
+    battery_level: int | None = None,
+    battery_temp_c: float | None = None,
+    battery_status: str = "",
+    battery_at: datetime | None = None,
 ) -> None:
     """Der Dienst meldet seinen Blick auf das Geraet. Ein Fehler hier haelt ihn nie an.
 
@@ -253,6 +265,10 @@ def write_status(
                     "device_state": device_state,
                     "screen_on": screen_on,
                     "checked_at": now.isoformat(timespec="seconds"),
+                    "battery_level": battery_level,
+                    "battery_temp_c": battery_temp_c,
+                    "battery_status": battery_status or None,
+                    "battery_at": battery_at.isoformat(timespec="seconds") if battery_at else None,
                 },
                 ensure_ascii=False,
             ),
@@ -266,12 +282,17 @@ def read_status(data_dir: Path) -> Status | None:
     try:
         d = json.loads((data_dir / STATUS_FILE).read_text(encoding="utf-8"))
         checked = d.get("checked_at")
+        gemessen = d.get("battery_at")
         return Status(
             written_at=datetime.fromisoformat(d["written_at"]),
             version=str(d.get("version", "")),
             device_state=str(d.get("device_state", "unbekannt")),
             screen_on=d.get("screen_on"),
             checked_at=datetime.fromisoformat(checked) if checked else None,
+            battery_level=d.get("battery_level"),
+            battery_temp_c=d.get("battery_temp_c"),
+            battery_status=str(d.get("battery_status") or ""),
+            battery_at=datetime.fromisoformat(gemessen) if gemessen else None,
         )
     except (OSError, ValueError, KeyError, TypeError):
         return None

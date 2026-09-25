@@ -631,6 +631,7 @@ def report_status(
     version: str,
     reconnect: Reconnect | None = None,
     now: datetime | None = None,
+    battery: BatteryWatch | None = None,
 ) -> str:
     """Blick auf das Geraet fuer die Weboberflaeche. Gibt den Zustand zurueck.
 
@@ -668,7 +669,17 @@ def report_status(
     except Exception as exc:  # noqa: BLE001 - ein Fehler hier darf den Dienst nie anhalten
         log.debug("Zustand des Geraets nicht ermittelbar: %s", exc)
         state = "offline" if state == "unbekannt" else state
-    commands.write_status(cfg.data_dir, version, state, screen)
+    last = battery.last if battery is not None else None
+    commands.write_status(
+        cfg.data_dir,
+        version,
+        state,
+        screen,
+        battery_level=last.level if last else None,
+        battery_temp_c=last.temperature_c if last else None,
+        battery_status=last.status_label if last else "",
+        battery_at=battery.at if battery is not None else None,
+    )
     return state
 
 
@@ -750,7 +761,7 @@ def tick(
     now = now or datetime.now()
     cfg = with_current_settings(base_cfg)
     touch_heartbeat(cfg)
-    state = report_status(cfg, adb, version, reconnect, now)
+    state = report_status(cfg, adb, version, reconnect, now, battery)
 
     # Faellt das Geraet laenger aus, sagt der Dienst Bescheid -- sonst merkt man erst am
     # ausbleibenden Erfolg, dass tagelang nichts lief. Je Ausfall genau eine Meldung.
@@ -765,7 +776,10 @@ def tick(
     # Der Akku, in groesserem Abstand als der Takt. Das ist die einzige Warnung, die vor einem
     # toten Netzteil kommt, bevor das Geraet ausgeht -- danach waere auch ADB weg.
     if battery is not None and state == "device":
-        check_battery(cfg, adb, battery, now)
+        # Nach einer frischen Messung noch einmal melden: sonst zeigte die Oberflaeche den
+        # neuen Wert erst im naechsten Takt, also bis zu dreissig Sekunden spaeter.
+        if check_battery(cfg, adb, battery, now) is not None:
+            report_status(cfg, adb, version, reconnect, datetime.now(), battery)
 
     # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
     # damit ein Update ohne Neustart der Oberflaeche nichts verschluckt.
@@ -778,7 +792,7 @@ def tick(
     # weiter den alten Zustand: ein erfolgreiches "Neu verbinden" waere bis zu 30 Sekunden
     # lang unsichtbar, und es saehe aus, als haette der Knopf nichts getan.
     if process_commands(cfg, adb, store):
-        report_status(cfg, adb, version, reconnect, datetime.now())
+        report_status(cfg, adb, version, reconnect, datetime.now(), battery)
 
     # Erfolg gemeldet, aber der Muenzstand bewegt sich nicht: dann laeuft zwar alles, bringt aber
     # nichts ein. Genau das blieb tagelang unbemerkt, weil die Quote auf 100 Prozent stand.
