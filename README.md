@@ -537,6 +537,27 @@ Die Themen liegen unter dem Namensanfang: `coin_collector/status` für die Verf�
 `homeassistant/…/config`. `MQTT_DISCOVERY_PREFIX` muss zu der Einstellung in Home Assistant
 passen.
 
+### Wenn keine Messwerte mehr kommen
+
+Das Testament fängt ab, dass der Dienst stirbt. Es fängt nicht ab, dass er lebt, aber das Gerät
+nicht erreicht — dann läge der letzte Ladestand retained im Broker und gälte als aktueller Wert.
+Genau das ist zu erwarten, wenn das Handy ohne Strom in den tiefen Ruhezustand geht.
+
+Die beiden Akkusensoren tragen deshalb `expire_after`, gesetzt auf das Dreifache von
+`BATTERY_POLL_MIN`: bleiben drei Messungen aus, setzt Home Assistant sie selbst auf
+`unavailable`. Damit eine Messung auch dann als Nachricht ankommt, wenn sich der Wert nicht
+geändert hat — das Handy am Netzteil steht tagelang auf 100 % —, wird der Zustand nach jeder
+Messung geschickt, nicht nur bei einer Änderung. Eine Nachricht heißt also: es wurde
+nachgesehen.
+
+Mit `BATTERY_POLL_MIN=0` entfällt die Frist: ein Messwert am Tag würde jede Frist reißen.
+
+**Für eine Steckdosenautomatik** ist das der entscheidende Punkt. Sie muss auf `unavailable` und
+`unknown` genauso reagieren wie auf einen niedrigen Ladestand — nämlich einschalten — und
+zusätzlich eine reine Zeitbremse haben, die nach einigen Stunden ohne Strom einschaltet, egal was
+die Sensoren sagen. Geht der Akku ganz leer, ist das Gerät aus und ADB erst nach `adb tcpip 5555`
+per USB-Kabel wieder da.
+
 **Der Dienst schaltet in Home Assistant nichts.** Er liefert nur Werte. Das ist Absicht: eine
 Automatik, die sich selbst vom Strom trennen kann, zerstört im Fehlerfall genau das, was sie am
 Laufen halten soll. Die Entscheidung, wann eine Steckdose schaltet, gehört nach Home Assistant —

@@ -419,3 +419,64 @@ def test_the_digest_goes_out_through_the_tick(cfg, monkeypatch):
     scheduler.tick(cfg, FakeAdb(), Store(cfg.data_dir), scheduler.Reconnect(), now=BEFORE_WINDOW)
     assert len(sent) == 1
     assert "Woche" in sent[0].title
+
+
+# --- Auftraege waehrend der Pause ------------------------------------------------------------
+#
+# Ohne das laege ein Screenshot aus der Oberflaeche bis zu 30 Sekunden herum, bevor der Dienst
+# ihn ueberhaupt bemerkt. Geprueft wird mit einer gestellten Uhr, ohne echtes Warten.
+
+
+class Uhr:
+    """Eine Uhr, die nur springt, wenn geschlafen wird."""
+
+    def __init__(self):
+        self.jetzt = 0.0
+        self.geschlafen: list[float] = []
+
+    def sleep(self, s):
+        self.geschlafen.append(s)
+        self.jetzt += s
+
+    def monotonic(self):
+        return self.jetzt
+
+
+def warte(cfg, adb, sekunden, uhr, scheibe=1):
+    return scheduler.wait_for_commands(
+        cfg,
+        adb,
+        Store(cfg.data_dir),
+        scheduler.Reconnect(),
+        "",
+        sekunden,
+        slice_s=scheibe,
+        sleep=uhr.sleep,
+        monotonic=uhr.monotonic,
+    )
+
+
+def test_the_pause_is_slept_in_slices_not_in_one_go(cfg):
+    uhr = Uhr()
+    warte(cfg, FakeAdb(), 30, uhr)
+    assert len(uhr.geschlafen) == 30
+    assert uhr.jetzt == 30
+
+
+def test_a_job_dropped_during_the_pause_is_picked_up_within_a_slice(cfg):
+    commands.submit(cfg.data_dir, commands.CHECK)
+    uhr = Uhr()
+    assert warte(cfg, FakeAdb(), 30, uhr) == 1
+    # Nach der ersten Scheibe war er weg, nicht erst am Ende der Pause.
+    assert commands.pending(cfg.data_dir) == []
+
+
+def test_without_a_job_the_pause_passes_quietly(cfg):
+    assert warte(cfg, FakeAdb(), 5, Uhr()) == 0
+
+
+def test_a_short_pause_is_not_overslept(cfg):
+    """Sonst liefe der Takt aus dem Tritt, wenn die Scheibe groesser ist als der Rest."""
+    uhr = Uhr()
+    warte(cfg, FakeAdb(), 0.4, uhr)
+    assert uhr.geschlafen == [0.4]

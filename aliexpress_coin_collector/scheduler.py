@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
@@ -774,10 +775,12 @@ def tick(
 
     # Der Akku, in groesserem Abstand als der Takt. Das ist die einzige Warnung, die vor einem
     # toten Netzteil kommt, bevor das Geraet ausgeht -- danach waere auch ADB weg.
+    gemessen = False
     if battery is not None and state == "device":
         # Nach einer frischen Messung noch einmal melden: sonst zeigte die Oberflaeche den
         # neuen Wert erst im naechsten Takt, also bis zu dreissig Sekunden spaeter.
-        if check_battery(cfg, adb, battery, now) is not None:
+        gemessen = check_battery(cfg, adb, battery, now) is not None
+        if gemessen:
             report_status(cfg, adb, version, reconnect, datetime.now(), battery)
 
     # Eine Auftragsdatei aus einer aelteren Version der Oberflaeche: weiter annehmen,
@@ -834,8 +837,52 @@ def tick(
             battery.last if battery is not None else None,
             recent[0] if recent else None,
             state == "device",
+            # Auch unveraendert senden, wenn gerade gemessen wurde -- sonst schriebe
+            # Home Assistant den Sensor per expire_after ab, obwohl alles in Ordnung ist.
+            measured=gemessen,
         )
     return announced
+
+
+# Wie oft waehrend der Pause nach Auftraegen gesehen wird. Ein listdir auf ein fast immer
+# leeres Verzeichnis kostet nichts; der schwere Teil des Takts bleibt bei tick_s, denn der
+# kostet echte ADB-Aufrufe.
+COMMAND_POLL_S = 1
+
+
+def wait_for_commands(
+    base_cfg: Config,
+    adb: Adb,
+    store: Store,
+    reconnect: Reconnect,
+    version: str,
+    seconds: float,
+    slice_s: float = COMMAND_POLL_S,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> int:
+    """Die Pause bis zum naechsten Takt, aber mit offenen Augen fuer Auftraege.
+
+    Ohne das laege ein Screenshot aus der Oberflaeche bis zu tick_s Sekunden herum, bevor der
+    Dienst ihn ueberhaupt bemerkt -- das fuehlt sich an, als haette der Knopf nichts getan.
+    Die Warteschlange selbst bleibt: genau ein Prozess fasst das Geraet an.
+
+    Gibt zurueck, wie viele Auftraege dabei erledigt wurden. Laeuft einer laenger als die
+    Pause, faellt sie eben aus und der naechste Takt kommt sofort.
+    """
+    cfg = with_current_settings(base_cfg)
+    deadline = monotonic() + seconds
+    done = 0
+    while True:
+        rest = deadline - monotonic()
+        if rest <= 0:
+            return done
+        sleep(min(slice_s, rest))
+        erledigt = process_commands(cfg, adb, store)
+        if erledigt:
+            # Sofort melden, sonst zeigte die Seite bis zum naechsten Takt den alten Zustand.
+            report_status(cfg, adb, version, reconnect, datetime.now())
+            done += erledigt
 
 
 def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str = "") -> None:
@@ -864,7 +911,7 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
                 battery=battery,
                 broker=broker,
             )
-            time.sleep(tick_s)
+            wait_for_commands(cfg, adb, store, reconnect, version, tick_s)
     finally:
         # Ordentlich abmelden, damit die Entitaeten nicht erst ueber das Testament ausfallen.
         if broker is not None:

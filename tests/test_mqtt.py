@@ -386,3 +386,56 @@ def test_the_will_really_fires_when_the_service_is_killed(lokal):
         if dienst.poll() is None:
             dienst.kill()
         client.loop_stop()
+
+
+# -- Veraltete Messwerte -------------------------------------------------------------------
+#
+# Das Testament faengt nur ab, dass der Dienst stirbt. Lebt er, erreicht aber das Geraet nicht,
+# laege der letzte Ladestand retained im Broker und gaelte als aktueller Wert -- genau der Fall,
+# wenn das Handy ohne Strom in den Ruhezustand geht. Dafuer ist expire_after da.
+
+
+def messwerte(cfg) -> list[mqtt.Entity]:
+    return [e for e in mqtt.entities(cfg) if e.object_id.startswith("akku")]
+
+
+def test_the_measurements_expire_after_three_missed_polls(cfg):
+    assert mqtt.measurement_ttl(replace(cfg, battery_poll_min=15)) == 2700
+    for e in messwerte(replace(cfg, battery_poll_min=15)):
+        assert e.config["expire_after"] == 2700
+
+
+def test_without_regular_polling_nothing_expires(cfg):
+    """Ein Lauf am Tag wuerde jede Frist reissen -- dann bleibt der Wert lieber stehen."""
+    aus = replace(cfg, battery_poll_min=0)
+    assert mqtt.measurement_ttl(aus) is None
+    for e in mqtt.entities(aus):
+        assert "expire_after" not in e.config
+
+
+def test_only_the_measurements_expire(cfg):
+    """Erreichbarkeit geht in jedem Takt raus, letzter Lauf und Muenzstand aendern sich taeglich."""
+    andere = [e for e in mqtt.entities(cfg) if not e.object_id.startswith("akku")]
+    assert andere
+    for e in andere:
+        assert "expire_after" not in e.config
+
+
+def test_a_fresh_measurement_is_sent_even_when_nothing_changed(cfg, broker):
+    """Sonst schriebe Home Assistant den Sensor ab, waehrend das Handy brav auf 100 % steht."""
+    pub = mqtt.Publisher()
+    verbinde(cfg, pub, broker)
+    pub.publish(cfg, AKKU, LAUF, True)
+    broker.published.clear()
+    assert pub.publish(cfg, AKKU, LAUF, True, measured=True) is True
+    _, state = mqtt.topics(cfg)
+    assert [t for t, _p, _r in broker.published] == [state]
+
+
+def test_without_a_measurement_an_unchanged_state_stays_unsent(cfg, broker):
+    pub = mqtt.Publisher()
+    verbinde(cfg, pub, broker)
+    pub.publish(cfg, AKKU, LAUF, True)
+    broker.published.clear()
+    assert pub.publish(cfg, AKKU, LAUF, True) is False
+    assert broker.published == []
