@@ -611,6 +611,7 @@ def create_app(cfg: Config) -> FastAPI:
             has_webhook=bool(active.discord_webhook),
             # Dasselbe fuer das Home-Assistant-Token: nur ob eines da ist, nie welches.
             has_ha_token=bool(active.ha_token),
+            has_mqtt_password=bool(active.mqtt_password),
             battery=view.battery_tile(_read_attempts(active), active.battery_low_pct, active.battery_hot_c),
             stored=set(settings.load(cfg.data_dir).values),
             min_length=auth.MIN_LENGTH,
@@ -799,6 +800,36 @@ def create_app(cfg: Config) -> FastAPI:
             values["ha_token"] = ha_token.strip()
         return _store(request, values, "Home Assistant")
 
+    @app.post("/einstellungen/mqtt")
+    def save_mqtt(
+        request: Request,
+        mqtt_host: str = Form(default=""),
+        mqtt_port: str = Form(default=""),
+        mqtt_user: str = Form(default=""),
+        mqtt_password: str = Form(default=""),
+        mqtt_discovery_prefix: str = Form(default=""),
+        remove_mqtt: str = Form(default=""),
+    ) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        # Wie bei Home Assistant: das Kaestchen schaltet den ganzen Weg ab.
+        if remove_mqtt:
+            return _store(request, {"mqtt_host": "", "mqtt_user": "", "mqtt_password": ""}, "MQTT")
+        values: dict[str, object] = {
+            "mqtt_host": mqtt_host.strip(),
+            "mqtt_user": mqtt_user.strip(),
+            "mqtt_discovery_prefix": mqtt_discovery_prefix.strip().strip("/") or "homeassistant",
+        }
+        try:
+            values["mqtt_port"] = _parse_int("Port", mqtt_port) if mqtt_port.strip() else 1883
+        except ValueError as exc:
+            return _flash(RedirectResponse("/einstellungen", status_code=303), str(exc), "bad")
+        # Das Passwort steht nie in der Seite, leer heisst darum unveraendert.
+        if mqtt_password.strip():
+            values["mqtt_password"] = mqtt_password.strip()
+        return _store(request, values, "MQTT")
+
     @app.get("/shot/{name}")
     def screenshot(request: Request, name: str) -> Response:
         gate = _gate(request)
@@ -851,6 +882,8 @@ FIELD_NAMES = {
     "HA_URL": "Die Adresse von Home Assistant",
     "HA_TOKEN": "Das Home-Assistant-Token",
     "HA_PREFIX": "Der Namensanfang der Entitäten",
+    "MQTT_PORT": "Der MQTT-Port",
+    "MQTT_DISCOVERY_PREFIX": "Der Discovery-Präfix",
     "DISCORD_WEBHOOK_URL": "Der Discord-Webhook",
 }
 

@@ -458,3 +458,71 @@ def test_a_prefix_that_would_break_the_entity_ids_is_refused(client, data_dir):
 def test_an_empty_prefix_falls_back_to_the_default(client, data_dir):
     client.post("/einstellungen/homeassistant", data={**HA, "ha_prefix": ""})
     assert stored(data_dir)["ha_prefix"] == "coin_collector"
+
+
+# -- MQTT ---------------------------------------------------------------------------------------
+
+MQTT = {
+    "mqtt_host": "homeassistant.local",
+    "mqtt_port": "1883",
+    "mqtt_user": "coin-collector",
+    "mqtt_password": "streng-geheimes-broker-passwort",
+    "mqtt_discovery_prefix": "homeassistant",
+}
+
+
+def test_saving_mqtt_stores_every_field(client, data_dir):
+    assert client.post("/einstellungen/mqtt", data=MQTT).status_code == 303
+    werte = stored(data_dir)
+    assert werte["mqtt_host"] == "homeassistant.local"
+    assert werte["mqtt_port"] == 1883
+    assert werte["mqtt_user"] == "coin-collector"
+    assert werte["mqtt_discovery_prefix"] == "homeassistant"
+
+
+def test_the_broker_password_never_reaches_the_page(client, data_dir):
+    client.post("/einstellungen/mqtt", data=MQTT)
+    body = client.get("/einstellungen").text
+    assert MQTT["mqtt_password"] not in body
+    assert "leer lassen = unverändert" in body
+
+
+def test_the_broker_password_never_reaches_the_log(client, data_dir, caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        client.post("/einstellungen/mqtt", data=MQTT)
+    assert MQTT["mqtt_password"] not in caplog.text
+
+
+def test_an_empty_password_field_keeps_the_stored_one(client, data_dir):
+    client.post("/einstellungen/mqtt", data=MQTT)
+    client.post("/einstellungen/mqtt", data={**MQTT, "mqtt_password": "", "mqtt_user": "anders"})
+    werte = stored(data_dir)
+    assert werte["mqtt_password"] == MQTT["mqtt_password"]
+    assert werte["mqtt_user"] == "anders"
+
+
+def test_a_broker_without_credentials_is_fine(client, data_dir):
+    """Ein Broker im eigenen Netz laeuft durchaus ohne Anmeldung."""
+    ohne = {**MQTT, "mqtt_user": "", "mqtt_password": ""}
+    assert client.post("/einstellungen/mqtt", data=ohne).status_code == 303
+    assert stored(data_dir)["mqtt_host"] == "homeassistant.local"
+
+
+def test_an_impossible_port_is_refused(client, data_dir):
+    client.post("/einstellungen/mqtt", data={**MQTT, "mqtt_port": "70000"})
+    assert stored(data_dir) == {}
+
+
+def test_removing_the_link_clears_broker_user_and_password(client, data_dir):
+    client.post("/einstellungen/mqtt", data=MQTT)
+    client.post("/einstellungen/mqtt", data={**MQTT, "remove_mqtt": "1"})
+    werte = stored(data_dir)
+    assert werte["mqtt_host"] == ""
+    assert werte["mqtt_password"] == ""
+
+
+def test_an_empty_discovery_prefix_falls_back_to_the_default(client, data_dir):
+    client.post("/einstellungen/mqtt", data={**MQTT, "mqtt_discovery_prefix": ""})
+    assert stored(data_dir)["mqtt_discovery_prefix"] == "homeassistant"

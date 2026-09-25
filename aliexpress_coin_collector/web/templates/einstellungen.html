@@ -412,6 +412,79 @@
   </form>
 </section>
 
+<!-- ------------------------------------------------------------------ MQTT -->
+<section class="card" id="mqtt">
+  <div class="card-head">
+    <h2>MQTT</h2>
+    <span class="pill pill-{{ 'ok' if cfg.mqtt_host else 'warn' }}">
+      {{ "angebunden" if cfg.mqtt_host else "nicht angebunden" }}
+    </span>
+  </div>
+  <form method="post" action="/einstellungen/mqtt">
+    <div class="fields">
+      <div class="field field-wide">
+        <label for="mqh">Broker {{ saved('mqtt_host') }}</label>
+        <input id="mqh" type="text" name="mqtt_host" value="{{ cfg.mqtt_host }}" spellcheck="false"
+               autocapitalize="off" autocomplete="off" placeholder="homeassistant.local">
+      </div>
+      <div class="field">
+        <label for="mqp">Port {{ saved('mqtt_port') }}</label>
+        <input id="mqp" type="number" name="mqtt_port" min="1" max="65535" value="{{ cfg.mqtt_port }}">
+      </div>
+      <div class="field">
+        <label for="mqu">Benutzer {{ saved('mqtt_user') }}</label>
+        <input id="mqu" type="text" name="mqtt_user" value="{{ cfg.mqtt_user }}" spellcheck="false"
+               autocapitalize="off" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="mqw">Passwort {{ saved('mqtt_password') }}</label>
+        <input id="mqw" type="password" name="mqtt_password" value="" autocomplete="off" spellcheck="false"
+               placeholder="{{ 'leer lassen = unverändert' if has_mqtt_password else 'falls der Broker eines verlangt' }}">
+      </div>
+      <div class="field">
+        <label for="mqd">Discovery-Präfix {{ saved('mqtt_discovery_prefix') }}</label>
+        <input id="mqd" type="text" name="mqtt_discovery_prefix" value="{{ cfg.mqtt_discovery_prefix }}"
+               spellcheck="false" autocapitalize="off" autocomplete="off">
+      </div>
+    </div>
+    {% if cfg.mqtt_host %}
+      <label class="opt">
+        <input type="checkbox" name="remove_mqtt" value="1">
+        <span>
+          Anbindung entfernen
+          <span class="opt-note">Löscht Broker, Benutzer und Passwort.</span>
+        </span>
+      </label>
+    {% endif %}
+    <p class="note">
+      Der bessere der beiden Wege, wenn ein Broker da ist — etwa das Mosquitto-Add-on. Lege
+      dafür in Home Assistant einen eigenen Benutzer an.
+    </p>
+    <details class="why">
+      <summary>Was MQTT besser kann als die REST-API</summary>
+      <p>
+        <strong>Verfügbarkeit.</strong> Der Broker bekommt ein Testament mit. Stirbt der Dienst,
+        setzt er die Entitäten von sich aus auf „unavailable“, statt dass ein eingefrorener
+        Ladestand als aktueller Wert stehen bleibt. Für eine Steckdosenautomatik ist genau das
+        der Punkt.
+      </p>
+      <p>
+        <strong>Bestand.</strong> Konfiguration und Zustand liegen im Broker und sind nach einem
+        Neustart von Home Assistant sofort wieder da. <strong>Zugehörigkeit.</strong> Die
+        Entitäten hängen an einem Gerät, haben eine feste Kennung und lassen sich darum
+        umbenennen und einem Bereich zuordnen.
+      </p>
+      <p>
+        Beide Wege zugleich einzurichten geht, ergibt in Home Assistant aber zwei Sätze
+        Entitäten für dieselben Werte. Besser einen davon abschalten.
+      </p>
+    </details>
+    <div class="btn-row form-foot">
+      <button class="btn" type="submit">MQTT speichern</button>
+    </div>
+  </form>
+</section>
+
 <!-- ------------------------------------------------------------------ Zugang -->
 <section class="card" id="zugang">
   <div class="card-head"><h2>Zugang</h2></div>
