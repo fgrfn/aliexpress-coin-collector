@@ -19,6 +19,8 @@ OCR (Tesseract) gefunden. Ergebnisse gehen per Discord raus, jeder Lauf landet i
 - [Betrieb](#betrieb)
 - [Weboberfläche](#weboberfläche)
 - [Konfiguration](#konfiguration)
+- [Akku](#akku)
+- [Home Assistant](#home-assistant)
 - [Ergebnisse und Fehlersuche](#ergebnisse-und-fehlersuche)
 - [Status](#status)
 - [Grenzen und Risiken](#grenzen-und-risiken)
@@ -318,6 +320,10 @@ Geschickt wird ein **Embed**, keine Textzeile: Farbe nach Ausgang, Zahlen in eig
 | Gerät wieder erreichbar | grün | wie lange der Ausfall dauerte |
 | Wochenrückblick (montags 9 Uhr) | nach Quote | Erfolgsquote, gesammelte Münzen, Münzstand |
 | Erfolg ohne Zuwachs | rot | Tage ohne Zuwachs, stehender Münzstand |
+| Akku hängt nicht am Strom | rot | Ladestand, Temperatur, Zustand |
+| Akkuschaden gemeldet | rot | wie oben |
+| Ladestand niedrig oder zu warm | orange | wie oben |
+| Akku wieder in Ordnung | grün | wie oben |
 
 Der Grund eines Fehlschlags steht ausgeschrieben da, nicht als `not_found` — auf dem Handy gelesen
 sagt ein Codewort nichts.
@@ -431,11 +437,85 @@ in `data/settings.json` und überschreibt die `.env`.
 | **`NOTIFY_WEEKLY`** | `true` | Wochenrückblick montags um 9 Uhr |
 | **`NOTIFY_ON_STALL`** | `true` | Melden, wenn Erfolg gemeldet wird, aber der Münzstand steht |
 | **`OFFLINE_ALERT_MIN`** | `30` | Wartezeit davor, in Minuten |
+| **`NOTIFY_ON_BATTERY`** | `true` | Melden, wenn am Akku etwas nicht stimmt |
+| **`BATTERY_POLL_MIN`** | `15` | Abstand der Akkuabfragen in Minuten, `0` schaltet sie ab |
+| **`BATTERY_LOW_PCT`** | `25` | Ab diesem Ladestand abwärts wird gewarnt |
+| **`BATTERY_HOT_C`** | `40` | Ab dieser Temperatur wird gewarnt |
+| **`HA_URL`** | leer | Adresse von Home Assistant, leer = Anbindung aus |
+| **`HA_TOKEN`** | leer | Langzeit-Token, Pflicht sobald `HA_URL` gesetzt ist |
+| **`HA_PREFIX`** | `coin_collector` | Namensanfang der Entitäten |
 | `DATA_DIR` | `./data` | Datenbank und Fehler-Screenshots (die letzten 30) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` zeigt die Erkennung pro Screenshot |
 | `WEB_PORT` | `80` | Port der Weboberfläche (das Passwort wird auf der Seite vergeben, nicht hier) |
 | `STREAK_OFFSET` | `0` | Tage, die vor dem ersten Lauf von Hand gesammelt wurden |
 | `COIN_URL`, `APP_PACKAGE`, `ADB_PATH` | siehe `.env.example` | Nur ändern, wenn AliExpress die Adresse der Coin-Seite ändert |
+
+## Akku
+
+Hängt das Handy dauerhaft am Netzteil, sieht man nicht, wenn das Netzteil ausfällt — bis der
+Akku leer ist und das Gerät ausgeht. Danach ist auch ADB weg: `adb tcpip 5555` überlebt keinen
+Neustart und lässt sich nur mit einem USB-Kabel am Gerät wiederherstellen. Darum liest der
+Dienst den Akku mit.
+
+Ausgelesen wird `dumpsys battery` — ein reiner Lesezugriff, der weder den Bildschirm weckt noch
+etwas antippt. Das passiert alle `BATTERY_POLL_MIN` Minuten und zusätzlich bei jedem Lauf; die
+Werte landen in der Laufdatenbank, in einer Kachel auf der Übersicht und als Linie im Verlauf.
+
+Gewarnt wird bei vier Dingen, je Vorfall einmal, mit einer Entwarnung, sobald alles wieder
+stimmt:
+
+- **hängt nicht am Strom** — auch dann, wenn das Kabel steckt, der Stand aber fällt (schwaches
+  Netzteil, defektes Kabel). Das ist die einzige Warnung, die vor dem Totalausfall kommt.
+- **Ladestand unter `BATTERY_LOW_PCT`**
+- **Temperatur ab `BATTERY_HOT_C`** — Wärme lässt den Akku altern und irgendwann aufblähen
+- **das Gerät meldet einen Akkuschaden** (`health`)
+
+Was das Gerät nicht meldet, wird nicht erfunden: ein Handy ohne Temperaturangabe gilt nicht als
+zu warm, und ein `health`, das „unbekannt" sagt, löst keine Warnung aus.
+
+### Zum Dauerladen
+
+Ein Li-Ionen-Akku altert vor allem *kalendarisch*: je voller und je wärmer, desto schneller.
+Dauerhaft bei 100 % kostet grob 15–20 % Kapazität im Jahr, bei halbvoll wären es wenige Prozent.
+Zyklen braucht er keine — tiefe Zyklen sind eher schlechter. Das praktische Risiko ist nicht die
+Kapazität, sondern ein aufgeblähter Akku.
+
+Der beste Hebel ist die **Ladegrenze des Geräts** (bei Samsung „Akku schützen", 85 %), falls es
+eine hat: sie ändert nichts am Aufbau, das Gerät bleibt am Strom und ADB bleibt, wie es ist.
+Danach kommt Wärme — Hülle ab, kühl stellen.
+
+Wer die Steckdose nach Ladestand schalten will, tut das über Home Assistant (siehe unten) und
+nicht mit diesem Dienst. Zwei Dinge sind dabei zu bedenken: am Netzteil gehen viele Androids
+nicht in den tiefen Ruhezustand, ohne Strom also schon — ADB ist dann öfter nicht erreichbar.
+Und geht der Akku je ganz leer, ist die Verbindung bis zum nächsten USB-Kabel verloren. Die
+Automatisierung braucht deshalb „Steckdose an" als sicheren Rückfall und eine Untergrenze mit
+Reserve, nicht bei 15 %.
+
+## Home Assistant
+
+Mit `HA_URL` und `HA_TOKEN` meldet der Dienst seinen Zustand an Home Assistant, als Entitäten
+mit dem Namensanfang aus `HA_PREFIX`:
+
+| Entität | Inhalt |
+|---|---|
+| `sensor.<prefix>_akku` | Ladestand in Prozent, dazu Zustand, Gesundheit, Spannung als Attribute |
+| `sensor.<prefix>_akku_temperatur` | Temperatur in °C |
+| `sensor.<prefix>_letzter_lauf` | Ergebnis des letzten Laufs, mit Zeitpunkt und Meldung |
+| `sensor.<prefix>_muenzen` | zuletzt erkannter Münzstand |
+| `binary_sensor.<prefix>_erreichbar` | ob das Gerät gerade antwortet |
+
+Das Token holt man sich in Home Assistant im eigenen Profil unter „Langzeit-Zugriffstoken". Es
+ist ein Geheimnis wie der Webhook: es steht nie in der Weboberfläche, nie im Protokoll und
+gehört nicht ins Repository.
+
+**Der Dienst schaltet in Home Assistant nichts.** Er liefert nur Werte. Das ist Absicht: eine
+Automatik, die sich selbst vom Strom trennen kann, zerstört im Fehlerfall genau das, was sie am
+Laufen halten soll. Die Entscheidung, wann eine Steckdose schaltet, gehört nach Home Assistant —
+dort gibt es Verfügbarkeitsbedingungen und Wartezeiten dafür.
+
+Ein Hinweis zur Technik: die Entitäten werden über die REST-API gesetzt und gehören zu keiner
+Integration. Nach einem Neustart von Home Assistant sind sie darum kurz weg, bis der Dienst sie
+wieder schickt — das passiert spätestens alle fünf Minuten.
 
 ## Ergebnisse und Fehlersuche
 

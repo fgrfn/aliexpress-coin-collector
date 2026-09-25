@@ -60,6 +60,14 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- Akkuauslesung, Akkuwaechter und Home-Assistant-Anbindung (0.14.0): **nur mit Attrappen
+  getestet.** Der Parser wurde an nachgebildeten `dumpsys battery`-Ausgaben geprüft, nicht an
+  einer echten Ausgabe des Produktivgeräts — die Feldnamen sind über Android-Versionen hinweg
+  stabil, belegt ist das hier aber nicht. Nach Home Assistant ging keine echte Meldung; die
+  Anfragen wurden abgefangen. Kachel, Diagramm und die beiden neuen Abschnitte der
+  Einstellungsseite wurden in Chromium angesehen. Offen: ob das Gerät `health` und
+  `temperature` überhaupt liefert, und ob `charge_full`/`charge_full_design` lesbar wären
+  (daraus liesse sich die Akkugesundheit in Prozent ableiten).
 - Abschaltbarer Abendlauf (0.13.0): **nur mit Attrappen getestet.** Entscheidung, Prüfung der
   Konfiguration, Formular und Anzeige sind durch Tests gedeckt; ob der Dienst mit abgeschaltetem
   Abendlauf über mehrere Tage so läuft, ist noch nicht im Betrieb gesehen.
@@ -132,6 +140,29 @@ schneidet `_ICON_NOISE` ab.
 
 Alle Bildbereiche sind **relative** Werte, kalibriert an 1200×1920 und 720×1280. Deutlich andere Seitenverhältnisse
 können Anpassungen erfordern.
+
+## 3b. Akku und Home Assistant
+
+- `adb.parse_battery` ist eine reine Funktion über der Ausgabe von `dumpsys battery`. Fehlende Felder bleiben `None`;
+  ein Gerät, das die Temperatur nicht meldet, gilt nicht als zu warm. `health` gilt nur bei einer ausdrücklichen
+  Fehlermeldung als schlecht — sonst warnte der Dienst auf Geräten, die den Wert nicht liefern, jeden Tag ohne Anlass.
+- Der Lauf nimmt den Stand nebenbei mit (`runner.read_battery`, fängt jede Ausnahme ab: der Check-in ist die
+  Hauptsache). Zusätzlich fragt der Dienst alle `BATTERY_POLL_MIN` Minuten nach, damit Home Assistant frische Werte
+  hat — ein einzelner Lauf am Tag genügt für eine Steckdosenautomatik nicht.
+- `scheduler.BatteryWatch` ist reine Zustandshaltung wie `Outage`: je Problem eine Meldung, Entwarnung erst, wenn
+  alle weg sind. `battery_problems` entscheidet, ohne Gedächtnis und ohne zu senden.
+- Die Datenbank bekam drei Spalten (`battery_level`, `battery_temp_c`, `battery_status`). Bestehende Installationen
+  werden beim Start des Dienstes per `ALTER TABLE` nachgezogen. Die Oberfläche öffnet nur lesend und kann darum
+  nichts migrieren; ihre Abfrage wird deshalb aus den vorhandenen Spalten zusammengesetzt und liest `NULL`, solange
+  der Dienst noch nicht gelaufen ist.
+- `homeassistant.py` setzt Zustände über `POST /api/states/<entity_id>`. **Bekannte Eigenheit:** so gesetzte
+  Entitäten gehören zu keiner Integration und sind nach einem Neustart von Home Assistant weg. Darum geht
+  spätestens alle fünf Minuten wieder etwas raus, auch ohne Änderung.
+- Der Dienst schaltet in Home Assistant nichts, und das soll auch so bleiben: eine Automatik, die das Gerät vom
+  Strom trennen kann, zerstört im Fehlerfall ihre eigene Grundlage (leerer Akku → Neustart → `adb tcpip` weg →
+  nur per USB-Kabel zu heilen).
+- `HA_TOKEN` ist ein Geheimnis wie `DISCORD_WEBHOOK_URL`: in `settings.SECRET_KEYS`, nie in der Seite, nie im
+  Protokoll. Dafür gibt es Tests.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)
 
