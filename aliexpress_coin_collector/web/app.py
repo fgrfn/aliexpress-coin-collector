@@ -175,6 +175,7 @@ def create_app(cfg: Config) -> FastAPI:
             "next_at": next_at,
             "next_in": view.relative(next_at, now) if next_at else "",
             "coins": data.latest_coins(attempts),
+            "battery": view.battery_tile(attempts, active.battery_low_pct, active.battery_hot_c),
             "streak": data.derive_streak(attempts, now.date(), offset),
         }
 
@@ -321,6 +322,7 @@ def create_app(cfg: Config) -> FastAPI:
         picked = ergebnis if any(s.outcome == ergebnis for s in data.outcome_shares(attempts)) else ""
         listed = [x for x in attempts if x.outcome == picked] if picked else attempts
         series = data.coin_series(attempts)
+        battery_points = data.battery_series(attempts)
         spread = data.gain_span(attempts)
         average = data.average_gain(attempts)
         body = page(
@@ -347,6 +349,8 @@ def create_app(cfg: Config) -> FastAPI:
             series=series,
             coin_chart=charts.coin_chart(series),
             gain_chart=charts.gain_chart(series),
+            battery_series=battery_points,
+            battery_chart=charts.battery_chart(battery_points, active.battery_low_pct),
             weekday_chart=charts.weekday_chart(data.by_weekday(attempts)),
             **service_values(),
         )
@@ -605,6 +609,10 @@ def create_app(cfg: Config) -> FastAPI:
             plan=plan_for(now.date(), active),
             # Der Webhook selbst wird nie an den Browser gegeben, nur ob einer hinterlegt ist.
             has_webhook=bool(active.discord_webhook),
+            # Dasselbe fuer das Home-Assistant-Token: nur ob eines da ist, nie welches.
+            has_ha_token=bool(active.ha_token),
+            has_mqtt_password=bool(active.mqtt_password),
+            battery=view.battery_tile(_read_attempts(active), active.battery_low_pct, active.battery_hot_c),
             stored=set(settings.load(cfg.data_dir).values),
             min_length=auth.MIN_LENGTH,
             pw_error=pw_error,
@@ -746,6 +754,82 @@ def create_app(cfg: Config) -> FastAPI:
             values["discord_webhook"] = discord_webhook.strip()
         return _store(request, values, "Benachrichtigungen")
 
+    @app.post("/einstellungen/akku")
+    def save_battery(
+        request: Request,
+        notify_on_battery: str = Form(default=""),
+        battery_poll_min: str = Form(default=""),
+        battery_low_pct: str = Form(default=""),
+        battery_hot_c: str = Form(default=""),
+    ) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        try:
+            values: dict[str, object] = {
+                "notify_on_battery": bool(notify_on_battery),
+                "battery_poll_min": _parse_int("Nachsehen alle", battery_poll_min),
+                "battery_low_pct": _parse_int("Warnen unter", battery_low_pct),
+                "battery_hot_c": _parse_int("Warnen ab", battery_hot_c),
+            }
+        except ValueError as exc:
+            return _flash(RedirectResponse("/einstellungen", status_code=303), str(exc), "bad")
+        return _store(request, values, "Akku")
+
+    @app.post("/einstellungen/homeassistant")
+    def save_homeassistant(
+        request: Request,
+        ha_url: str = Form(default=""),
+        ha_token: str = Form(default=""),
+        ha_prefix: str = Form(default=""),
+        remove_ha_token: str = Form(default=""),
+    ) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        # Das Kaestchen schaltet die Anbindung ab, nicht nur das Token: eine Adresse ohne Token
+        # waere eine Konfiguration, die der Dienst zu Recht ablehnt.
+        if remove_ha_token:
+            return _store(request, {"ha_url": "", "ha_token": ""}, "Home Assistant")
+        values: dict[str, object] = {
+            "ha_url": ha_url.strip().rstrip("/"),
+            "ha_prefix": ha_prefix.strip() or "coin_collector",
+        }
+        # Wie beim Webhook: das Token steht nie in der Seite, leer heisst darum unveraendert.
+        if ha_token.strip():
+            values["ha_token"] = ha_token.strip()
+        return _store(request, values, "Home Assistant")
+
+    @app.post("/einstellungen/mqtt")
+    def save_mqtt(
+        request: Request,
+        mqtt_host: str = Form(default=""),
+        mqtt_port: str = Form(default=""),
+        mqtt_user: str = Form(default=""),
+        mqtt_password: str = Form(default=""),
+        mqtt_discovery_prefix: str = Form(default=""),
+        remove_mqtt: str = Form(default=""),
+    ) -> Response:
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        # Wie bei Home Assistant: das Kaestchen schaltet den ganzen Weg ab.
+        if remove_mqtt:
+            return _store(request, {"mqtt_host": "", "mqtt_user": "", "mqtt_password": ""}, "MQTT")
+        values: dict[str, object] = {
+            "mqtt_host": mqtt_host.strip(),
+            "mqtt_user": mqtt_user.strip(),
+            "mqtt_discovery_prefix": mqtt_discovery_prefix.strip().strip("/") or "homeassistant",
+        }
+        try:
+            values["mqtt_port"] = _parse_int("Port", mqtt_port) if mqtt_port.strip() else 1883
+        except ValueError as exc:
+            return _flash(RedirectResponse("/einstellungen", status_code=303), str(exc), "bad")
+        # Das Passwort steht nie in der Seite, leer heisst darum unveraendert.
+        if mqtt_password.strip():
+            values["mqtt_password"] = mqtt_password.strip()
+        return _store(request, values, "MQTT")
+
     @app.get("/shot/{name}")
     def screenshot(request: Request, name: str) -> Response:
         gate = _gate(request)
@@ -792,6 +876,14 @@ FIELD_NAMES = {
     "EVENING_END": "„Abends bis“",
     "ADB_SERIAL": "Die Geräteadresse",
     "OFFLINE_ALERT_MIN": "„Melden nach“",
+    "BATTERY_POLL_MIN": "„Nachsehen alle“",
+    "BATTERY_LOW_PCT": "„Warnen unter“",
+    "BATTERY_HOT_C": "„Warnen ab“",
+    "HA_URL": "Die Adresse von Home Assistant",
+    "HA_TOKEN": "Das Home-Assistant-Token",
+    "HA_PREFIX": "Der Namensanfang der Entitäten",
+    "MQTT_PORT": "Der MQTT-Port",
+    "MQTT_DISCOVERY_PREFIX": "Der Discovery-Präfix",
     "DISCORD_WEBHOOK_URL": "Der Discord-Webhook",
 }
 

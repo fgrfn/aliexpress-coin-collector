@@ -31,6 +31,17 @@
   </div>
 
   <div class="tile">
+    <div class="label">Akku</div>
+    {% if battery %}
+      <div class="value {{ battery.tone }}">{{ battery.level }}</div>
+      <div class="sub">{{ battery.sub }}</div>
+    {% else %}
+      <div class="value">–</div>
+      <div class="sub">noch nicht gemessen</div>
+    {% endif %}
+  </div>
+
+  <div class="tile">
     <div class="label">Serie</div>
     <div class="value">{{ streak }}</div>
     <div class="sub">abgeleitet, nicht aus der App</div>

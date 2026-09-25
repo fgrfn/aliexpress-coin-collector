@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from . import ocr
-from .adb import Adb, AdbError
+from .adb import Adb, AdbError, Battery
 from .config import Config
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,8 @@ class RunResult:
     coins_after: int | None = None
     screenshot: bytes | None = None
     duration_s: float = 0.0
+    # Steht nur, wenn das Geraet ueberhaupt erreichbar war. Ein fehlender Wert ist kein Fehler.
+    battery: Battery | None = None
 
     @property
     def ok(self) -> bool:
@@ -43,6 +45,20 @@ class RunResult:
 
 
 Analyzer = Callable[[bytes, Config], ocr.PageState]
+
+
+def read_battery(adb: Adb) -> Battery | None:
+    """Akkustand nebenbei mitnehmen. Ein Fehler darf den Lauf nie beeintraechtigen.
+
+    Reiner Lesezugriff, kostet einen shell-Aufruf, weckt nichts und tippt nichts an -- und die
+    Verbindung steht an dieser Stelle ohnehin schon.
+    """
+    try:
+        reading = adb.battery()
+    except Exception as exc:  # noqa: BLE001 - der Akkustand ist Beiwerk, der Lauf ist die Hauptsache
+        log.debug("Akkustand nicht lesbar: %s", exc)
+        return None
+    return None if reading.empty else reading
 
 
 # So oft hintereinander muss der Erledigt-Zustand zu sehen sein, bevor er geglaubt wird.
@@ -115,15 +131,19 @@ def run_once(
     t0 = time.monotonic()
 
     def result(outcome: Outcome, message: str, **kw) -> RunResult:
-        return RunResult(outcome, message, duration_s=time.monotonic() - t0, **kw)
+        # Der Akkustand haengt an jedem Ergebnis, damit kein Rueckgabepfad ihn vergisst.
+        return RunResult(outcome, message, duration_s=time.monotonic() - t0, battery=battery, **kw)
 
     woke = False
+    battery: Battery | None = None
     try:
         if not adb.ensure_connected():
             return result(
                 Outcome.UNREACHABLE,
                 f"Geraet {cfg.adb_serial} nicht erreichbar. Nach einem Neustart per USB neu setzen: `adb tcpip 5555`.",
             )
+
+        battery = read_battery(adb)
 
         awake = adb.is_awake()
         if awake and cfg.skip_if_awake and not force:

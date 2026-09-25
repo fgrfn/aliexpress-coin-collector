@@ -84,6 +84,37 @@ def coin_series(attempts: list[Attempt]) -> list[DayPoint]:
     return points
 
 
+@dataclass(frozen=True)
+class BatteryPoint:
+    """Ein Tag im Akkuverlauf."""
+
+    day: date
+    level: int
+    temp_c: float | None
+
+
+def latest_battery(attempts: list[Attempt]) -> Attempt | None:
+    """Juengster Lauf, bei dem ueberhaupt ein Ladestand abgelesen wurde.
+
+    Nicht einfach der juengste Lauf: war das Geraet nicht erreichbar, steht dort nichts, und
+    dann soll die Kachel den letzten bekannten Wert zeigen statt eines Strichs.
+    """
+    known = [a for a in attempts if a.battery_level is not None]
+    return max(known, key=lambda a: a.ts) if known else None
+
+
+def battery_series(attempts: list[Attempt]) -> list[BatteryPoint]:
+    """Ein Punkt je Tag, aufsteigend nach Datum. Je Tag zaehlt der spaeteste Messwert."""
+    by_day: dict[date, Attempt] = {}
+    for attempt in sorted(attempts, key=lambda a: a.ts):
+        if attempt.battery_level is not None:
+            by_day[attempt.ts.date()] = attempt
+    return [
+        BatteryPoint(day=day, level=int(by_day[day].battery_level), temp_c=by_day[day].battery_temp_c)
+        for day in sorted(by_day)
+    ]
+
+
 def derive_streak(attempts: list[Attempt], today: date, offset: int = 0) -> int:
     """Aufeinanderfolgende Tage mit Erfolg, rueckwaerts ab heute, plus Startwert.
 

@@ -60,6 +60,24 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   selbst sind Vorgaben ohne Beleg.** Ein echter Screenshot des abgemeldeten Zustands liegt nicht
   vor. Belegt ist dagegen die Sicherheitszusage: die Prüfung läuft nur, wenn weder Knopf noch
   Erledigt-Zustand gefunden wurden, kann einen erfolgreichen Lauf also nicht stören.
+- MQTT-Discovery-Anbindung (0.15.0): **gegen einen echten Broker getestet, aber nicht gegen
+  Home Assistant.** Drei Tests laufen gegen ein laufendes Mosquitto (`tests/test_mqtt.py`,
+  werden ohne installiertes `mosquitto` uebersprungen, also auch in der CI): der Broker nimmt
+  Discovery und Zustand an, ein frisch verbundener Mithoerer bekommt beides sofort retained,
+  und das Testament faellt wirklich, wenn der Dienst per SIGKILL stirbt (in der Messung binnen
+  einer Sekunde, weil das Betriebssystem die Verbindung schliesst; bei Strom- oder Netzausfall
+  dauert es das Anderthalbfache von `KEEPALIVE_S`, also gut 45 s). **Nicht belegt** ist, dass
+  Home Assistant die Discovery-Nachrichten so annimmt, wie sie gebaut sind — dort lief nichts.
+  Insbesondere die Annahme, dass `default('unknown')` in einem `value_template` als unbekannter
+  Zustand ankommt, ist ueblich, aber hier ungeprueft.
+- Akkuauslesung, Akkuwaechter und Home-Assistant-Anbindung (0.14.0): **nur mit Attrappen
+  getestet.** Der Parser wurde an nachgebildeten `dumpsys battery`-Ausgaben geprüft, nicht an
+  einer echten Ausgabe des Produktivgeräts — die Feldnamen sind über Android-Versionen hinweg
+  stabil, belegt ist das hier aber nicht. Nach Home Assistant ging keine echte Meldung; die
+  Anfragen wurden abgefangen. Kachel, Diagramm und die beiden neuen Abschnitte der
+  Einstellungsseite wurden in Chromium angesehen. Offen: ob das Gerät `health` und
+  `temperature` überhaupt liefert, und ob `charge_full`/`charge_full_design` lesbar wären
+  (daraus liesse sich die Akkugesundheit in Prozent ableiten).
 - Abschaltbarer Abendlauf (0.13.0): **nur mit Attrappen getestet.** Entscheidung, Prüfung der
   Konfiguration, Formular und Anzeige sind durch Tests gedeckt; ob der Dienst mit abgeschaltetem
   Abendlauf über mehrere Tage so läuft, ist noch nicht im Betrieb gesehen.
@@ -132,6 +150,40 @@ schneidet `_ICON_NOISE` ab.
 
 Alle Bildbereiche sind **relative** Werte, kalibriert an 1200×1920 und 720×1280. Deutlich andere Seitenverhältnisse
 können Anpassungen erfordern.
+
+## 3b. Akku, Home Assistant und MQTT
+
+- `adb.parse_battery` ist eine reine Funktion über der Ausgabe von `dumpsys battery`. Fehlende Felder bleiben `None`;
+  ein Gerät, das die Temperatur nicht meldet, gilt nicht als zu warm. `health` gilt nur bei einer ausdrücklichen
+  Fehlermeldung als schlecht — sonst warnte der Dienst auf Geräten, die den Wert nicht liefern, jeden Tag ohne Anlass.
+- Der Lauf nimmt den Stand nebenbei mit (`runner.read_battery`, fängt jede Ausnahme ab: der Check-in ist die
+  Hauptsache). Zusätzlich fragt der Dienst alle `BATTERY_POLL_MIN` Minuten nach, damit Home Assistant frische Werte
+  hat — ein einzelner Lauf am Tag genügt für eine Steckdosenautomatik nicht.
+- `scheduler.BatteryWatch` ist reine Zustandshaltung wie `Outage`: je Problem eine Meldung, Entwarnung erst, wenn
+  alle weg sind. `battery_problems` entscheidet, ohne Gedächtnis und ohne zu senden.
+- Die Datenbank bekam drei Spalten (`battery_level`, `battery_temp_c`, `battery_status`). Bestehende Installationen
+  werden beim Start des Dienstes per `ALTER TABLE` nachgezogen. Die Oberfläche öffnet nur lesend und kann darum
+  nichts migrieren; ihre Abfrage wird deshalb aus den vorhandenen Spalten zusammengesetzt und liest `NULL`, solange
+  der Dienst noch nicht gelaufen ist.
+- `homeassistant.py` setzt Zustände über `POST /api/states/<entity_id>`. **Bekannte Eigenheit:** so gesetzte
+  Entitäten gehören zu keiner Integration und sind nach einem Neustart von Home Assistant weg. Darum geht
+  spätestens alle fünf Minuten wieder etwas raus, auch ohne Änderung.
+- Der Dienst schaltet in Home Assistant nichts, und das soll auch so bleiben: eine Automatik, die das Gerät vom
+  Strom trennen kann, zerstört im Fehlerfall ihre eigene Grundlage (leerer Akku → Neustart → `adb tcpip` weg →
+  nur per USB-Kabel zu heilen).
+- `mqtt.py` ist der zweite Weg und der bessere, wenn ein Broker da ist. Er kann drei Dinge, die die REST-API nicht
+  kann: ein Testament (Last Will), das die Entitaeten bei einem Ausfall des Dienstes auf `unavailable` setzt;
+  retained Nachrichten, die einen Neustart von Home Assistant ueberstehen; und `unique_id` plus Geraeteeintrag,
+  wodurch sich die Entitaeten umbenennen und einem Bereich zuordnen lassen.
+- Die Discovery geht bei **jedem** Verbindungsaufbau erneut raus, nicht nur beim ersten: der Broker koennte
+  zwischendurch neu gestartet worden sein und seine retained Nachrichten verloren haben. Dasselbe gilt fuer den
+  zuletzt geschickten Zustand.
+- Alle Entitaeten teilen sich ein Zustandsthema mit einer JSON-Nutzlast. Was der Dienst nicht kennt, fehlt darin;
+  die Vorlagen machen mit `default('unknown')` daraus einen unbekannten Zustand statt einer erfundenen Null.
+- `paho-mqtt` wird beim Import abgefangen: fehlt es, sagt der Dienst das einmal deutlich und laeuft weiter. Eine
+  Installation, die noch nicht aktualisiert hat, startet damit trotzdem.
+- `HA_TOKEN` und `MQTT_PASSWORD` sind Geheimnisse wie `DISCORD_WEBHOOK_URL`: in `settings.SECRET_KEYS`, nie in der Seite, nie im
+  Protokoll. Dafür gibt es Tests.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)
 

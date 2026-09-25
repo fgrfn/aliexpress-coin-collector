@@ -66,6 +66,20 @@
   </p>
 </section>
 
+<section class="card">
+  <div class="card-head">
+    <h2>Akkuverlauf</h2>
+    {% if battery_series|length > 1 %}
+      <span class="pill">{{ battery_series[-1].level }} %</span>
+    {% endif %}
+  </div>
+  {{ battery_chart }}
+  <p class="note">
+    Je Tag der letzte gemessene Ladestand. Hängt das Gerät dauerhaft am Netzteil, ist die Linie
+    eine Gerade bei 100 — fällt sie, liefert das Ladegerät nichts mehr.
+  </p>
+</section>
+
 <div class="two-up">
   <section class="card">
     <div class="card-head"><h2>Wie die Läufe ausgingen</h2></div>
