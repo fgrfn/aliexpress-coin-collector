@@ -17,6 +17,13 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 - Erkennung des **Erledigt-Zustands** und des **Münzstands** an echten Screenshots in 720×1280 und 1200×1920.
 - Ein vollständiger Lauf im Container endete mit `already_done` (Dauer rund 31 s auf einem langsamen Gerät).
 - Discord-Meldungen kommen an.
+- **Home Assistant nimmt die MQTT-Discovery an** (25.09.2026, Broker und Home Assistant beim Nutzer).
+  Alle fuenf Entitaeten standen nach dem Start des Dienstes mit Werten da: Akku 100 %, Akkutemperatur
+  27,9 °C, Geraet erreichbar "Verbunden", Letzter Lauf `claimed`, Muenzstand 140. Damit sind Aufbau der
+  Discovery-Nachrichten, `unique_id`, Geraeteeintrag und die `value_template`-Ausdruecke im echten Betrieb
+  belegt, nicht nur gegen Mosquitto.
+- **Akkuwerte vom Produktivgeraet** (Samsung SM-J330FN): `dumpsys battery` liefert Ladestand und
+  Temperatur so, wie der Parser sie erwartet — die beiden Werte oben kommen von dort.
 
 ### Nur mit Attrappen oder Näherungen getestet
 
@@ -88,18 +95,20 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   Discovery und Zustand an, ein frisch verbundener Mithoerer bekommt beides sofort retained,
   und das Testament faellt wirklich, wenn der Dienst per SIGKILL stirbt (in der Messung binnen
   einer Sekunde, weil das Betriebssystem die Verbindung schliesst; bei Strom- oder Netzausfall
-  dauert es das Anderthalbfache von `KEEPALIVE_S`, also gut 45 s). **Nicht belegt** ist, dass
-  Home Assistant die Discovery-Nachrichten so annimmt, wie sie gebaut sind — dort lief nichts.
-  Insbesondere die Annahme, dass `default('unknown')` in einem `value_template` als unbekannter
-  Zustand ankommt, ist ueblich, aber hier ungeprueft.
-- Akkuauslesung, Akkuwaechter und Home-Assistant-Anbindung (0.14.0): **nur mit Attrappen
-  getestet.** Der Parser wurde an nachgebildeten `dumpsys battery`-Ausgaben geprüft, nicht an
-  einer echten Ausgabe des Produktivgeräts — die Feldnamen sind über Android-Versionen hinweg
-  stabil, belegt ist das hier aber nicht. Nach Home Assistant ging keine echte Meldung; die
-  Anfragen wurden abgefangen. Kachel, Diagramm und die beiden neuen Abschnitte der
-  Einstellungsseite wurden in Chromium angesehen. Offen: ob das Gerät `health` und
-  `temperature` überhaupt liefert, und ob `charge_full`/`charge_full_design` lesbar wären
-  (daraus liesse sich die Akkugesundheit in Prozent ableiten).
+  dauert es das Anderthalbfache von `KEEPALIVE_S`, also gut 45 s). Dass Home Assistant die
+  Discovery-Nachrichten annimmt, ist seit dem 25.09.2026 **im Betrieb belegt** (siehe oben).
+  Offen bleibt nur der Randfall: ob `default('unknown')` in einem `value_template` wirklich als
+  unbekannter Zustand ankommt — bisher waren beim Nutzer alle Werte gesetzt. Ebenso ungesehen ist,
+  ob `expire_after` die Sensoren nach drei ausgefallenen Messungen tatsaechlich stillegt.
+- Akkuauslesung und Akkuwaechter (0.14.0): **Auslesen im Betrieb gesehen, Waechter nur mit
+  Attrappen.** Ladestand und Temperatur des Produktivgeräts stehen seit dem 25.09.2026 in Home
+  Assistant, der Parser trifft die echte `dumpsys battery`-Ausgabe also. **Nicht gesehen** ist der
+  Wächter selbst: dass eine Meldung bei niedrigem Ladestand, Überhitzung, schlechter
+  Akkugesundheit oder verlorener Stromversorgung wirklich herausgeht, ist nur durch Tests gedeckt
+  — dafür müssten die Grenzwerte einmal absichtlich gerissen werden. Kachel, Diagramm und die
+  beiden Abschnitte der Einstellungsseite wurden in Chromium angesehen. Offen: ob das Gerät
+  `health` sinnvoll meldet, und ob `charge_full`/`charge_full_design` lesbar wären (daraus liesse
+  sich die Akkugesundheit in Prozent ableiten).
 - Abschaltbarer Abendlauf (0.13.0): **nur mit Attrappen getestet.** Entscheidung, Prüfung der
   Konfiguration, Formular und Anzeige sind durch Tests gedeckt; ob der Dienst mit abgeschaltetem
   Abendlauf über mehrere Tage so läuft, ist noch nicht im Betrieb gesehen.
