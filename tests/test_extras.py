@@ -269,6 +269,41 @@ def test_find_cards_ohne_knoepfe_ergibt_nichts(cfg) -> None:
     assert extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go)) == []
 
 
+def test_erste_karte_schluckt_den_fenstertitel_nicht(cfg) -> None:
+    """Die Lage vom Geraet, 26.09.2026: drei Knoepfe bei y 517, 795, 1090, Fenstertitel bei 325.
+
+    Nach oben und unten galt eine ganze Kartenhoehe, zwischen zwei Knoepfen aber nur die halbe --
+    also griff die erste Karte doppelt so weit nach oben wie noetig und nahm den Titel mit:
+    "Weitere Muenzen verdienen Gesponserte Artikel entdecken ...".
+    """
+    woerter = [
+        W("Weitere", 100, 310),
+        W("Münzen", 230, 310),
+        W("verdienen", 360, 310),
+        W("Gesponserte", 150, 440),
+        W("Artikel", 300, 440),
+        W("entdecken", 150, 490),
+        W("Und", 560, 502),
+        W("los", 630, 502),
+        W("In", 150, 720),
+        W("kürzlich", 200, 720),
+        W("angesehenen", 150, 770),
+        W("Und", 560, 780),
+        W("los", 630, 780),
+        W("Übersicht", 150, 1015),
+        W("anzeigen", 300, 1015),
+        W("Und", 560, 1075),
+        W("los", 630, 1075),
+    ]
+    zeilen = extras.group_lines(woerter)
+    cards = extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go))
+
+    assert len(cards) == 3
+    assert "Weitere" not in cards[0].text, cards[0].text
+    assert "Gesponserte" in cards[0].text
+    assert "Übersicht" in cards[2].text
+
+
 def test_einzelner_knopf_zieht_den_fenstertitel_nicht_mit(cfg) -> None:
     """Wird nur ein Knopf gelesen, fehlt der Abstand als Massstab -- die Karte darf nicht wuchern.
 
@@ -318,6 +353,59 @@ def test_werbefenster_wird_weggetippt(cfg) -> None:
     assert len(adb.taps) >= 2
     assert adb.taps[1][0] > 400
     assert len(result.verdicts) == 1
+
+
+# Doppelt gelesene Karten vom Geraet, 26.09.2026. Beim Blaettern sieht man jede mehrfach, und
+# die Texterkennung liest sie jedes Mal etwas anders.
+DOPPELT = [
+    (
+        "Übersicht über Ihre Münzeinsparungen anzeigen 15s stöbern und sehen, wie viel Sie gespart haben",
+        "Ds Übersicht über Ihre Münzeinsparungen anzeigen 15s stöbern und sehen, wie viel Sie gespart",
+    ),
+    (
+        "Suchen, was Sie lieben Verdienen Sie durch die Nutzung von Schlüsselwörtern +5",
+        "Weitere Münzen verdienen wa> Verdienen Sie durch die Nutzung von Schlüsselwörtern +5",
+    ),
+    (
+        "Artikel ab $0.10 1 x Wasser bei Preisland hinzufügen +5 Y",
+        "Weitere Münzen verdienen Artikel ab $0.10 1 x Wasser bei Preisland hinzufügen +5",
+    ),
+]
+
+# Verschiedene Aufgaben, die sich aehnlich lesen -- die duerfen nicht verschmelzen.
+VERSCHIEDEN = [
+    (
+        "Gesponserte Artikel entdecken Stöbern, shoppen und sparen +5",
+        "In kürzlich angesehenen Artikeln stöbern Münzangebot für zuletzt angesehene Artikel im Warenkorb",
+    ),
+    (
+        "Super Rabatte anzeigen Surfen Sie 15 Sek. auf dieser Seite, um 5 Münzen zu verdienen",
+        "Gutscheine & Einkaufsguthaben für Sie! Stöbern Sie auf dieser Seite 15 Sekunden lang",
+    ),
+]
+
+
+@pytest.mark.parametrize(("eine", "andere"), DOPPELT)
+def test_dieselbe_karte_zweimal_gelesen(eine, andere) -> None:
+    assert extras.same_card(extras.normalize(eine), extras.normalize(andere))
+
+
+@pytest.mark.parametrize(("eine", "andere"), VERSCHIEDEN)
+def test_verschiedene_karten_verschmelzen_nicht(eine, andere) -> None:
+    assert not extras.same_card(extras.normalize(eine), extras.normalize(andere))
+
+
+def test_sift_verwirft_die_zweite_lesung(cfg) -> None:
+    """Sieben "brauchbare" Karten waren am Geraet in Wahrheit fuenf."""
+    cards = [extras.Card(text, 600, i * 100) for i, paar in enumerate(DOPPELT) for text in paar]
+    urteile = extras.sift(cards, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, True)
+    assert len(urteile) == len(DOPPELT)
+
+
+def test_kurze_texte_brauchen_gleichheit() -> None:
+    """Bei zwei Woertern waere ein Anteil Zufall."""
+    assert extras.same_card("rabatte anzeigen", "rabatte anzeigen")
+    assert not extras.same_card("rabatte anzeigen", "rabatte ansehen")
 
 
 def test_sift_zaehlt_jede_karte_nur_einmal(cfg) -> None:

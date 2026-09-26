@@ -258,6 +258,19 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   wird auf das **Wort**, nicht auf die Zeile: beide Knoepfe stehen nebeneinander, die Zeilenmitte
   liegt dazwischen. Nachgesehen wird nur, wenn gar keine Karte zu sehen ist -- liegt etwas davor,
   sind es keine.
+- **Dieselbe Karte wird wiedererkannt, auch wenn sie anders gelesen wird** (0.18.3). Beim Blaettern sieht
+  man jede Karte mehrfach, und die Texterkennung liest sie jedes Mal etwas anders: am 26.09.2026 wurde aus
+  "Uebersicht ueber Ihre Muenzeinsparungen" beim zweiten Mal "Ds Uebersicht ...", aus "Suchen, was Sie
+  lieben" wurde "Weitere Muenzen verdienen wa> Verdienen Sie ...". Auf Gleichheit verglichen zaehlte
+  dieselbe Aufgabe darum mehrfach -- von sieben "brauchbaren" waren nur fuenf verschieden, und mit `--los`
+  waeren zwei doppelt angetippt worden. Verglichen wird jetzt der Anteil gemeinsamer Woerter
+  (`SAME_CARD_OVERLAP`), bei sehr kurzen Texten weiter auf Gleichheit. Dasselbe Mass gilt beim
+  Wiederfinden einer Karte vor dem Antippen.
+- **Der Rand ist eine halbe Kartenhoehe, keine ganze** (0.18.2). Zwischen zwei Knoepfen liegt die Grenze
+  auf halbem Weg; ueber dem ersten und unter dem letzten galt frueher eine ganze Kartenhoehe, also der
+  doppelte Abstand. Damit zog die erste Karte den Fenstertitel mit herein ("Weitere Muenzen verdienen
+  Gesponserte Artikel entdecken ..."). Am Geraet lagen die Knoepfe 278 und 295 Pixel auseinander, der
+  Titel 190 Pixel ueber dem ersten -- mit halbem Rand faellt er heraus.
 - **Karten wachsen nicht ueber ihre uebliche Hoehe** (0.17.2). Wird nur ein Knopf gelesen, fehlt der
   Abstand zum naechsten als Massstab; ohne Grenze zieht die eine Karte den Fenstertitel und die
   Nachbarbeschreibung mit herein. Am 26.09.2026 hiess die einzige gefundene Karte darum "Weitere
@@ -278,6 +291,11 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   `find_orange_buttons` sucht kraeftiges Orange (Farbton 5-25, hoch gesaettigt) in Knopfgroesse am rechten
   Rand. Was dort liegt, muss gar nicht gelesen werden -- dass ein Knopf da ist, genuegt. Die Schriftsuche
   bleibt als Rueckfall, falls die App die Farbe aendert.
+- **Die ganze Liste am Geraet gelesen** (26.09.2026): vier Runden, 13 Lesungen, daraus zehn verschiedene
+  Aufgaben -- und alle zehn richtig einsortiert. Erlaubt: Artikel entdecken, Muenzeinsparungen, Super
+  Rabatte, Gutscheine & Einkaufsguthaben, Suchen. Gesperrt: kuerzlich angesehene Artikel (ueber
+  "Warenkorb"), Wasser bei Preisland, Merge Boss, Tagesquiz. **Nicht belegt** ist alles danach: ob der Tap
+  den Knopf trifft, ob das Zurueck in die Liste fuehrt, ob die Muenzen ankommen.
 - **Am Geraet belegt** (26.09.2026, 720x1280): die Farbmaske fand die drei sichtbaren Knoepfe, alle genau
   154x77 an derselben x-Stelle (528..682). Dazu einen Fehltreffer, die Muenzgrafik im Kopf des Fensters
   mit 226x121. Seit 0.18.1 faellt der heraus: echte Knoepfe sind untereinander gleich gross, und was um

@@ -225,16 +225,18 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
     else:
         ueblich = LONE_CARD_SPAN
 
+    # Zwischen zwei Knoepfen liegt die Grenze auf halbem Weg. Ueber dem ersten und unter dem
+    # letzten gilt derselbe Abstand -- eine ganze Kartenhoehe waere doppelt so weit und zieht
+    # herein, was darueber steht. Genau daran hing am 26.09.2026 der Fenstertitel in der ersten
+    # Karte: "Weitere Muenzen verdienen Gesponserte Artikel entdecken ...".
+    rand = max(1, ueblich // 2)
+
     cards: list[Card] = []
     for i, knopf in enumerate(knoepfe):
-        # Nie weiter als eine Kartenhoehe nach oben oder unten greifen. Ohne die Grenze zieht
-        # ein einzeln gefundener Knopf den Fenstertitel und die Nachbarkarte mit herein --
-        # genau das passierte am 26.09.2026, als nur einer von drei Knoepfen gelesen wurde.
-        oben = max(knopf.cy - ueblich, (knoepfe[i - 1].cy + knopf.cy) // 2 if i else knopf.cy - ueblich)
-        unten = min(
-            knopf.cy + ueblich,
-            (knopf.cy + knoepfe[i + 1].cy) // 2 if i + 1 < len(knoepfe) else knopf.cy + ueblich,
-        )
+        oben = (knoepfe[i - 1].cy + knopf.cy) // 2 if i else knopf.cy - rand
+        unten = (knopf.cy + knoepfe[i + 1].cy) // 2 if i + 1 < len(knoepfe) else knopf.cy + rand
+        # Sicherheitsnetz gegen ungleiche Abstaende: nie weiter als eine Kartenhoehe.
+        oben, unten = max(oben, knopf.cy - ueblich), min(unten, knopf.cy + ueblich)
         body = [line for line in lines if oben <= line.cy < unten]
         text = " ".join(line.text for line in sorted(body, key=lambda line: (line.cy, line.cx)))
         # Rechts der Mitte der Knopfzeile: steht der Knopf allein, liegt der Punkt weiter
@@ -246,9 +248,9 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
     return cards
 
 
-# Wird nur ein einziger Knopf gefunden, fehlt der Abstand zum naechsten als Massstab. Lieber zu
-# eng schneiden und die halbe Beschreibung verlieren als den Fenstertitel mit hereinziehen.
-LONE_CARD_SPAN = 200
+# Wird nur ein einziger Knopf gefunden, fehlt der Abstand zum naechsten als Massstab. Der Wert
+# ist eine typische Kartenhoehe -- am Geraet lagen die Knoepfe 278 und 295 Pixel auseinander.
+LONE_CARD_SPAN = 280
 
 
 TAKE = "nehmen"
@@ -298,6 +300,36 @@ def judge(
     return Verdict(card, UNKNOWN, "steht auf keiner Liste")
 
 
+# Wie stark sich zwei Kartentexte ueberschneiden muessen, um als dieselbe Karte zu gelten.
+SAME_CARD_OVERLAP = 0.6
+# Kurze Woerter tragen nichts zur Unterscheidung bei ("und", "sie", "auf").
+TOKEN_MIN_LEN = 4
+# Unter so vielen Woertern ist ein Anteil kein Mass mehr, sondern Zufall.
+TOKEN_QUORUM = 3
+
+
+def _tokens(key: str) -> set[str]:
+    return {t for t in key.split() if len(t) >= TOKEN_MIN_LEN}
+
+
+def same_card(a: str, b: str) -> bool:
+    """Sind das zwei Lesungen derselben Karte?
+
+    Beim Blaettern sieht man jede Karte mehrfach, und die Texterkennung liest sie jedes Mal
+    etwas anders: aus "Uebersicht ueber Ihre Muenzeinsparungen" wurde beim zweiten Mal "Ds
+    Uebersicht ueber Ihre Muenzeinsparungen", aus "Suchen, was Sie lieben" wurde "Weitere
+    Muenzen verdienen wa> Verdienen Sie durch die Nutzung ...". Auf Gleichheit zu vergleichen
+    zaehlt dieselbe Aufgabe darum mehrfach -- und mit --los wuerde sie zweimal angetippt.
+
+    Verglichen wird der Anteil gemeinsamer Woerter am kleineren der beiden Texte. Bei sehr
+    kurzen Texten faellt das auf Gleichheit zurueck: bei zwei Woertern waere ein Anteil Zufall.
+    """
+    ta, tb = _tokens(a), _tokens(b)
+    if min(len(ta), len(tb)) < TOKEN_QUORUM:
+        return a == b
+    return len(ta & tb) / min(len(ta), len(tb)) >= SAME_CARD_OVERLAP
+
+
 def sift(
     cards: Sequence[Card],
     allow: Sequence[str],
@@ -307,11 +339,9 @@ def sift(
 ) -> list[Verdict]:
     """Alle Karten beurteilen, jede nur einmal -- beim Blaettern sieht man sie mehrfach."""
     out: list[Verdict] = []
-    seen: set[str] = set()
     for card in cards:
-        if card.key in seen:
+        if any(same_card(card.key, v.card.key) for v in out):
             continue
-        seen.add(card.key)
         out.append(judge(card, allow, deny, search_markers, has_terms))
     return out
 
@@ -619,7 +649,9 @@ def _work(
     blatt: Sheet | None = None
     for versuch in range(cfg.extras_scrolls + 1):
         cards, blatt, _png = _look(adb, eyes, cfg, sleep)
-        stelle = next((c for c in cards if c.key == wanted.key), None)
+        # Gleichheit traegt hier nicht: zwischen Hinsehen und Abarbeiten liest die Erkennung
+        # denselben Text leicht anders.
+        stelle = next((c for c in cards if same_card(c.key, wanted.key)), None)
         if stelle is not None:
             break
         if versuch < cfg.extras_scrolls:
