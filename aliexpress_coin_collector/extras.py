@@ -86,6 +86,8 @@ class Eyes(Protocol):
 
     def go_spots(self, png: bytes) -> Sequence[Spot]: ...
 
+    def done_spots(self, png: bytes) -> Sequence[Spot]: ...
+
     def more_button(self, png: bytes) -> Spot | None: ...
 
     def coins(self, sheet: Sheet) -> int | None: ...
@@ -191,6 +193,9 @@ class Card:
     text: str
     go_x: int
     go_y: int
+    # Traegt die Karte statt des Knopfes ein blassgruenes Feld mit Haken? Dann ist die Aufgabe
+    # schon abgeholt, und `go_x`/`go_y` zeigen auf dieses Feld -- angetippt wird es nie.
+    done: bool = False
 
     @property
     def key(self) -> str:
@@ -206,20 +211,26 @@ def go_lines(lines: Sequence[Line], go: Sequence[str]) -> list[Line]:
     return [line for line in lines if hits(line.key, go) is not None]
 
 
-def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
-    """Aus Zeilen Karten machen, entlang der "Und los"-Knoepfe.
+def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line], erledigt: Sequence[Line] = ()) -> list[Card]:
+    """Aus Zeilen Karten machen, entlang der Anker am rechten Rand.
 
-    Je Karte ein Knopf. Die Grenze zwischen zwei Karten liegt auf halbem Weg zwischen ihren
-    Knoepfen; ueber der ersten und unter der letzten wird derselbe Abstand angenommen. Was
+    Je Karte genau ein Anker. Die Grenze zwischen zwei Karten liegt auf halbem Weg zwischen
+    ihren Ankern; ueber der ersten und unter der letzten wird derselbe Abstand angenommen. Was
     darueber liegt -- Kopfzeile, Muenzstand, der Titel des Fensters -- faellt damit heraus.
 
-    Die Knopfzeilen kommen von aussen, weil sie aus einem anderen Durchgang stammen: weisse
-    Schrift auf Orange ist erst nach einer Umkehrung lesbar, die Kartentexte dagegen stehen
-    dunkel auf weiss und kaemen dort schlechter durch.
+    **Zwei Sorten Anker**, und das ist der Kern: eine offene Aufgabe traegt den orangen Knopf
+    "Und los", eine erledigte ein blassgruenes Feld mit Haken. Bis 0.19.5 zaehlten nur die
+    Knoepfe -- eine erledigte Karte hatte damit keinen eigenen Anker, und ihr Text fiel in die
+    Karte darunter. Daher der Name "Gesponserte Artikel entdecken" auf einer Karte, die in
+    Wahrheit "In kuerzlich angesehenen Artikeln stoebern" war (am Geraet gesehen, 26.09.2026).
+
+    Die Ankerzeilen kommen von aussen, weil sie aus einem anderen Durchgang stammen: gefunden
+    werden sie ueber ihre Farbe, die Kartentexte ueber die Texterkennung.
     """
+    erledigt_y = {line.cy for line in erledigt}
+    knoepfe = sorted([*knoepfe, *erledigt], key=lambda line: line.cy)
     if not knoepfe:
         return []
-    knoepfe = sorted(knoepfe, key=lambda line: line.cy)
 
     if len(knoepfe) > 1:
         abstaende = [b.cy - a.cy for a, b in zip(knoepfe, knoepfe[1:], strict=False)]
@@ -247,7 +258,14 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
         # stehen beide auf gleicher Hoehe --, liegt er trotzdem noch auf dem Knopf und nicht
         # auf dem Text. "Und los" im Kartentext stoert nicht: es steht auf keiner Liste.
         if text.strip():
-            cards.append(Card(text=text.strip(), go_x=(knopf.cx + knopf.x2) // 2, go_y=knopf.cy))
+            cards.append(
+                Card(
+                    text=text.strip(),
+                    go_x=(knopf.cx + knopf.x2) // 2,
+                    go_y=knopf.cy,
+                    done=knopf.cy in erledigt_y,
+                )
+            )
     return cards
 
 
@@ -259,6 +277,7 @@ LONE_CARD_SPAN = 280
 TAKE = "nehmen"
 BLOCKED = "gesperrt"
 UNKNOWN = "unbekannt"
+ALREADY = "schon erledigt"
 
 # Der Zaehler auf der Karte: "2/2" heisst zweimal von zwei gemacht, "0/3" noch keinmal von drei.
 # Gelesen wird er aus dem rohen Text, nicht aus `key`: `normalize` wirft den Schraegstrich weg.
@@ -270,7 +289,7 @@ COUNT_MAX = 20
 # Wie ein Urteil auf der Kommandozeile aussieht. Steht hier und nicht im CLI-Modul, damit ein
 # neues Urteil nicht an zwei Stellen vergessen wird -- ein fehlender Eintrag warf frueher einen
 # KeyError mitten in der Ausgabe.
-SIGNS = {TAKE: "+", BLOCKED: "-", UNKNOWN: "?"}
+SIGNS = {TAKE: "+", BLOCKED: "-", UNKNOWN: "?", ALREADY: "="}
 
 
 def progress(text: str) -> tuple[int, int] | None:
@@ -314,10 +333,10 @@ def judge(
     eingetipptes Wort, das im Suchverlauf des Kontos stehen bleibt. Sie werden nur angefasst,
     wenn dafuer ausdruecklich ein Begriff hinterlegt ist.
 
-    Der Zaehler der Karte ("1/3") wird gelesen und angezeigt, **entscheidet aber nichts**. Er
-    duerfte es erst, wenn die Kartengrenzen stimmen: erledigte Aufgaben tragen keinen Knopf,
-    ihr Text faellt darum in die Karte darunter -- und mit ihm ihr Zaehler. Wer auf ein "2/2"
-    hin ueberspringt, ueberspringt heute die falsche Aufgabe. Siehe docs/STATUS.md 3c.
+    Ob eine Aufgabe schon abgeholt ist, sagt der **Haken**, nicht der Zaehler: "Super Rabatte
+    anzeigen" trug 1/3 und war offen, "Uebersicht ueber Ihre Muenzeinsparungen" gar keine Zahl
+    und war erledigt (am Geraet gesehen, 26.09.2026). Der Zaehler wird nur gelesen und
+    angezeigt -- er entscheidet nichts.
     """
     key = card.key
     zaehler = progress(card.text)
@@ -326,6 +345,8 @@ def judge(
     gesperrt = hits(key, deny)
     if gesperrt:
         return Verdict(card, BLOCKED, f"gesperrt durch {gesperrt!r}")
+    if card.done:
+        return Verdict(card, ALREADY, f"schon abgeholt{stand}")
     gesucht = hits(key, search_markers)
     if gesucht:
         if has_terms:
@@ -818,8 +839,12 @@ def cards_on(eyes: Eyes, png: bytes, cfg: Config) -> tuple[list[Card], Sheet]:
     """Was gerade auf dem Schirm steht: Kartentexte aus der Texterkennung, die Knoepfe als
     Flaechen. Zwei Wege, weil zwei verschiedene Dinge gesucht werden -- Text und eine Farbe."""
     blatt = eyes.sheet(png)
-    knoepfe = [Line(text=spot.text, cx=spot.cx, cy=spot.cy, x2=spot.x + spot.w) for spot in eyes.go_spots(png)]
-    return find_cards(group_lines(blatt.words), knoepfe), blatt
+
+    def zeilen(spots) -> list[Line]:
+        return [Line(text=s.text, cx=s.cx, cy=s.cy, x2=s.x + s.w) for s in spots]
+
+    knoepfe, erledigt = zeilen(eyes.go_spots(png)), zeilen(eyes.done_spots(png))
+    return find_cards(group_lines(blatt.words), knoepfe, erledigt), blatt
 
 
 def _type_search(adb: Adb, eyes: Eyes, sleep: Callable[[float], None], term: str) -> tuple[bool, str]:

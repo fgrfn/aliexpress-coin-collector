@@ -10,7 +10,12 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from aliexpress_coin_collector.ocr import colour_profile, find_orange_buttons
+from aliexpress_coin_collector.ocr import (
+    colour_profile,
+    find_anchors,
+    find_done_pills,
+    find_orange_buttons,
+)
 
 BREITE, HOEHE = 720, 1280
 ORANGE = (34, 103, 242)  # BGR, wie der Knopf "Und los"
@@ -153,3 +158,76 @@ def test_farbprofil_fasst_gleiche_farben_zusammen() -> None:
 
     # Weiss oben, Knopf, Weiss, Feld, Weiss unten.
     assert len(find_profile(bild)) == 5
+
+
+# -- Das blassgruene Feld erledigter Aufgaben ----------------------------------------------------
+#
+# Die Farbe ist **gemessen**, nicht geschaetzt: `acc ocr 02-liste.png --farben` auf dem
+# Produktivgeraet, 26.09.2026, ergab in der Knopfspalte H 78..79, S 13..71, V 225..249 -- und
+# fuer die Knoepfe H 12, S 227, V 247. Die gemalten Felder hier tragen genau diese Werte.
+
+HAKEN_HELL = tuple(int(c) for c in cv2.cvtColor(np.uint8([[[78, 13, 249]]]), cv2.COLOR_HSV2BGR)[0][0])
+HAKEN_KRAEFTIG = tuple(int(c) for c in cv2.cvtColor(np.uint8([[[79, 71, 225]]]), cv2.COLOR_HSV2BGR)[0][0])
+KNOPF_GEMESSEN = tuple(int(c) for c in cv2.cvtColor(np.uint8([[[12, 227, 247]]]), cv2.COLOR_HSV2BGR)[0][0])
+
+
+def test_findet_das_blassgruene_feld() -> None:
+    bild = leer()
+    knopf(bild, 400, w=154, h=77, farbe=HAKEN_HELL)
+
+    gefunden = find_done_pills(bild)
+
+    assert len(gefunden) == 1
+    assert abs(gefunden[0].h - 77) <= 4 and abs(gefunden[0].w - 154) <= 4
+
+
+def test_der_haken_im_feld_zerlegt_es_nicht() -> None:
+    """Der Haken ist kraeftiger gruen als das Feld -- daraus darf kein zweites Feld werden."""
+    bild = leer()
+    knopf(bild, 400, w=154, h=77, farbe=HAKEN_HELL)
+    cv2.line(bild, (590, 440), (600, 452), HAKEN_KRAEFTIG, 6)
+    cv2.line(bild, (600, 452), (620, 425), HAKEN_KRAEFTIG, 6)
+
+    assert len(find_done_pills(bild)) == 1
+
+
+def test_weiss_ist_kein_erledigt_feld() -> None:
+    """Der heikle Fall: das Feld hat Saettigung 13, Weiss hat 0. Viel trennt sie nicht."""
+    assert find_done_pills(leer()) == []
+
+
+def test_der_orange_knopf_ist_kein_erledigt_feld() -> None:
+    bild = leer()
+    knopf(bild, 400, w=154, h=77, farbe=KNOPF_GEMESSEN)
+
+    assert find_done_pills(bild) == []
+    assert len(find_orange_buttons(bild)) == 1
+
+
+def test_anker_liefert_beide_sorten_getrennt() -> None:
+    """Die Lage aus 02-liste.png: erledigt, offen, erledigt."""
+    bild = leer()
+    knopf(bild, 400, w=154, h=77, farbe=HAKEN_HELL)
+    knopf(bild, 700, w=154, h=77, farbe=KNOPF_GEMESSEN)
+    knopf(bild, 1000, w=154, h=77, farbe=HAKEN_HELL)
+
+    knoepfe, erledigt = find_anchors(bild)
+
+    assert len(knoepfe) == 1 and len(erledigt) == 2
+    assert knoepfe[0].y >= 696
+    assert [f.y for f in erledigt] == sorted(f.y for f in erledigt)
+
+
+def test_die_muenzgrafik_faellt_auch_mit_erledigt_feldern_raus() -> None:
+    """Die Groessenpruefung laeuft ueber beide Sorten zusammen -- erst dann hat sie Masse genug."""
+    bild = leer()
+    knopf(bild, 257, x=494, w=226, h=121, farbe=KNOPF_GEMESSEN)  # Grafik im Fensterkopf
+    knopf(bild, 479, w=154, h=77, farbe=HAKEN_HELL)
+    knopf(bild, 757, w=154, h=77, farbe=KNOPF_GEMESSEN)
+    knopf(bild, 1052, w=154, h=77, farbe=HAKEN_HELL)
+
+    knoepfe, erledigt = find_anchors(bild)
+
+    assert len(knoepfe) == 1, [b.h for b in knoepfe]
+    assert len(erledigt) == 2
+    assert all(abs(b.h - 77) <= 4 for b in [*knoepfe, *erledigt])
