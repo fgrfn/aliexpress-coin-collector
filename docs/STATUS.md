@@ -685,16 +685,25 @@ Tabelle `runs(id, ts, day, kind, outcome, coins_before, coins_after, message, du
 sonst passen Zeitfenster und gespeicherte Zeiten nicht zusammen. `kind` ist `morning`, `evening` oder `manual`, die
 möglichen Werte von `outcome` stehen in `runner.Outcome`.
 
-Dazu seit 0.19.2 `tasks(id, ts, text, ruling, reason, done, note, gain)` — eine Zeile je Zusatzaufgabe **je
+Dazu seit 0.19.2 `tasks(id, ts, text, ruling, reason, done, note, gain, coins)` — eine Zeile je Zusatzaufgabe **je
 Ausflug**, auch für die gesperrten. Sonst sähe ein Tag mit zwei Aufgaben genauso aus wie einer, an dem acht
 dastanden und sechs davon nichts für uns waren. Abgefragt wird über den Zeitraum (`tasks_between`), damit der
 Münztag gilt und nicht der Kalendertag. Dieselbe Aufgabe steht mehrfach da, wenn der Tag mehrere Ausflüge hatte;
 zusammengefasst wird erst bei der Anzeige (`web.data.checklist`, über `extras.same_card`), und **erledigt bleibt
 erledigt** — ein späterer Ausflug findet sie abgehakt vor und meldet sie nicht mehr als offen.
 
+`coins` (seit 0.19.9) ist der Münzstand am **Ende des Ausflugs**, auf der Coin-Seite gelesen — je Ausflug,
+nicht je Aufgabe: in der Liste liegt das Fenster über der Kopfzeile, dort ist der Stand nicht zu lesen. Alle
+Zeilen eines Ausflugs tragen ihn, sie teilen ohnehin denselben Zeitstempel. Er steht bewusst **nicht** in
+`runs`: dort zählt die Erfolgsquote Check-ins, und ein Ausflug ist keiner. Die Übersicht nimmt den neueren
+der beiden Stände (`web.data.newest_coins`) — vorher zeigte sie nach einem Ausflug weiter den Stand vom
+Check-in davor, genau so gemeldet am 26.09.2026.
+
 Die Tabelle kann fehlen: die Oberfläche öffnet die Datenbank nur lesend und kann nichts anlegen. Startet sie
 nach einem Update vor dem Dienst, liefert `tasks_between` eine leere Liste, statt die Seite abzuwerfen —
-derselbe Gedanke wie bei den nachgezogenen Spalten von `runs`.
+derselbe Gedanke wie bei den nachgezogenen Spalten von `runs`. Dasselbe gilt je Spalte
+(`ADDED_TASK_COLUMNS`): eine Datenbank von vor 0.19.9 kennt `coins` noch nicht, und bis der Dienst sie
+nachzieht, wird dort NULL gelesen.
 
 ## 5a. Verbindung: warum sie sich selbst heilen muss
 
