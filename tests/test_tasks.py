@@ -278,3 +278,104 @@ def test_schon_abgeholte_zaehlen_in_der_zusammenfassung_mit() -> None:
     summe = data.checklist_summary(data.checklist([erfolg()], aufgaben))
 
     assert (summe.done, summe.open, summe.skipped) == (3, 1, 1)
+
+
+# -- Der Muenzstand nach einem Ausflug -------------------------------------------------------------
+#
+# Gemeldet am 26.09.2026: "nach dem Lauf der zusatz muenzen wird immer noch der alte muenzstand
+# im dashboard angezeigt". Der Ausflug liest den Stand sehr wohl -- auf der Coin-Seite, vor und
+# nach dem Fenster --, schrieb ihn aber nirgends hin. In `runs` gehoert er nicht: dort zaehlt die
+# Erfolgsquote Check-ins, und ein Ausflug ist keiner.
+
+
+def test_to_tasks_haelt_den_muenzstand_des_ausflugs_fest() -> None:
+    result = extras.ExtrasResult(
+        entered=True,
+        verdicts=[urteil("Super Rabatte anzeigen")],
+        runs=[extras.TaskRun(text="Super Rabatte anzeigen", ok=True, note="erledigt")],
+        coins_before=222,
+        coins_after=237,
+    )
+
+    zeilen = extras.to_tasks(result, JETZT)
+
+    assert zeilen[0].coins == 237
+
+
+def test_store_liefert_den_juengsten_ausflugsstand(store: Store) -> None:
+    store.add_tasks([Task(ts=datetime(2026, 9, 26, 9, 0), text="A", ruling=extras.TAKE, coins=222)])
+    store.add_tasks([Task(ts=datetime(2026, 9, 26, 18, 0), text="B", ruling=extras.TAKE, coins=237)])
+
+    assert store.latest_extras_coins() == (datetime(2026, 9, 26, 18, 0), 237)
+
+
+def test_ohne_ausflugsstand_kommt_nichts(store: Store) -> None:
+    store.add_tasks([Task(ts=JETZT, text="A", ruling=extras.TAKE)])
+
+    assert store.latest_extras_coins() is None
+
+
+def test_alte_datenbank_ohne_die_spalte_wirft_nicht(tmp_path: Path) -> None:
+    """Die Spalte kam erst mit 0.19.9. Eine Datenbank von davor darf die Seite nicht abwerfen."""
+    import sqlite3
+
+    sqlite3.connect(tmp_path / "coins.sqlite3").executescript(
+        "CREATE TABLE runs (id INTEGER PRIMARY KEY, ts TEXT, day TEXT);"
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY, ts TEXT, text TEXT, ruling TEXT,"
+        " reason TEXT, done INTEGER, note TEXT, gain INTEGER)"
+    )
+    nur_lesen = Store(tmp_path, read_only=True)
+
+    assert nur_lesen.latest_extras_coins() is None
+    assert nur_lesen.tasks_between(datetime(2026, 9, 1), datetime(2026, 10, 1)) == []
+
+
+def test_die_spalte_wird_nachgezogen(tmp_path: Path) -> None:
+    import sqlite3
+
+    sqlite3.connect(tmp_path / "coins.sqlite3").executescript(
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL,"
+        " ruling TEXT NOT NULL, reason TEXT DEFAULT '', done INTEGER DEFAULT 0,"
+        " note TEXT DEFAULT '', gain INTEGER)"
+    )
+    store = Store(tmp_path)  # legt an und zieht nach
+    store.add_tasks([Task(ts=JETZT, text="A", ruling=extras.TAKE, coins=237)])
+
+    assert store.latest_extras_coins() == (JETZT, 237)
+
+
+# -- Welcher Stand gewinnt -------------------------------------------------------------------------
+
+
+def test_der_ausflug_gewinnt_wenn_er_neuer_ist() -> None:
+    vorher = Attempt(ts=datetime(2026, 9, 26, 9, 0), kind="morning", outcome=Outcome.CLAIMED.value, coins_after=222)
+
+    assert data.newest_coins([vorher], (datetime(2026, 9, 26, 18, 0), 237)) == 237
+
+
+def test_der_lauf_gewinnt_wenn_er_neuer_ist() -> None:
+    """Ein Check-in nach dem Ausflug -- etwa am naechsten Morgen."""
+    spaeter = Attempt(ts=datetime(2026, 9, 27, 9, 0), kind="morning", outcome=Outcome.CLAIMED.value, coins_after=260)
+
+    assert data.newest_coins([spaeter], (datetime(2026, 9, 26, 18, 0), 237)) == 260
+
+
+def test_ohne_ausflug_bleibt_es_beim_lauf() -> None:
+    lauf = Attempt(ts=JETZT, kind="morning", outcome=Outcome.CLAIMED.value, coins_after=222)
+
+    assert data.newest_coins([lauf], None) == 222
+
+
+def test_ohne_lauf_gewinnt_der_ausflug() -> None:
+    assert data.newest_coins([], (JETZT, 237)) == 237
+
+
+def test_ganz_ohne_alles() -> None:
+    assert data.newest_coins([], None) is None
+
+
+def test_laeufe_ohne_erkannten_stand_zaehlen_nicht_als_neuer() -> None:
+    """Ein spaeterer Lauf, der nichts erkannt hat, darf den Ausflugsstand nicht verdraengen."""
+    blind = Attempt(ts=datetime(2026, 9, 26, 20, 0), kind="evening", outcome=Outcome.ERROR.value)
+
+    assert data.newest_coins([blind], (datetime(2026, 9, 26, 18, 0), 237)) == 237

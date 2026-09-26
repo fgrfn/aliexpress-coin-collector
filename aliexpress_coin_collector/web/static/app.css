@@ -1533,10 +1533,22 @@ input[type="number"] {
 }
 
 /* ---------------------------------------------------------------- Tagesplan */
+/* Der Zeitplan steht seit 0.19.9 in derselben Karte wie die Knoepfe -- eine eigene Karte
+   dafuer war eine Ueberschrift fuer zwei Uhrzeiten. Die Linie trennt Tun von Anzeigen. */
+/* Steht die Ueberschrift darueber, traegt sie den Abstand -- sonst doppelt er sich. */
+h3.group + .plan-row {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
 .plan-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 14px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
 }
 
 .plan-slot {

@@ -45,6 +45,14 @@ ADDED_COLUMNS = {
 
 _BASE_COLUMNS = ("ts", "kind", "outcome", "coins_before", "coins_after", "message", "duration_s")
 
+# Dasselbe fuer die Tabelle `tasks`. `coins` ist der Muenzstand am Ende des Ausflugs, gelesen
+# auf der Coin-Seite -- je Ausflug, nicht je Aufgabe: in der Liste liegt das Fenster ueber der
+# Kopfzeile und der Stand ist dort nicht zu lesen. Alle Zeilen eines Ausflugs tragen ihn, sie
+# teilen ohnehin denselben Zeitstempel.
+ADDED_TASK_COLUMNS = {"coins": "INTEGER"}
+
+_TASK_COLUMNS = ("ts", "text", "ruling", "reason", "done", "note", "gain")
+
 
 @dataclass(frozen=True)
 class Attempt:
@@ -77,6 +85,8 @@ class Task:
     done: bool = False
     note: str = ""
     gain: int | None = None
+    # Muenzstand am Ende des Ausflugs, auf der Coin-Seite gelesen -- je Ausflug, nicht je Aufgabe.
+    coins: int | None = None
 
 
 class Store:
@@ -94,6 +104,7 @@ class Store:
             self._conn = sqlite3.connect(uri, uri=True)
             self._select = self._build_select()
             self._has_tasks = self._table_exists("tasks")
+            self._task_select = self._build_task_select()
             return
         data_dir.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path)
@@ -101,6 +112,7 @@ class Store:
         self._migrate()
         self._select = self._build_select()
         self._has_tasks = True
+        self._task_select = self._build_task_select()
 
     def _table_exists(self, name: str) -> bool:
         """Die Oberflaeche liest nur und kann nichts anlegen. Startet sie nach einem Update
@@ -115,12 +127,17 @@ class Store:
         with self._conn:
             for name, typ in ADDED_COLUMNS.items():
                 if name not in have:
-                    log.info("Datenbank wird erweitert: Spalte %s", name)
+                    log.info("Datenbank wird erweitert: runs.%s", name)
                     self._conn.execute(f"ALTER TABLE runs ADD COLUMN {name} {typ}")
+            have_tasks = self._column_names("tasks")
+            for name, typ in ADDED_TASK_COLUMNS.items():
+                if name not in have_tasks:
+                    log.info("Datenbank wird erweitert: tasks.%s", name)
+                    self._conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {typ}")
 
-    def _column_names(self) -> set[str]:
+    def _column_names(self, table: str = "runs") -> set[str]:
         try:
-            return {r[1] for r in self._conn.execute("PRAGMA table_info(runs)")}
+            return {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
         except sqlite3.Error:
             return set()
 
@@ -134,6 +151,17 @@ class Store:
         have = self._column_names()
         extra = [name if name in have else "NULL" for name in ADDED_COLUMNS]
         return f"SELECT {', '.join((*_BASE_COLUMNS, *extra))} FROM runs"
+
+    def _build_task_select(self) -> str:
+        """Wie `_build_select`, nur fuer `tasks`: die Oberflaeche liest nur und kann nichts
+        nachziehen. Fehlt eine Spalte noch, wird an ihrer Stelle NULL gelesen."""
+        have = self._column_names("tasks")
+        extra = [name if name in have else "NULL" for name in ADDED_TASK_COLUMNS]
+        return f"SELECT {', '.join((*_TASK_COLUMNS, *extra))} FROM tasks"
+
+    @staticmethod
+    def _task_row(r: tuple) -> Task:
+        return Task(datetime.fromisoformat(r[0]), r[1], r[2], r[3] or "", bool(r[4]), r[5] or "", r[6], r[7])
 
     def add(self, attempt: Attempt) -> None:
         if self.read_only:
@@ -208,7 +236,7 @@ class Store:
             return
         with self._conn:
             self._conn.executemany(
-                "INSERT INTO tasks (ts, text, ruling, reason, done, note, gain) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO tasks (ts, text, ruling, reason, done, note, gain, coins) VALUES (?,?,?,?,?,?,?,?)",
                 [
                     (
                         t.ts.isoformat(timespec="seconds"),
@@ -218,6 +246,7 @@ class Store:
                         int(t.done),
                         t.note,
                         t.gain,
+                        t.coins,
                     )
                     for t in tasks
                 ],
@@ -228,10 +257,24 @@ class Store:
         if not self._has_tasks:
             return []
         rows = self._conn.execute(
-            "SELECT ts, text, ruling, reason, done, note, gain FROM tasks WHERE ts >= ? AND ts < ? ORDER BY ts",
+            f"{self._task_select} WHERE ts >= ? AND ts < ? ORDER BY ts",
             (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")),
         )
-        return [Task(datetime.fromisoformat(r[0]), r[1], r[2], r[3] or "", bool(r[4]), r[5] or "", r[6]) for r in rows]
+        return [self._task_row(r) for r in rows]
+
+    def latest_extras_coins(self) -> tuple[datetime, int] | None:
+        """Wann zuletzt bei einem Ausflug welcher Muenzstand zu sehen war, oder None.
+
+        Die Zusatzaufgaben stehen nicht in `runs`: die Erfolgsquote zaehlt Check-ins, und ein
+        Ausflug ist keiner. Der Stand, den er dabei sieht, ist aber der neueste, den es gibt --
+        nach einem Ausflug zeigte die Uebersicht sonst weiter den vom Check-in davor.
+        """
+        if not self._has_tasks or "coins" not in self._column_names("tasks"):
+            return None
+        row = self._conn.execute(
+            "SELECT ts, coins FROM tasks WHERE coins IS NOT NULL ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+        return (datetime.fromisoformat(row[0]), int(row[1])) if row else None
 
     def outcome_counts(self) -> dict[str, int]:
         cur = self._conn.execute("SELECT outcome, COUNT(*) FROM runs GROUP BY outcome")

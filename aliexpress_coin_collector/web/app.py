@@ -87,6 +87,10 @@ def _read_attempts(cfg: Config) -> list[Attempt]:
         return []
 
 
+# Hoehe des Muenzverlaufs auf der Uebersicht. Die Verlaufsseite zeigt ihn in voller Hoehe.
+DASHBOARD_CHART_H = 150
+
+
 def _read_tasks(cfg: Config, start: datetime, end: datetime) -> list[Task]:
     """Die Zusatzaufgaben eines Muenztags. Fehlt die Tabelle noch, ist der Tag eben leer."""
     try:
@@ -94,6 +98,15 @@ def _read_tasks(cfg: Config, start: datetime, end: datetime) -> list[Task]:
     except sqlite3.Error as exc:
         log.warning("Zusatzaufgaben nicht lesbar: %s", exc)
         return []
+
+
+def _extras_coins(cfg: Config) -> tuple[datetime, int] | None:
+    """Muenzstand vom letzten Ausflug zu den Zusatzaufgaben. Fehlt die Tabelle, eben nichts."""
+    try:
+        return Store(cfg.data_dir, read_only=True).latest_extras_coins()
+    except sqlite3.Error as exc:
+        log.warning("Muenzstand der Zusatzaufgaben nicht lesbar: %s", exc)
+        return None
 
 
 def _heartbeat(cfg: Config) -> datetime | None:
@@ -201,7 +214,7 @@ def create_app(cfg: Config) -> FastAPI:
             "last": view.last_tile(attempts),
             "next_at": next_at,
             "next_in": view.relative(next_at, now) if next_at else "",
-            "coins": data.latest_coins(attempts),
+            "coins": data.newest_coins(attempts, _extras_coins(active)),
             "battery": view.battery_tile(attempts, active.battery_low_pct, active.battery_hot_c, _status(active)),
             "streak": data.derive_streak(attempts, now.date(), offset),
         }
@@ -308,7 +321,9 @@ def create_app(cfg: Config) -> FastAPI:
             checklist=items,
             checklist_summary=data.checklist_summary(items),
             series=series,
-            chart=charts.coin_chart(series),
+            # Flacher als auf der Verlaufsseite: hier ist der Verlauf Einordnung, nicht
+            # das Thema -- und ein hohes Diagramm schob alles Wichtige nach unten.
+            chart=charts.coin_chart(series, height=DASHBOARD_CHART_H),
             attempts=view.rows(attempts[:TABLE_LIMIT], _shots(active)),
             stall=data.stalled_since(attempts),
             **status,

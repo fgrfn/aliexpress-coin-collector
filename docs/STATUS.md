@@ -652,6 +652,31 @@ funktioniert `sudo` nicht (es braucht setuid). `polkit` ist in einem schlanken L
 installiert. Eine systemd-Pfadeinheit auf `data/control` braucht beides nicht und lässt die
 Absicherung des Webdienstes unangetastet.
 
+## 4b. Die Uebersicht (`web/templates/dashboard.html`)
+
+Die Reihenfolge der Seite ist eine Entscheidung, keine gewachsene Liste (0.19.9, auf Wunsch des
+Nutzers umgestellt):
+
+1. **Was klemmt** -- Stillstandswarnung, Dienst steht. Bannerkarten, nur wenn es sie gibt.
+2. **Der Zustand auf einen Blick** -- die sechs Kacheln, aktualisieren sich allein alle 5 s.
+3. **Die Knoepfe.** Vorher standen sie unter dem Diagramm; wer einen Lauf anstossen wollte,
+   musste erst daran vorbeiscrollen. Der Zeitplan steht in derselben Karte: es ist dieselbe
+   Frage -- wann laeuft etwas, und was kann ich jetzt anstossen. Eine eigene Karte dafuer war
+   eine Ueberschrift fuer zwei Uhrzeiten.
+4. **Was der Tag hergab** -- die Tagesliste.
+5. **Der Muenzverlauf**, flacher als auf der Verlaufsseite (`DASHBOARD_CHART_H`): hier ist er
+   Einordnung, nicht das Thema. Ein hohes Diagramm schob alles Wichtige nach unten.
+6. **Die Historie** zuletzt -- Nachschlagewerk, kein Blickfang.
+
+Die beiden Knoepfe sind verschieden laut: der Check-in gefuellt, die Zusatzaufgaben als Umriss.
+Zwei gleich gefuellte Knoepfe nebeneinander sind zwei Hauptsachen, und das stimmt nicht.
+
+**Der Muenzverlauf traegt einen Punkt je Tag** (0.19.9). Gefuellt heisst: an dem Tag kamen
+Muenzen dazu; hohl heisst, es gab keinen Zuwachs oder er liess sich nicht bestimmen. Die blosse
+Linie zeigte nur den Stand, und ein flaches Stueck sah aus wie ein Datenloch -- jetzt ist ohne
+Hover zu sehen, an welchen Tagen wirklich gesammelt wurde. Die Zahl steht im Tooltip. Ab
+`_DENSE_FROM` Tagen werden die Punkte kleiner gezeichnet, statt sie wegzulassen.
+
 ## 5. Datenbank (`store.py`)
 
 Tabelle `runs(id, ts, day, kind, outcome, coins_before, coins_after, message, duration_s)`.
@@ -660,16 +685,25 @@ Tabelle `runs(id, ts, day, kind, outcome, coins_before, coins_after, message, du
 sonst passen Zeitfenster und gespeicherte Zeiten nicht zusammen. `kind` ist `morning`, `evening` oder `manual`, die
 möglichen Werte von `outcome` stehen in `runner.Outcome`.
 
-Dazu seit 0.19.2 `tasks(id, ts, text, ruling, reason, done, note, gain)` — eine Zeile je Zusatzaufgabe **je
+Dazu seit 0.19.2 `tasks(id, ts, text, ruling, reason, done, note, gain, coins)` — eine Zeile je Zusatzaufgabe **je
 Ausflug**, auch für die gesperrten. Sonst sähe ein Tag mit zwei Aufgaben genauso aus wie einer, an dem acht
 dastanden und sechs davon nichts für uns waren. Abgefragt wird über den Zeitraum (`tasks_between`), damit der
 Münztag gilt und nicht der Kalendertag. Dieselbe Aufgabe steht mehrfach da, wenn der Tag mehrere Ausflüge hatte;
 zusammengefasst wird erst bei der Anzeige (`web.data.checklist`, über `extras.same_card`), und **erledigt bleibt
 erledigt** — ein späterer Ausflug findet sie abgehakt vor und meldet sie nicht mehr als offen.
 
+`coins` (seit 0.19.9) ist der Münzstand am **Ende des Ausflugs**, auf der Coin-Seite gelesen — je Ausflug,
+nicht je Aufgabe: in der Liste liegt das Fenster über der Kopfzeile, dort ist der Stand nicht zu lesen. Alle
+Zeilen eines Ausflugs tragen ihn, sie teilen ohnehin denselben Zeitstempel. Er steht bewusst **nicht** in
+`runs`: dort zählt die Erfolgsquote Check-ins, und ein Ausflug ist keiner. Die Übersicht nimmt den neueren
+der beiden Stände (`web.data.newest_coins`) — vorher zeigte sie nach einem Ausflug weiter den Stand vom
+Check-in davor, genau so gemeldet am 26.09.2026.
+
 Die Tabelle kann fehlen: die Oberfläche öffnet die Datenbank nur lesend und kann nichts anlegen. Startet sie
 nach einem Update vor dem Dienst, liefert `tasks_between` eine leere Liste, statt die Seite abzuwerfen —
-derselbe Gedanke wie bei den nachgezogenen Spalten von `runs`.
+derselbe Gedanke wie bei den nachgezogenen Spalten von `runs`. Dasselbe gilt je Spalte
+(`ADDED_TASK_COLUMNS`): eine Datenbank von vor 0.19.9 kennt `coins` noch nicht, und bis der Dienst sie
+nachzieht, wird dort NULL gelesen.
 
 ## 5a. Verbindung: warum sie sich selbst heilen muss
 
@@ -823,10 +857,9 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
 5. **Popups wegtippen** (Bewertungsaufforderung, Update-Hinweis) statt daran zu scheitern.
 6. **Zusatzaufgaben.** Angefangen in 0.17.0, am Geraet belegt seit 0.19.1, seit 0.19.2 im Dienst
    (`EXTRAS_AFTER_RUN`, Vorgabe an) und als Knopf auf der Uebersicht. Was noch offen ist:
-   - **Der Muenzstand aus einem Ausflug landet nicht in `runs`.** Die einzelnen Gewinne stehen jetzt in
-     `tasks.gain` und in der Tagesliste, aber der Stand, den die Oberflaeche gross anzeigt, kommt weiter
-     vom letzten Check-in. Eine eigene Zeile in `runs` (Art `extras`) waere die kleinste Loesung,
-     verwaessert aber die Erfolgsquote des Check-ins.
+   - ~~**Der Muenzstand aus einem Ausflug landet nirgends.**~~ Behoben in 0.19.9: er steht in
+     `tasks.coins`, und die Uebersicht nimmt den neueren von beiden (`web.data.newest_coins`).
+     Nicht in `runs`: dort zaehlt die Erfolgsquote Check-ins, und ein Ausflug ist keiner.
     - ~~**Mehrfach erledigbare Aufgaben.**~~ Umgesetzt in 0.19.7, siehe Abschnitt 3c.
    - **Der Zaehler am Rand wird nicht abgelesen.** Waehrend der Verweildauer laeuft rechts eine Uhr und
      zeigt am Ende einen gruenen Haken. Gewartet wird stur `EXTRAS_DWELL_S`; ob eine Aufgabe wirklich

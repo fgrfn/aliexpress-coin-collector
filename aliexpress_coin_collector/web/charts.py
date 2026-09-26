@@ -20,8 +20,20 @@ def _escape(value: str) -> str:
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
+# Ab so vielen Tagen ruecken die Punkte so eng zusammen, dass grosse Kreise die Linie
+# zudecken. Dann kleiner zeichnen, statt sie wegzulassen -- sie sind die eigentliche Aussage.
+_DENSE_FROM = 45
+
+
 def coin_chart(points: list[DayPoint], width: int = 950, height: int = 220) -> Markup:
-    """Muenzstand als Linie. Bei weniger als zwei Punkten ein Hinweis statt einer Linie.
+    """Muenzstand als Linie, mit einem Punkt je Tag.
+
+    **Gefuellt heisst: an dem Tag kamen Muenzen dazu.** Hohl heisst, es gab keinen Zuwachs oder
+    er liess sich nicht bestimmen. Damit ist ohne Hover zu sehen, an welchen Tagen wirklich
+    gesammelt wurde -- die blosse Linie zeigte nur den Stand, und ein flaches Stueck sah aus
+    wie ein Datenloch. Die genaue Zahl steht im Tooltip.
+
+    Bei weniger als zwei Punkten ein Hinweis statt einer Linie.
 
     Das Ergebnis ist als sicher markiert, weil es hier vollstaendig selbst gebaut wird. Alles,
     was aus der Datenbank kommt, sind Zahlen und Datumsangaben; der einzige freie Text ist die
@@ -72,10 +84,21 @@ def coin_chart(points: list[DayPoint], width: int = 950, height: int = 220) -> M
         f'<polyline points="{line}" fill="none" stroke="var(--brand)" stroke-width="2.2" '
         'stroke-linejoin="round" stroke-linecap="round"/>'
     )
-    parts.append(
-        f'<circle cx="{x_at(last):.1f}" cy="{y_at(values[-1]):.1f}" r="4" fill="var(--brand)" '
-        'stroke="var(--surface)" stroke-width="2"/>'
-    )
+    radius = 3.4 if len(points) <= _DENSE_FROM else 2.2
+    for i, punkt in enumerate(points):
+        geholt = bool(punkt.gain and punkt.gain > 0)
+        tip = f"{punkt.day:%d.%m.%Y}: {punkt.coins} Münzen"
+        if punkt.gain is not None:
+            tip += f" ({punkt.gain:+d} an dem Tag)"
+        if i == last:
+            # Der letzte Tag traegt den Ring, damit das Ende der Linie ins Auge faellt.
+            kreis = f'r="{radius + 1.2:.1f}" fill="var(--brand)" stroke="var(--surface)" stroke-width="2"'
+        else:
+            fuellung = "var(--brand)" if geholt else "var(--surface)"
+            kreis = f'r="{radius}" fill="{fuellung}" stroke="var(--brand)" stroke-width="1.6"'
+        parts.append(
+            f'<circle cx="{x_at(i):.1f}" cy="{y_at(punkt.coins):.1f}" {kreis}><title>{_escape(tip)}</title></circle>'
+        )
     for day, i, anchor in ((points[0].day, 0, "start"), (points[-1].day, last, "end")):
         parts.append(
             f'<text x="{x_at(i):.1f}" y="{height - 7}" text-anchor="{anchor}" font-size="11" '

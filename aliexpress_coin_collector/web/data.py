@@ -198,6 +198,22 @@ class CheckItem:
         return self.state == DONE
 
 
+def newest_coins(attempts: list[Attempt], extras: tuple[datetime, int] | None) -> int | None:
+    """Der zuletzt gesehene Muenzstand, egal woher.
+
+    `latest_coins` kennt nur die Laeufe. Ein Ausflug zu den Zusatzaufgaben steht nicht in
+    `runs` -- er ist kein Check-in --, sieht den Stand aber genauso, und danach ist er der
+    neuere. Gemeldet am 26.09.2026: nach dem Ausflug stand auf der Uebersicht weiter der Stand
+    vom Check-in davor.
+    """
+    aus_laeufen = latest([a for a in attempts if a.coins_after is not None or a.coins_before is not None])
+    if extras is None:
+        return latest_coins(attempts)
+    if aus_laeufen is None or extras[0] >= aus_laeufen.ts:
+        return extras[1]
+    return latest_coins(attempts)
+
+
 def _checkin_item(attempts: list[Attempt]) -> CheckItem:
     """Der taegliche Check-in als erste Zeile -- er ist die Hauptsache, nicht ein Punkt unter vielen."""
     erfolg = next((a for a in attempts if a.outcome in SUCCESS_VALUES), None)
