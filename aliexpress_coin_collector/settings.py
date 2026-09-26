@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 SETTINGS_FILE = "settings.json"
 
 # Uhrzeiten, als "HH:MM" abgelegt.
-WINDOW_KEYS = ("morning_start", "morning_end", "evening_start", "evening_end")
+WINDOW_KEYS = ("morning_start", "morning_end", "evening_start", "evening_end", "coin_day_start")
 # Ja/Nein.
 FLAG_KEYS = (
     "evening_enabled",

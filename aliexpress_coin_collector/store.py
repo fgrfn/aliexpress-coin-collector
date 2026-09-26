@@ -137,6 +137,15 @@ class Store:
             r[9] or "",
         )
 
+    def between(self, start: datetime, end: datetime) -> list[Attempt]:
+        """Versuche in einem Zeitraum [start, end). Fuer den Muenztag, der nicht um
+        Mitternacht beginnt -- die Spalte `day` traegt weiter den Kalendertag."""
+        rows = self._conn.execute(
+            f"{self._select} WHERE ts >= ? AND ts < ? ORDER BY ts",
+            (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")),
+        )
+        return [self._row(r) for r in rows]
+
     def for_day(self, day: date) -> list[Attempt]:
         cur = self._conn.execute(
             f"{self._select} WHERE day=? ORDER BY ts",

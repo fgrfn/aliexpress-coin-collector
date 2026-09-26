@@ -36,7 +36,15 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__, commands, logs, notify, scheduler, settings
 from ..config import Config, ConfigError
-from ..scheduler import HEARTBEAT_FILE, REQUEST_FILE, next_due, plan_for, with_current_settings
+from ..scheduler import (
+    HEARTBEAT_FILE,
+    REQUEST_FILE,
+    coin_day,
+    coin_day_bounds,
+    next_due,
+    plan_for,
+    with_current_settings,
+)
 from ..store import Attempt, Store
 from . import auth, charts, data, imagecheck, view
 
@@ -167,7 +175,10 @@ def create_app(cfg: Config) -> FastAPI:
         active = current_cfg()
         now = datetime.now()
         attempts = _read_attempts(active)
-        today = [a for a in attempts if a.ts.date() == now.date()]
+        # Der Muenztag beginnt nicht um Mitternacht: vor seinem Beginn gehoeren die bisherigen
+        # Versuche noch zu gestern, und fuer heute steht noch alles aus.
+        von, bis = coin_day_bounds(coin_day(now, active.coin_day_start), active.coin_day_start)
+        today = [a for a in attempts if von <= a.ts < bis and coin_day(now, active.coin_day_start) == now.date()]
         beat = _heartbeat(active)
         alive = data.service_alive(beat, now)
         next_at = next_due(now, active, today)

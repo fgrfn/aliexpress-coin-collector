@@ -67,7 +67,8 @@ aliexpress_coin_collector/
   extras.py     Zusatzaufgaben der Coin-Seite: Karten erkennen, auswählen, abarbeiten
                 (Positivliste; die Sperrliste gewinnt immer)
   runner.py     ein Lauf: Outcome-Logik, Wartezeiten, Wiederholung, Bestätigung
-  scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen
+  scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen.
+                Der Münztag beginnt nicht um Mitternacht: coin_day/COIN_DAY_START
   store.py      SQLite (Tabelle runs)
   stats.py      Rechenregeln über der Historie (Quote, Zuwachs, Stillstand), von Dienst
                 und Oberfläche genutzt
@@ -92,6 +93,7 @@ tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings
                 brauchen ein installiertes mosquitto und werden sonst uebersprungen),
                 test_web_pages.py, test_web_device.py, test_web_diagnose.py,
                 test_extras.py (Aufgabentexte aus echten Screenshots),
+                test_coin_day.py (Münztag, der nicht um Mitternacht beginnt),
                 test_button_color.py (Knopfsuche über die Farbe, an gemalten Bildern),
                 test_web_stats.py, test_web_settings.py, test_notify.py,
                 test_ocr_login.py, test_stall.py

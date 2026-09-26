@@ -42,6 +42,42 @@ def _random_between(rng: random.Random, day: date, start: dtime, end: dtime) -> 
     return s + timedelta(seconds=rng.randint(0, int((e - s).total_seconds())))
 
 
+def coin_day(when: datetime, start: dtime) -> date:
+    """Der Muenztag, zu dem dieser Zeitpunkt gehoert.
+
+    Der Tag der App beginnt nicht um Mitternacht: die neuen Muenzen stehen erst am Vormittag
+    bereit. Wer davor nachsieht, sieht noch den Stand des Vortags -- die Seite meldet "heute
+    schon eingecheckt", und das stimmt auch, nur eben fuer gestern.
+
+    Ohne diese Rechnung verbucht ein Lauf um vier Uhr morgens genau das als Erfolg des neuen
+    Tages, und der echte Lauf des Tages faellt aus. Genau so passiert am 26.09.2026.
+    """
+    return when.date() - timedelta(days=1) if when.time() < start else when.date()
+
+
+def coin_day_bounds(day: date, start: dtime) -> tuple[datetime, datetime]:
+    """Anfang und Ende eines Muenztags als Zeitpunkte -- [Anfang, Ende)."""
+    von = datetime.combine(day, start)
+    return von, von + timedelta(days=1)
+
+
+def attempts_of_coin_day(store: Store, now: datetime, cfg: Config) -> list[Attempt]:
+    """Die Versuche des laufenden Muenztags."""
+    von, bis = coin_day_bounds(coin_day(now, cfg.coin_day_start), cfg.coin_day_start)
+    return store.between(von, bis)
+
+
+def attempts_for_plan_day(store: Store, now: datetime, cfg: Config) -> list[Attempt]:
+    """Die Versuche, die fuer den Plan des heutigen Kalendertags zaehlen.
+
+    Vor dem Beginn des Muenztags gehoeren die bisherigen Versuche noch zu gestern -- fuer den
+    heutigen Plan zaehlt dann noch keiner, und der naechste faellige Lauf steht noch aus.
+    """
+    if coin_day(now, cfg.coin_day_start) != now.date():
+        return []
+    return attempts_of_coin_day(store, now, cfg)
+
+
 def plan_for(day: date, cfg: Config) -> Plan:
     """Zufaellige, aber pro Tag stabile Uhrzeiten (ueberlebt Neustarts des Dienstes)."""
     rng = random.Random(f"{_SEED}-{day.isoformat()}")
@@ -819,7 +855,7 @@ def tick(
         )
         announced = now.date()
 
-    decision = decide(now, plan, store.for_day(now.date()), cfg)
+    decision = decide(now, plan, attempts_of_coin_day(store, now, cfg), cfg)
     if decision:
         log.info("Starte %s%s", decision.kind, " (erzwungen)" if decision.force else "")
         result = run_once(cfg, adb, force=decision.force)
@@ -954,6 +990,16 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
         cfg.evening_start,
         cfg.evening_end,
     )
+    log.info("Der Muenztag beginnt um %s", cfg.coin_day_start)
+    if cfg.morning_start < cfg.coin_day_start:
+        # Kein Fehler, aber selten gewollt: der Lauf faende die neuen Muenzen noch nicht vor,
+        # meldete "schon erledigt" fuer gestern, und erst ein spaeterer Lauf holte sie wirklich.
+        log.warning(
+            "Das Morgenfenster beginnt um %s, der Muenztag erst um %s -- ein Lauf davor sieht noch"
+            " den Stand des Vortags. MORNING_START besser nicht vor COIN_DAY_START legen.",
+            cfg.morning_start,
+            cfg.coin_day_start,
+        )
     announced: date | None = None
     reconnect, outage, battery = Reconnect(), Outage(), BatteryWatch()
     link = BrokerLink()
