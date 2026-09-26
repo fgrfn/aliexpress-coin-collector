@@ -994,3 +994,82 @@ def test_nach_der_ersten_aufgabe_ausgestiegen(cfg) -> None:
     assert adb.calls.count("back") == 1
     # Und die zweite Aufgabe wurde gar nicht erst gesucht.
     assert len(result.runs) == 1 and not result.runs[0].ok
+
+
+# -- Wenn die Liste gar nicht erst kommt ---------------------------------------------------------
+#
+# Gemeldet am 26.09.2026: "klick auf mehr coins verdienen, dann lange nichts, app schliesst und
+# es wird zwischen dem homescreen hin und her gewischt". Nach dem Knopf kam keine Liste -- und
+# gewischt wurde trotzdem, auf einem Bildschirm, den niemand erkannt hatte.
+
+
+class KeineListe(FakeAdb):
+    """Der Knopf laesst sich tippen, aber es kommt nie eine Liste."""
+
+    def screenshot(self) -> bytes:
+        self.calls.append("screenshot")
+        return b"coin"  # immer dieselbe Seite, nie Karten
+
+
+def test_ohne_liste_wird_nicht_gewischt(cfg) -> None:
+    adb = KeineListe()
+    eyes = FakeEyes(sheets={b"coin": S(words=[])}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert result.note == extras.NO_LIST
+    assert "swipe" not in adb.calls, adb.calls
+
+
+def test_ohne_liste_wird_die_app_beendet(cfg) -> None:
+    adb = KeineListe()
+    eyes = FakeEyes(sheets={b"coin": S(words=[])}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert adb.calls[-1] == "force_stop"
+    # Und kein Zurueck: auf einem unerkannten Bildschirm ist das der Griff ins Ungewisse.
+    assert "back" not in adb.calls
+
+
+def test_ohne_liste_wird_der_knopf_trotzdem_getippt(cfg) -> None:
+    """Nur der eine Tap, der die Liste oeffnen sollte -- danach keiner mehr."""
+    adb = KeineListe()
+    eyes = FakeEyes(sheets={b"coin": S(words=[])}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert len(adb.taps) == 1
+
+
+class ListeNurBeimLesen(FakeAdb):
+    """Beim Hinsehen steht die Liste, beim Abarbeiten ist sie weg -- die App laeuft weiter.
+
+    Das Hinsehen braucht vier Blicke (eine Runde plus drei Wische). Danach kommt nichts mehr.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.blicke = 0
+
+    def screenshot(self) -> bytes:
+        self.calls.append("screenshot")
+        self.blicke += 1
+        return self.current if self.blicke <= 4 else b"leer"
+
+
+def test_ohne_liste_wird_nicht_nach_oben_gewischt(cfg) -> None:
+    """Frueher begann jede Suche mit `_to_top` -- also mit Wischen, ungefragt."""
+    adb = ListeNurBeimLesen()
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert result.note == extras.NO_LIST
+    assert result.runs and result.runs[0].note == extras.NO_LIST
+    # Genau die Wische der Leseschleife: drei nach unten, drei wieder nach oben. Keiner mehr.
+    assert adb.calls.count("swipe") == 2 * cfg.extras_scrolls

@@ -51,6 +51,12 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
+- **"Ohne Liste wird nicht gewischt" (0.19.4): nur mit Attrappen.** Der gemeldete Verlauf steht
+  als Testfall (`tests/test_extras.py`: Knopf getippt, nie eine Liste -- kein Wisch, kein
+  zweiter Tap, kein Zurueck). **Ungeklaert bleibt die Ursache:** warum die Liste nach dem Knopf
+  gar nicht erst kam. Dafuer braucht es den Screenshot `data/extras/01-liste.png` aus einem
+  misslungenen Lauf. Bis dahin ist nur der Schaden begrenzt, nicht der Fehler behoben.
+
 - **Die Notbremse (0.19.3): halb belegt.** Dass `dumpsys window` auf dem Produktivgeraet die
   erwartete Zeile liefert und `FOCUS_RE` den Paketnamen daraus liest, ist am Geraet geprueft
   (siehe oben). **Nicht gesehen** ist die Bremse in Aktion: ein Ausflug, bei dem die App
@@ -297,6 +303,21 @@ gegenlaeufig -- der eine geht, wenn der andere nicht mehr geht.
 Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene Aufgabe mit ihrem Zustand
 -- erledigt, offen, fehlgeschlagen oder uebersprungen. Uebersprungene zaehlen fuer sich: sie sind kein
 Versaeumnis, sondern Absicht.
+
+- **Ohne Liste wird nicht gewischt** (0.19.4). Gemeldet am 26.09.2026: "klick auf mehr coins
+  verdienen, dann lange nichts, app schliesst und es wird zwischen dem homescreen hin und her
+  gewischt". Nach dem Knopf kam keine Liste -- und gewischt wurde trotzdem. Die Notbremse griff
+  hier nicht, weil die App zu dem Zeitpunkt noch lief: wir waren nur nicht dort, wo wir dachten.
+  Zwei Stellen wischten blind:
+  - **Die Leseschleife** blaetterte nach der Wartezeit noch `EXTRAS_SCROLLS` mal weiter, auch
+    wenn in der ersten Runde keine einzige Karte zu sehen war. Jetzt ist dort Schluss
+    (`extras.NO_LIST`), und der Screenshot `01-liste.png` sagt hinterher, was stattdessen dastand.
+  - **`_work` begann jede Kartensuche mit `_to_top`**, also mit Wischen, ohne vorher hinzusehen.
+    Jetzt wird erst auf Karten gewartet; kommen keine, wird aufgegeben und ein Screenshot
+    abgelegt.
+
+  Der Grundsatz dahinter, nach zwei Anlaeufen: **gewischt und getippt wird nur auf einem
+  Bildschirm, den wir erkannt haben.** Nicht "solange nichts dagegen spricht".
 
 - **Die Notbremse: nichts anfassen, wenn wir nicht mehr in der App sind** (0.19.3). Gemeldet am
   26.09.2026 um 15:37, auf dem Geraet gesehen: die erste Aufgabe war erledigt, danach war die App
