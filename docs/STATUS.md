@@ -34,6 +34,30 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   genau dem Zustand ziehen, in dem sie es soll. Die Ausgabe steht wortwoertlich in
   `tests/test_focus.py`.
 
+- **Erledigte Karten werden am echten Screenshot erkannt** (26.09.2026, 0.19.6).
+  `acc ocr data/extras/02-liste.png --extras` auf dem Produktivgeraet:
+
+  ```
+  Knoepfe: 2 gefunden (ueber die Farbe)
+    x=528..682 y=634..710 (154x76)
+    x=528..682 y=880..957 (154x77)
+  Karten: 3
+    + Super Rabatte anzeigen ...          erlaubt durch 'rabatt'
+    + Suchen, was Sie lieben ...          Suchaufgabe ('suchen'), Begriff hinterlegt
+    = Gutscheine & Einkaufsguthaben ...   schon abgeholt
+  ```
+
+  Genau die drei Karten des Bildes, in ihrer Reihenfolge, mit dem richtigen Zustand -- und
+  **kein Text mehr, der in den Nachbarn faellt**: "Super Rabatte" faengt mit "Super Rabatte" an,
+  nicht mit dem Titel der Karte darueber. Zwei Dinge fallen dabei zusaetzlich auf:
+  - **Eine angeschnittene Karte am oberen Rand faellt heraus.** Das Farbprofil zeigt dort ein
+    nur 32 Pixel hohes gruenes Feld (statt 77); die Groessenpruefung verwirft es. Richtig so:
+    ein halb sichtbares Feld ist keine Karte. Beim Blaettern kommt sie vollstaendig wieder.
+  - **Der Zaehler ist am Bild nicht zu lesen.** Aus dem Abzeichen "1/3" machte die Erkennung
+    "B2 I". `progress` findet darin nichts und gibt None zurueck -- die Karte wird darum ohne
+    Zaehler angezeigt. Das ist der gutmuetige Fall, aber es heisst: auf den Zaehler ist am
+    Geraet kein Verlass, und er taugt erst recht nicht als Merkmal fuer "erledigt".
+
 - **Zusatzaufgaben von Anfang bis Ende** (26.09.2026, 720x1280, 0.19.1). Ein Lauf `acc extras --los`
   meldete "9 Aufgaben gelesen, 4 davon brauchbar, 4 von 4 erledigt": Gesponserte Artikel entdecken,
   Super Rabatte anzeigen, Suchen was Sie lieben, Gutscheine & Einkaufsguthaben. Damit ist der ganze
@@ -51,12 +75,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
-- **Erledigte Karten als Anker (0.19.6): halb belegt.** Die Farben sind am Geraet gemessen
-  (Tabelle in Abschnitt 3c), die Erkennung selbst ist an gemalten Bildern mit genau diesen
-  Werten geprueft (`tests/test_button_color.py`) und der Kartenschnitt an Attrappen
-  (`tests/test_extras.py`, die Lage aus 02-liste.png). **Nicht gesehen** ist ein Lauf am
-  Geraet: ob die Farbmaske auf dem echten Screenshot alle Felder findet, sagt erst
-  `acc ocr 02-liste.png --extras`.
+- **Erledigte Karten als Anker (0.19.6): die Erkennung ist belegt, ein Lauf damit nicht.**
+  Am echten Screenshot geprueft (siehe oben). **Nicht gesehen** ist ein `--los`-Lauf mit dieser
+  Fassung: ob die Namen im Log nun durchgehend stimmen und ob `same_card` die Karten damit
+  zuverlaessiger wiederfindet, zeigt erst der naechste Ausflug am Geraet.
 
 - **"Ohne Liste wird nicht gewischt" (0.19.4): nur mit Attrappen.** Der gemeldete Verlauf steht
   als Testfall (`tests/test_extras.py`: Knopf getippt, nie eine Liste -- kein Wisch, kein
@@ -329,7 +351,8 @@ Versaeumnis, sondern Absicht.
     tragen ihn aber nicht alle Karten: "Super Rabatte anzeigen" hatte `1/3` **und** einen
     Knopf, "Uebersicht ueber Ihre Muenzeinsparungen" gar kein Abzeichen und war erledigt. Der
     **Haken** ist das Merkmal, nicht die Zahl. `extras.progress` liest den Zaehler darum zwar
-    und zeigt ihn an, entscheidet aber nichts.
+    und zeigt ihn an, entscheidet aber nichts. Am Geraet ist er ohnehin selten zu lesen: aus
+    dem Abzeichen "1/3" machte die Erkennung am 26.09.2026 "B2 I".
   - **Behoben in 0.19.6:** `find_cards` kennt jetzt zwei Sorten Anker. Jede Karte hat wieder
     genau einen, die Grenzen stimmen, und eine erledigte Karte bekommt das Urteil
     `extras.ALREADY` statt in ihren Nachbarn zu fallen. In der Tagesliste steht sie bei den
