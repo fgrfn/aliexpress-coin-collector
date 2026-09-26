@@ -11,7 +11,7 @@ from . import __version__, extras, logs, notify, ocr, scheduler
 from .adb import Adb, AdbError
 from .config import Config, ConfigError
 from .runner import run_once
-from .scheduler import daemon, describe, handle_result, next_due, next_runs, plan_for
+from .scheduler import attempts_for_plan_day, daemon, describe, handle_result, next_due, next_runs, plan_for
 from .store import Store
 
 
@@ -20,6 +20,13 @@ def _setup_logging(level: str) -> None:
 
 
 def cmd_once(cfg: Config, args: argparse.Namespace) -> int:
+    jetzt = datetime.now()
+    if scheduler.coin_day(jetzt, cfg.coin_day_start) != jetzt.date():
+        print(
+            f"Hinweis: der Muenztag beginnt erst um {cfg.coin_day_start:%H:%M}. Bis dahin zeigt die"
+            " Seite noch den Stand von gestern -- dieser Lauf wird vermutlich 'schon erledigt'"
+            " melden und zaehlt zum gestrigen Tag."
+        )
     adb = Adb(cfg.adb_serial, cfg.adb_path)
     result = run_once(cfg, adb, force=args.force)
     print(describe("manual", result))
@@ -150,7 +157,7 @@ def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
 def cmd_schedule(cfg: Config, args: argparse.Namespace) -> int:
     now = datetime.now()
     store = Store(cfg.data_dir)
-    by_day = {now.date(): store.for_day(now.date())}
+    by_day = {now.date(): attempts_for_plan_day(store, now, cfg)}
 
     abends = (
         f"abends {cfg.evening_start:%H:%M}-{cfg.evening_end:%H:%M}" if cfg.evening_enabled else "abends abgeschaltet"
@@ -258,7 +265,7 @@ def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     print(f"     Heute geplant: Morgenlauf {plan.morning_at:%H:%M}, {abend}")
     try:
         store = Store(cfg.data_dir)
-        today = store.for_day(now.date())
+        today = attempts_for_plan_day(store, now, cfg)
         last = store.recent(1)
         if last:
             a = last[0]

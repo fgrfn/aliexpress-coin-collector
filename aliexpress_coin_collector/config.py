@@ -229,6 +229,8 @@ class Config:
     app_package: str
     coin_url: str
     discord_webhook: str
+    # Wann der Tag der App beginnt -- nicht um Mitternacht, siehe scheduler.coin_day.
+    coin_day_start: time
     morning_start: time
     morning_end: time
     evening_start: time
@@ -304,6 +306,9 @@ class Config:
             "app_package": get("APP_PACKAGE") or "com.alibaba.aliexpresshd",
             "coin_url": get("COIN_URL") or DEFAULT_URL,
             "discord_webhook": (get("DISCORD_WEBHOOK_URL") or "").strip(),
+            # Die neuen Muenzen stehen erst am Vormittag bereit. Ein Lauf davor sieht noch
+            # den Stand des Vortags und gehoert darum zum vorigen Muenztag.
+            "coin_day_start": _time(get("COIN_DAY_START") or "08:00"),
             "morning_start": _time(get("MORNING_START") or "07:00"),
             "morning_end": _time(get("MORNING_END") or "10:00"),
             "evening_start": _time(get("EVENING_START") or "19:00"),

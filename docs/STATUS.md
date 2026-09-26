@@ -27,6 +27,12 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 
 ### Nur mit Attrappen oder Näherungen getestet
 
+- **Beginn des Muenztags (0.19.0): mit Attrappen getestet, die Uhrzeit selbst ist geschaetzt.** Dass ein
+  Nachtlauf den Tag nicht mehr blockiert, ist durch Tests gedeckt (`tests/test_coin_day.py`, der gemeldete
+  Fall als Testfall). Dass der Umschaltpunkt bei 08:00 liegt, ist **nicht gemessen** -- es ist die Vorgabe
+  zur Beobachtung "ab etwa 8 oder 9 Uhr".
+
+
 - **Zusatzaufgaben (0.17.1): halb belegt.** Am Geraet gesehen ist der Weg bis zur Liste: der Knopf
   "Mehr Muenzen verdienen" wird gefunden und getippt, das Fenster geht auf, die Kartentexte werden
   gelesen (26.09.2026, 720x1280). **Nicht gesehen** ist alles danach -- ob der Tap den Knopf "Und los"
@@ -351,6 +357,33 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   `EXTRAS_DENY` -- der eigentliche Schutz vor dem Warenkorb ist `hinzufug`.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)
+
+**Der Muenztag beginnt nicht um Mitternacht** (0.19.0). Die neuen Muenzen stehen erst am Vormittag bereit --
+beim Nutzer beobachtet ab etwa 8 bis 9 Uhr. Wer davor nachsieht, sieht noch den Stand des Vortags: die Seite
+meldet "heute schon eingecheckt", und das stimmt auch, nur eben fuer gestern.
+
+Am 26.09.2026 wurde genau das gemeldet. Ein Lauf von Hand um vier Uhr nachts fand den Check-in des Vortags
+erledigt vor, das Ergebnis wurde als Erfolg des **neuen** Kalendertags verbucht -- und damit fiel der echte
+Lauf des Tages aus. Ein Tag ohne Muenzen, ohne dass irgendetwas kaputt war.
+
+- `coin_day(wann, beginn)` sagt, zu welchem Muenztag ein Zeitpunkt gehoert: vor `COIN_DAY_START` zum
+  vorigen. `decide` bekommt seither die Versuche des laufenden Muenztags (`attempts_of_coin_day`), nicht die
+  des Kalendertags.
+- Abgefragt wird ueber den **Zeitraum** (`store.between`), nicht ueber die Spalte `day`. Die traegt weiter
+  den Kalendertag: eine Umdeutung haette die vorhandene Historie still verschoben. Die Folge ist ein
+  kosmetischer Versatz -- ein Nachtlauf erscheint im Verlauf unter dem neuen Tag, zaehlt fuer die
+  Entscheidung aber zum alten. Wer das auch in der Historie sauber will, braucht eine Migration.
+- `attempts_for_plan_day` ist die Anzeigeseite davon: vor dem Beginn des Muenztags steht fuer heute noch
+  alles aus, egal was nachts lief. Nur dafuer, nicht fuer die Entscheidung.
+- **`MORNING_START` sollte nicht vor `COIN_DAY_START` liegen.** Sonst laeuft der erste Versuch ins Leere,
+  meldet "schon erledigt" fuer gestern, und erst ein spaeterer holt die Muenzen wirklich. Der Dienst warnt
+  beim Start, verweigert aber nichts -- es ist eine Frage der Einstellung, kein Fehler.
+- `COIN_DAY_START=00:00` stellt das alte Verhalten wieder her.
+
+**Nicht belegt:** wann genau der Muenztag umschlaegt. 08:00 ist die Vorgabe, die Beobachtung des Nutzers
+lautet "irgendwann ab 8 oder 9". Punkt 3 der offenen Liste (Umschaltzeit auswerten) bleibt damit offen --
+belegt ist nur, dass es nicht Mitternacht ist.
+
 
 - `plan_for(day, cfg)` liefert zufällige, aber pro Datum feste Uhrzeiten in Morgen- und Abendfenster. Der Seed hängt
   nur vom Datum ab, die Zeiten überleben also Neustarts des Dienstes.
