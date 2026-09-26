@@ -269,6 +269,41 @@ def test_find_cards_ohne_knoepfe_ergibt_nichts(cfg) -> None:
     assert extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go)) == []
 
 
+def test_erste_karte_schluckt_den_fenstertitel_nicht(cfg) -> None:
+    """Die Lage vom Geraet, 26.09.2026: drei Knoepfe bei y 517, 795, 1090, Fenstertitel bei 325.
+
+    Nach oben und unten galt eine ganze Kartenhoehe, zwischen zwei Knoepfen aber nur die halbe --
+    also griff die erste Karte doppelt so weit nach oben wie noetig und nahm den Titel mit:
+    "Weitere Muenzen verdienen Gesponserte Artikel entdecken ...".
+    """
+    woerter = [
+        W("Weitere", 100, 310),
+        W("Münzen", 230, 310),
+        W("verdienen", 360, 310),
+        W("Gesponserte", 150, 440),
+        W("Artikel", 300, 440),
+        W("entdecken", 150, 490),
+        W("Und", 560, 502),
+        W("los", 630, 502),
+        W("In", 150, 720),
+        W("kürzlich", 200, 720),
+        W("angesehenen", 150, 770),
+        W("Und", 560, 780),
+        W("los", 630, 780),
+        W("Übersicht", 150, 1015),
+        W("anzeigen", 300, 1015),
+        W("Und", 560, 1075),
+        W("los", 630, 1075),
+    ]
+    zeilen = extras.group_lines(woerter)
+    cards = extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go))
+
+    assert len(cards) == 3
+    assert "Weitere" not in cards[0].text, cards[0].text
+    assert "Gesponserte" in cards[0].text
+    assert "Übersicht" in cards[2].text
+
+
 def test_einzelner_knopf_zieht_den_fenstertitel_nicht_mit(cfg) -> None:
     """Wird nur ein Knopf gelesen, fehlt der Abstand als Massstab -- die Karte darf nicht wuchern.
 

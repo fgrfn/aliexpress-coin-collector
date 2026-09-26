@@ -258,6 +258,11 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   wird auf das **Wort**, nicht auf die Zeile: beide Knoepfe stehen nebeneinander, die Zeilenmitte
   liegt dazwischen. Nachgesehen wird nur, wenn gar keine Karte zu sehen ist -- liegt etwas davor,
   sind es keine.
+- **Der Rand ist eine halbe Kartenhoehe, keine ganze** (0.18.2). Zwischen zwei Knoepfen liegt die Grenze
+  auf halbem Weg; ueber dem ersten und unter dem letzten galt frueher eine ganze Kartenhoehe, also der
+  doppelte Abstand. Damit zog die erste Karte den Fenstertitel mit herein ("Weitere Muenzen verdienen
+  Gesponserte Artikel entdecken ..."). Am Geraet lagen die Knoepfe 278 und 295 Pixel auseinander, der
+  Titel 190 Pixel ueber dem ersten -- mit halbem Rand faellt er heraus.
 - **Karten wachsen nicht ueber ihre uebliche Hoehe** (0.17.2). Wird nur ein Knopf gelesen, fehlt der
   Abstand zum naechsten als Massstab; ohne Grenze zieht die eine Karte den Fenstertitel und die
   Nachbarbeschreibung mit herein. Am 26.09.2026 hiess die einzige gefundene Karte darum "Weitere

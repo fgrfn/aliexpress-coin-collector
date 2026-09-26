@@ -225,16 +225,18 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
     else:
         ueblich = LONE_CARD_SPAN
 
+    # Zwischen zwei Knoepfen liegt die Grenze auf halbem Weg. Ueber dem ersten und unter dem
+    # letzten gilt derselbe Abstand -- eine ganze Kartenhoehe waere doppelt so weit und zieht
+    # herein, was darueber steht. Genau daran hing am 26.09.2026 der Fenstertitel in der ersten
+    # Karte: "Weitere Muenzen verdienen Gesponserte Artikel entdecken ...".
+    rand = max(1, ueblich // 2)
+
     cards: list[Card] = []
     for i, knopf in enumerate(knoepfe):
-        # Nie weiter als eine Kartenhoehe nach oben oder unten greifen. Ohne die Grenze zieht
-        # ein einzeln gefundener Knopf den Fenstertitel und die Nachbarkarte mit herein --
-        # genau das passierte am 26.09.2026, als nur einer von drei Knoepfen gelesen wurde.
-        oben = max(knopf.cy - ueblich, (knoepfe[i - 1].cy + knopf.cy) // 2 if i else knopf.cy - ueblich)
-        unten = min(
-            knopf.cy + ueblich,
-            (knopf.cy + knoepfe[i + 1].cy) // 2 if i + 1 < len(knoepfe) else knopf.cy + ueblich,
-        )
+        oben = (knoepfe[i - 1].cy + knopf.cy) // 2 if i else knopf.cy - rand
+        unten = (knopf.cy + knoepfe[i + 1].cy) // 2 if i + 1 < len(knoepfe) else knopf.cy + rand
+        # Sicherheitsnetz gegen ungleiche Abstaende: nie weiter als eine Kartenhoehe.
+        oben, unten = max(oben, knopf.cy - ueblich), min(unten, knopf.cy + ueblich)
         body = [line for line in lines if oben <= line.cy < unten]
         text = " ".join(line.text for line in sorted(body, key=lambda line: (line.cy, line.cx)))
         # Rechts der Mitte der Knopfzeile: steht der Knopf allein, liegt der Punkt weiter
@@ -246,9 +248,9 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
     return cards
 
 
-# Wird nur ein einziger Knopf gefunden, fehlt der Abstand zum naechsten als Massstab. Lieber zu
-# eng schneiden und die halbe Beschreibung verlieren als den Fenstertitel mit hereinziehen.
-LONE_CARD_SPAN = 200
+# Wird nur ein einziger Knopf gefunden, fehlt der Abstand zum naechsten als Massstab. Der Wert
+# ist eine typische Kartenhoehe -- am Geraet lagen die Knoepfe 278 und 295 Pixel auseinander.
+LONE_CARD_SPAN = 280
 
 
 TAKE = "nehmen"
