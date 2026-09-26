@@ -37,21 +37,71 @@
 </section>
 
 <section class="card">
-  <div class="card-head"><h2>Lauf jetzt starten</h2></div>
-  <form method="post" action="/run" class="btn-row"
-        onsubmit="return confirm('Wirklich einen Lauf anfordern? Das weckt das Gerät und tippt darauf.');">
-    <button class="btn" type="submit" {% if not button.enabled %}disabled{% endif %}>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M8 5.5v13l11-6.5-11-6.5"/>
-      </svg>
-      Lauf jetzt starten
-    </button>
-  </form>
-  {% if button.reason %}<p class="note">{{ button.reason }}</p>{% endif %}
+  <div class="card-head">
+    <h2>Heute gesammelt</h2>
+    <span class="pill {% if checklist_summary.open %}pill-warn{% else %}pill-ok{% endif %}">
+      {{ checklist_summary.done }} von {{ checklist_summary.done + checklist_summary.open }} erledigt
+      {%- if checklist_summary.skipped %}, {{ checklist_summary.skipped }} übersprungen{% endif %}
+    </span>
+  </div>
+  <ul class="checklist">
+    {% for item in checklist %}
+      <li class="check-item {{ item.tone }}">
+        <span class="check-mark" aria-hidden="true">
+          {%- if item.state == 'erledigt' %}✓{% elif item.state == 'übersprungen' %}–{% elif item.state == 'offen' %}○{% else %}✗{% endif -%}
+        </span>
+        <span class="check-text">
+          {{ item.text }}
+          <span class="sub">{{ item.detail }}</span>
+        </span>
+        <span class="check-side">
+          {%- if item.gain %}<span class="pill pill-ok">{{ '%+d'|format(item.gain) }}</span>{% endif -%}
+          {%- if item.at %}<span class="check-time">{{ item.at.strftime('%H:%M') }}</span>{% endif -%}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
   <p class="note">
-    Der Auftrag wird binnen einer Sekunde vom Dienst abgeholt; läuft gerade ein Check-in,
+    Der Münztag beginnt um {{ cfg.coin_day_start.strftime('%H:%M') }} — davor zählt noch der Vortag.
+    Übersprungene Aufgaben sind kein Versäumnis: sie stehen bewusst nicht auf der Positivliste
+    oder sind gesperrt.
+  </p>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Jetzt sammeln</h2></div>
+  <div class="btn-row">
+    <form method="post" action="/run"
+          onsubmit="return confirm('Wirklich einen Lauf anfordern? Das weckt das Gerät und tippt darauf.');">
+      <button class="btn" type="submit" {% if not button.enabled %}disabled{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 5.5v13l11-6.5-11-6.5"/>
+        </svg>
+        Täglichen Check-in starten
+      </button>
+    </form>
+    <form method="post" action="/extras"
+          onsubmit="return confirm('Wirklich die Zusatzaufgaben abarbeiten? Das weckt das Gerät und tippt darauf.');">
+      <button class="btn" type="submit" {% if not extras_button.enabled %}disabled{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 10.5h6M9 13.5h6"/>
+        </svg>
+        Extra-Münzen sammeln
+      </button>
+    </form>
+  </div>
+  {% if button.reason %}<p class="note">Check-in: {{ button.reason }}</p>{% endif %}
+  {% if extras_button.reason %}<p class="note">Zusatzaufgaben: {{ extras_button.reason }}</p>{% endif %}
+  <p class="note">
+    Beide Aufträge werden binnen einer Sekunde vom Dienst abgeholt; läuft gerade etwas,
     wartet er, bis das Gerät frei ist. Die Oberfläche fasst das Gerät nicht selbst an.
+    {% if cfg.extras_after_run %}
+      Die Zusatzaufgaben nimmt der Dienst ohnehin nach jedem erfolgreichen Lauf mit.
+    {% else %}
+      Die Zusatzaufgaben laufen nur von Hand — der Dienst nimmt sie nicht mit.
+    {% endif %}
   </p>
 </section>
 

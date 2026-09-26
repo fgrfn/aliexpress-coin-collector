@@ -80,6 +80,10 @@ def cmd_extras(cfg: Config, args: argparse.Namespace) -> int:
         print(result.note)
         return 1
 
+    # Auch der Lauf von Hand kommt in die Datenbank -- sonst fehlte er in der Tagesliste der
+    # Oberflaeche, und es saehe aus, als sei nichts geschehen.
+    Store(cfg.data_dir).add_tasks(extras.to_tasks(result, datetime.now()))
+
     print(f"\nGelesen: {len(result.verdicts)} Aufgaben")
     for v in result.verdicts:
         zeichen = {extras.TAKE: "+", extras.BLOCKED: "-", extras.UNKNOWN: "?"}[v.ruling]

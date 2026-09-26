@@ -9,8 +9,8 @@ from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 
-from . import __version__, commands, mqtt, notify, settings, stats
-from .adb import Adb, Battery
+from . import __version__, commands, extras, mqtt, notify, ocr, settings, stats
+from .adb import Adb, AdbError, Battery
 from .config import Config, ConfigError
 from .runner import SUCCESS, Outcome, RunResult, read_battery, run_once
 from .store import Attempt, Store
@@ -720,6 +720,52 @@ def report_status(
     return state
 
 
+def collect_extras(
+    cfg: Config,
+    adb: Adb,
+    store: Store,
+    act: bool = True,
+    shots: Path | None = None,
+    now: datetime | None = None,
+) -> extras.ExtrasResult:
+    """Ein Ausflug zu den Zusatzaufgaben, samt Eintrag in die Datenbank. Wirft nie.
+
+    Die Coin-Seite wird eigens noch einmal geoeffnet, statt sich an den Lauf davor
+    anzuhaengen: der schaltet den Bildschirm hinterher wieder aus, und die Reihenfolge
+    "erst der Check-in, dann die Extras" soll auch dann gelten, wenn der Check-in schon
+    Tage her ist. Die zwanzig Sekunden fuer den zweiten Start sind das wert.
+    """
+    now = now or datetime.now()
+    woke = False
+    result = extras.ExtrasResult()
+    try:
+        if not adb.ensure_connected():
+            result.note = "Geraet nicht erreichbar"
+            return result
+        if not adb.is_awake():
+            adb.wake()
+            woke = True
+            time.sleep(2)
+        adb.force_stop(cfg.app_package)
+        adb.start_url(cfg.coin_url, cfg.app_package)
+        result = extras.explore(adb, cfg, ocr.Sight(cfg), act=act, shots=shots)
+    except AdbError as exc:
+        result.note = f"ADB-Fehler: {exc}"
+        log.warning("Zusatzaufgaben: %s", result.note)
+    except Exception as exc:  # noqa: BLE001 - die Extras duerfen den Dienst nie anhalten
+        log.exception("Unerwarteter Fehler bei den Zusatzaufgaben")
+        result.note = f"Unerwarteter Fehler: {exc!r}"
+    finally:
+        if woke:
+            try:
+                adb.sleep_screen()
+            except AdbError:
+                log.warning("Bildschirm konnte nicht wieder ausgeschaltet werden")
+    if result.entered:
+        store.add_tasks(extras.to_tasks(result, now))
+    return result
+
+
 def run_command(cfg: Config, adb: Adb, store: Store, cmd: commands.Command) -> tuple[bool, str]:
     """Einen Auftrag der Weboberflaeche ausfuehren. Wirft nie."""
     try:
@@ -727,6 +773,10 @@ def run_command(cfg: Config, adb: Adb, store: Store, cmd: commands.Command) -> t
             result = run_once(cfg, adb, force=True)
             handle_result(cfg, store, "manual", result)
             return result.ok, describe("manual", result)
+
+        if cmd.name == commands.EXTRAS:
+            result = collect_extras(cfg, adb, store, act=True)
+            return result.entered, result.summary()
 
         if cmd.name == commands.RECONNECT:
             if adb.ensure_connected():
@@ -864,6 +914,11 @@ def tick(
         # fragte der gleich noch einmal dasselbe Geraet.
         if battery is not None and result.battery is not None:
             battery.note(result.battery, datetime.now(), cfg.battery_low_pct, cfg.battery_hot_c)
+        # Die Zusatzaufgaben gibt es nur nach erledigtem Check-in -- den Knopf dafuer zeigt die
+        # Seite vorher gar nicht. Darum haengen sie hier und nicht an einem eigenen Zeitplan.
+        if cfg.extras_after_run and result.ok:
+            log.info("Zusatzaufgaben: Ausflug nach dem %s", decision.kind)
+            collect_extras(cfg, adb, store)
 
     # Ganz zum Schluss, damit der Zustand alles von dieser Runde enthaelt.
     if broker is not None:

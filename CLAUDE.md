@@ -66,10 +66,13 @@ aliexpress_coin_collector/
   ocr.py        Screenshot -> PageState (Button, erledigt, Münzstand)
   extras.py     Zusatzaufgaben der Coin-Seite: Karten erkennen, auswählen, abarbeiten
                 (Positivliste; die Sperrliste gewinnt immer)
+                Laeuft nach jedem erfolgreichen Lauf mit (EXTRAS_AFTER_RUN) und
+                als Auftrag aus der Oberflaeche
   runner.py     ein Lauf: Outcome-Logik, Wartezeiten, Wiederholung, Bestätigung
   scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen.
                 Der Münztag beginnt nicht um Mitternacht: coin_day/COIN_DAY_START
-  store.py      SQLite (Tabelle runs)
+  store.py      SQLite (Tabellen runs und tasks; tasks haelt je Ausflug eine Zeile
+                je Zusatzaufgabe, auch fuer die gesperrten)
   stats.py      Rechenregeln über der Historie (Quote, Zuwachs, Stillstand), von Dienst
                 und Oberfläche genutzt
   notify.py     Discord-Webhook: Embeds bauen und schicken (wirft nie)
@@ -96,7 +99,8 @@ tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings
                 test_coin_day.py (Münztag, der nicht um Mitternacht beginnt),
                 test_button_color.py (Knopfsuche über die Farbe, an gemalten Bildern),
                 test_web_stats.py, test_web_settings.py, test_notify.py,
-                test_ocr_login.py, test_stall.py
+                test_ocr_login.py, test_stall.py,
+                test_tasks.py (Zusatzaufgaben speichern, Tagesliste, die beiden Knoepfe)
                 (Attrappen, weder Gerät noch Tesseract nötig)
 control.sh      Root-Helfer: startet/stoppt die Dienste, von systemd auf data/control hin
                 gestartet. Nimmt keinen Befehl entgegen, nur zwei geprüfte Wörter.

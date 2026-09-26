@@ -204,6 +204,15 @@ class Adb:
         """
         self.shell(f"input text {shlex.quote(value.replace(' ', '%s'))}")
 
+    def clear_text(self, count: int = 48) -> None:
+        """Ein Textfeld leeren: ans Ende springen, dann zeichenweise loeschen.
+
+        `input text` haengt an, statt zu ersetzen. Das Suchfeld der App steht oft noch voll vom
+        letzten Mal -- ohne dies stuende hinterher beides darin.
+        """
+        keys = " ".join(["67"] * max(1, int(count)))  # 67 = Loeschen, 123 = ans Zeilenende
+        self.shell(f"input keyevent 123 {keys}")
+
     def enter(self) -> None:
         self.shell("input keyevent 66")
 

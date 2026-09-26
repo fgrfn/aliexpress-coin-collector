@@ -109,6 +109,7 @@ DEFAULT_EXTRAS_ALLOW = (
     "ubersicht",  # "Uebersicht ueber Ihre Muenzeinsparungen anzeigen"
     "rabatt",  # "Super Rabatte anzeigen"
     "surfen",  # "Surfen Sie 15 Sek. auf dieser Seite"
+    "anmeldung",  # "Taegliche Anmeldung" -- ein Knopf auf der Coin-Seite, kein Login
     "browse",
     "explore",
 )
@@ -124,7 +125,9 @@ DEFAULT_EXTRAS_DENY = (
     "bewert",
     "kaufen",  # bewusst nicht "kauf": das traefe auch "Einkaufsguthaben"
     "bestell",
-    "warenkorb",
+    # "warenkorb" stand hier und sperrte "In kuerzlich angesehenen Artikeln stoebern" mit --
+    # in dessen Beschreibung kommt das Wort vor, ohne dass etwas hineingelegt wuerde. Das
+    # Hineinlegen sperren "hinzufug" und "preisland", und die treffen genauer.
     "hinzufug",  # "1 x Wasser bei Preisland hinzufuegen" legt etwas in den Warenkorb
     "preisland",
     "abonn",
@@ -133,7 +136,9 @@ DEFAULT_EXTRAS_DENY = (
     "einladen",
     "freund",
     "bezahl",
-    "anmeldung",  # "Taegliche Anmeldung" ist der Check-in selbst, den haben wir schon
+    # "anmelden" bleibt gesperrt: das ist der Login, und der bleibt Sache des Nutzers.
+    # "anmeldung" nicht -- "Taegliche Anmeldung" ist eine Aufgabe der Coin-Seite und enthaelt
+    # "anmelden" nicht als Teilzeichenkette.
     "anmelden",
 )
 # Die Knoepfe in der Liste. Auf ihnen wird getippt, nicht auf dem Titel -- und sie zeigen
@@ -254,6 +259,9 @@ class Config:
     extras_search_markers: tuple[str, ...]
     extras_stay: tuple[str, ...]
     extras_search_terms: tuple[str, ...]
+    # Ob der Dienst nach einem erfolgreichen Check-in gleich die Zusatzaufgaben mitnimmt.
+    # Abschaltbar in der Oberflaeche: es ist der einzige Teil, der ohne Not am Geraet tippt.
+    extras_after_run: bool
     extras_dwell_s: int
     extras_max: int
     extras_scrolls: int
@@ -334,6 +342,7 @@ class Config:
             "extras_search_terms": _list_raw("EXTRAS_SEARCH_TERMS", DEFAULT_EXTRAS_SEARCH_TERMS),
             # Die App zaehlt 15 Sekunden -- aber erst, wenn die Seite steht. Auf dem langsamen
             # Geraet gehen dafuer die ersten Sekunden drauf, darum reichlich Luft.
+            "extras_after_run": _bool(get("EXTRAS_AFTER_RUN") or "true"),
             "extras_dwell_s": _int("EXTRAS_DWELL_S", 25),
             "extras_max": _int("EXTRAS_MAX", 6),
             "extras_scrolls": _int("EXTRAS_SCROLLS", 3),

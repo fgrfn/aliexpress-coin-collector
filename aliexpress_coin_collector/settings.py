@@ -39,6 +39,7 @@ FLAG_KEYS = (
     "notify_weekly",
     "notify_on_stall",
     "notify_on_battery",
+    "extras_after_run",
 )
 # Ganze Zahlen.
 NUMBER_KEYS = (

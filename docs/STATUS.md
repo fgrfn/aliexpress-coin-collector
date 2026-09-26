@@ -25,6 +25,15 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 - **Akkuwerte vom Produktivgeraet** (Samsung SM-J330FN): `dumpsys battery` liefert Ladestand und
   Temperatur so, wie der Parser sie erwartet — die beiden Werte oben kommen von dort.
 
+- **Zusatzaufgaben von Anfang bis Ende** (26.09.2026, 720x1280, 0.19.1). Ein Lauf `acc extras --los`
+  meldete "9 Aufgaben gelesen, 4 davon brauchbar, 4 von 4 erledigt": Gesponserte Artikel entdecken,
+  Super Rabatte anzeigen, Suchen was Sie lieben, Gutscheine & Einkaufsguthaben. Damit ist der ganze
+  Weg belegt -- Knopf finden, Liste oeffnen, blaettern, "Und los" treffen, dableiben, zurueck in die
+  Liste, naechste Karte. Zuvor schlug das Wiederfinden der Karten fehl, weil nur von der aktuellen
+  Stelle aus abwaerts gesucht wurde; seit 0.19.1 beginnt jede Suche oben.
+  **Eine Ausnahme:** die Suchaufgabe meldete Erfolg, ohne dass etwas gesucht worden waere -- siehe
+  Abschnitt 3.
+
 ### Nur mit Attrappen oder Näherungen getestet
 
 - **Beginn des Muenztags (0.19.0): mit Attrappen getestet, die Uhrzeit selbst ist geschaetzt.** Dass ein
@@ -33,10 +42,16 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
-- **Zusatzaufgaben (0.17.1): halb belegt.** Am Geraet gesehen ist der Weg bis zur Liste: der Knopf
-  "Mehr Muenzen verdienen" wird gefunden und getippt, das Fenster geht auf, die Kartentexte werden
-  gelesen (26.09.2026, 720x1280). **Nicht gesehen** ist alles danach -- ob der Tap den Knopf "Und los"
-  trifft, ob das Zurueck in die Liste fuehrt und ob die Muenzen ankommen.
+- **Der reparierte Suchweg (0.19.2): nur mit Attrappen.** Dass das Suchfeld vor dem Tippen
+  angetippt und geleert wird und dass ohne nachgewiesene Eingabe nichts abgeschickt wird, ist durch
+  Tests gedeckt (`tests/test_extras.py`, der gemeldete Fall als Testfall). **Nicht gesehen** ist, ob
+  der Tap bei 40 % der Breite das Feld wirklich trifft: ein Screenshot der Seite unmittelbar nach dem
+  Antippen von "Und los" liegt nicht vor, nur einer der Vorschlagsseite danach.
+
+- **Die Zusatzaufgaben im Dienst (0.19.2): nur mit Attrappen.** Dass der Dienst sie nach einem
+  erfolgreichen Lauf mitnimmt, dass der Auftrag aus der Oberflaeche ankommt und dass die Tagesliste
+  stimmt, ist durch Tests gedeckt (`tests/test_daemon_commands.py`, `tests/test_tasks.py`). Am Geraet
+  gelaufen ist bisher nur der Weg von Hand ueber `acc extras --los`.
 
   Dabei aufgefallen und in 0.17.1 behoben: die Knoepfe stehen **weiss auf orange** und wurden im
   Originalbild gar nicht gelesen. Im erkannten Text der ganzen Liste stand kein einziges "Und los",
@@ -46,13 +61,10 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   gesehen: in der Liste liegt das Fenster ueber der Kopfzeile, der Muenzstand ist dort nicht mehr
   lesbar -- er wird jetzt auf der Coin-Seite davor und danach genommen.
 
-- **Zusatzaufgaben, die Auswahl (0.17.0):** Die Auswahl ist an den
-  echten Aufgabentexten vom 26.09.2026 geprueft (Screenshots des Nutzers, in
-  `tests/test_extras.py` als Testfaelle hinterlegt) -- alle zehn Karten werden richtig
-  einsortiert. **Ungetestet ist alles davor und danach:** ob die OCR die Karten auf dem
-  Telefon wirklich so liest, ob der Tap den Knopf "Und los" trifft, ob das Zurueck in die
-  Liste fuehrt und ob die Muenzen am Ende ankommen. Die Bilder lagen nur als Anschauung vor,
-  nicht als Testbilder -- sie enthalten Kontodaten und sind nicht im Repo.
+- **Zusatzaufgaben, die Auswahl (0.17.0):** an den echten Aufgabentexten vom 26.09.2026 geprueft
+  (Screenshots des Nutzers, in `tests/test_extras.py` als Testfaelle hinterlegt) -- alle zehn Karten
+  werden richtig einsortiert. Die Bilder lagen nur als Anschauung vor, nicht als Testbilder -- sie
+  enthalten Kontodaten und sind nicht im Repo.
 
 
 - **Erkennung von "Sammeln"** (weiße Schrift auf oranger Fläche): gefunden an einem Video-Frame in 1200×1920 mit
@@ -257,6 +269,19 @@ Fenster hoch ("Weitere Muenzen verdienen") mit einer scrollbaren Liste. Jede Auf
 Titel, Beschreibung, Muenzwert und einem orangen Knopf **"Und los"** rechts. Die meisten verlangen nur,
 sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
 
+**Wann das laeuft** (0.19.2). Der Dienst haengt einen Ausflug an jeden erfolgreichen Lauf
+(`EXTRAS_AFTER_RUN`, Vorgabe an, in der Oberflaeche abschaltbar). Die Coin-Seite wird dafuer eigens noch
+einmal geoeffnet, statt sich an den Lauf davor anzuhaengen: der schaltet den Bildschirm hinterher wieder
+aus. Ausserdem gibt es den Auftrag `extras` aus der Oberflaeche -- der Knopf "Extra-Muenzen sammeln" auf
+der Uebersicht, unabhaengig vom Zeitplan. Er ist gesperrt, solange der Check-in des Tages aussteht: den
+Knopf "Mehr Muenzen verdienen" zeigt die Seite vorher gar nicht. Damit sind die beiden Knoepfe genau
+gegenlaeufig -- der eine geht, wenn der andere nicht mehr geht.
+
+**Was dabei herauskam, steht in der Datenbank** (0.19.2, Tabelle `tasks`, siehe Abschnitt 5) und auf der
+Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene Aufgabe mit ihrem Zustand
+-- erledigt, offen, fehlgeschlagen oder uebersprungen. Uebersprungene zaehlen fuer sich: sie sind kein
+Versaeumnis, sondern Absicht.
+
 - **Das Werbefenster** (0.17.2). Beim Verlassen der Coin-Seite schiebt die App ein Fenster davor:
   "Nicht vergessen: morgen fuer weitere Muenzen einchecken! +40", mit den Knoepfen **Verlassen** und
   **Bleiben**. Es legt sich ueber die Liste, und das Zurueck loest es aus. Getippt wird immer
@@ -354,15 +379,27 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   ein Begriff steht; sonst gelten sie als unbekannt und bleiben liegen. Der Begriff geht durch Shell und
   `input text` und ist darum auf Buchstaben, Ziffern, Leerzeichen und `. , + -` begrenzt -- Umlaute kommen
   dort nicht sauber an. Die Sperrliste gewinnt auch gegen eine Suchaufgabe.
-- Bewusst gesperrt: "Taegliche Anmeldung" (ist der Check-in selbst), Merge Boss, Tagesquiz und "1 x Wasser bei
-  Preisland hinzufuegen" -- Letzteres legt etwas in den Warenkorb.
+  - **Getippt wurde bis 0.19.2 ins Leere** (auf dem Geraet gesehen, 26.09.2026). Der Lauf meldete
+    "gesucht nach ...", im Feld stand aber noch der alte Begriff des Nutzers. `input text` schreibt
+    dorthin, wo der Eingabefokus liegt, und nach dem Antippen von "Und los" liegt er nirgends. Jetzt wird
+    erst das Feld angetippt (`search_field`: waagrecht 40 % der Breite, weit weg von Zurueckpfeil, Kamera
+    und dem Knopf "Suchen"; senkrecht an einem Wort im Balken festgemacht), dann geleert, dann getippt --
+    und **abgeschickt erst nach einem Blick darauf** (`typed_ok`). Kommt der Begriff nicht an, gilt die
+    Aufgabe als nicht erledigt, statt Erfolg zu melden. Noch nicht am Geraet geprueft.
+- Bewusst gesperrt: Merge Boss, Tagesquiz, Bewertungen, Abos und "1 x Wasser bei Preisland hinzufuegen" --
+  Letzteres legt etwas in den Warenkorb. Ebenso `anmelden`: das ist der Login, und der bleibt Sache des
+  Nutzers.
 - **Die Verweildauer ist geraten, nicht gemessen.** Die App zaehlt 15 Sekunden, aber erst ab geladener Seite,
   und rechts am Rand laeuft dabei ein Zaehler, der am Ende einen gruenen Haken zeigt. Gewartet wird bisher
   stur `EXTRAS_DWELL_S` (25 s). Den Zaehler wirklich abzulesen -- und damit zu wissen, ob eine Aufgabe zaehlte,
   statt es zu hoffen -- geht erst, wenn ein Screenshot einer laufenden Aufgabenseite vorliegt.
-- Eine Aufgabe faellt derzeit **zu Unrecht** durch: "In kuerzlich angesehenen Artikeln stoebern" traegt
-  "Warenkorb" in der Beschreibung und wird davon gesperrt. Wer sie will, nimmt `warenkorb` aus
-  `EXTRAS_DENY` -- der eigentliche Schutz vor dem Warenkorb ist `hinzufug`.
+- Zwei Aufgaben fielen bis 0.19.2 **zu Unrecht** durch und sind jetzt frei:
+  - "In kuerzlich angesehenen Artikeln stoebern" trug "Warenkorb" in der Beschreibung. Hineingelegt wird
+    dabei nichts; der eigentliche Schutz vor dem Warenkorb sind `hinzufug` und `preisland`, und die treffen
+    genauer. `warenkorb` ist aus der Sperrliste raus.
+  - "Taegliche Anmeldung" ist der Check-in selbst. Meistens ist er schon erledigt, dann kostet die Karte
+    nichts; ist er es nicht, holt sie ihn nach. `anmeldung` steht jetzt auf der Positivliste. Nicht zu
+    verwechseln mit `anmelden` (Login), das gesperrt bleibt -- "Anmeldung" enthaelt "anmelden" nicht.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)
 
@@ -454,6 +491,17 @@ Tabelle `runs(id, ts, day, kind, outcome, coins_before, coins_after, message, du
 `ts` ist die **naive Ortszeit des Servers** zum Zeitpunkt des Laufs — die Zeitzone des Servers muss deshalb stimmen,
 sonst passen Zeitfenster und gespeicherte Zeiten nicht zusammen. `kind` ist `morning`, `evening` oder `manual`, die
 möglichen Werte von `outcome` stehen in `runner.Outcome`.
+
+Dazu seit 0.19.2 `tasks(id, ts, text, ruling, reason, done, note, gain)` — eine Zeile je Zusatzaufgabe **je
+Ausflug**, auch für die gesperrten. Sonst sähe ein Tag mit zwei Aufgaben genauso aus wie einer, an dem acht
+dastanden und sechs davon nichts für uns waren. Abgefragt wird über den Zeitraum (`tasks_between`), damit der
+Münztag gilt und nicht der Kalendertag. Dieselbe Aufgabe steht mehrfach da, wenn der Tag mehrere Ausflüge hatte;
+zusammengefasst wird erst bei der Anzeige (`web.data.checklist`, über `extras.same_card`), und **erledigt bleibt
+erledigt** — ein späterer Ausflug findet sie abgehakt vor und meldet sie nicht mehr als offen.
+
+Die Tabelle kann fehlen: die Oberfläche öffnet die Datenbank nur lesend und kann nichts anlegen. Startet sie
+nach einem Update vor dem Dienst, liefert `tasks_between` eine leere Liste, statt die Seite abzuwerfen —
+derselbe Gedanke wie bei den nachgezogenen Spalten von `runs`.
 
 ## 5a. Verbindung: warum sie sich selbst heilen muss
 
@@ -605,18 +653,18 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    `Outcome.LOGIN_REQUIRED`). **Die Marker sind an keinem echten abgemeldeten Screenshot geprüft** —
    sie sind begründete Vorgaben. Nachprüfbar ohne Wartezeit über das Werkzeug auf der Diagnose-Seite.
 5. **Popups wegtippen** (Bewertungsaufforderung, Update-Hinweis) statt daran zu scheitern.
-6a. **Zusatzaufgaben: was noch fehlt.** Der Muenzstand aus einem `extras`-Lauf landet **nirgends** --
-   der Befehl schreibt nichts in die Datenbank, also zeigt die Oberflaeche weiter den Stand des letzten
-   Check-ins. Zu klaeren ist, wohin er gehoert: eine eigene Zeile in `runs` (Art `extras`) waere die
-   kleinste Loesung, verwaessert aber die Erfolgsquote des Check-ins. Ausserdem lassen sich manche Aufgaben
-   **mehrfach** erledigen -- die Karten tragen einen Zaehler ("1/2", "0/3"), der bisher ignoriert wird.
-
-6. **Zusatzaufgaben** der Coin-Seite. Angefangen in 0.17.0 (`extras.py`, Befehl `extras`), noch von Hand
-   auszuloesen und **nicht** in den taeglichen Lauf eingebaut -- das kommt erst, wenn die Erkennung am Geraet
-   belegt ist. Offen bleibt ausserdem: "Suchen, was Sie lieben" verlangt ein eingetipptes Suchwort und steht
-   darum nicht auf der Positivliste; die Zaehler an den Karten ("0/3") werden nicht ausgewertet, obwohl sie
-   sagen, wie oft eine Aufgabe noch geht; und eine Aufgabe, die dreimal nichts einbrachte, koennte sich
-   selbst abschalten.
+6. **Zusatzaufgaben.** Angefangen in 0.17.0, am Geraet belegt seit 0.19.1, seit 0.19.2 im Dienst
+   (`EXTRAS_AFTER_RUN`, Vorgabe an) und als Knopf auf der Uebersicht. Was noch offen ist:
+   - **Der Muenzstand aus einem Ausflug landet nicht in `runs`.** Die einzelnen Gewinne stehen jetzt in
+     `tasks.gain` und in der Tagesliste, aber der Stand, den die Oberflaeche gross anzeigt, kommt weiter
+     vom letzten Check-in. Eine eigene Zeile in `runs` (Art `extras`) waere die kleinste Loesung,
+     verwaessert aber die Erfolgsquote des Check-ins.
+   - **Mehrfach erledigbare Aufgaben.** Die Karten tragen einen Zaehler ("1/2", "0/3"), der bisher
+     ignoriert wird -- manche Aufgaben gingen zwei- oder dreimal.
+   - **Der Zaehler am Rand wird nicht abgelesen.** Waehrend der Verweildauer laeuft rechts eine Uhr und
+     zeigt am Ende einen gruenen Haken. Gewartet wird stur `EXTRAS_DWELL_S`; ob eine Aufgabe wirklich
+     zaehlte, wird aus dem Muenzstand geschlossen, nicht abgelesen.
+   - **Eine Aufgabe, die dreimal nichts einbrachte, koennte sich selbst abschalten.**
 7. **Vision-Modell als Ausweichweg** für die Button-Erkennung, falls die OCR zu oft danebenliegt.
 8. **Neustart des Geräts abfangen.** `adb tcpip 5555` lässt sich ohne USB nicht wiederholen; die `unreachable`-Meldung
    weist bereits darauf hin. Bei Android 11+ wäre Wireless Debugging eine Alternative.

@@ -82,13 +82,21 @@ class FakeAdb:
     Aufgabenseite. `back` fuehrt zurueck -- wohin, sagt der Test."""
 
     def __init__(
-        self, start: bytes = b"coin", liste: bytes = b"liste", nach_tap: bytes = b"fremd", nach_back: bytes = b"liste"
+        self,
+        start: bytes = b"coin",
+        liste: bytes = b"liste",
+        nach_tap: bytes = b"fremd",
+        nach_back: bytes = b"liste",
+        nach_text: bytes = b"getippt",
     ) -> None:
         self.current = start
         self.liste, self.nach_tap, self.nach_back = liste, nach_tap, nach_back
+        # Was nach dem Eintippen auf dem Schirm steht -- daran prueft `_type_search` nach.
+        self.nach_text = nach_text
         self.calls: list[str] = []
         self.taps: list[tuple[int, int]] = []
         self.getippt: list[str] = []
+        self.geloescht = 0
 
     def screenshot(self) -> bytes:
         self.calls.append("screenshot")
@@ -109,6 +117,11 @@ class FakeAdb:
     def text(self, value: str) -> None:
         self.getippt.append(value)
         self.calls.append("text")
+        self.current = self.nach_text
+
+    def clear_text(self, count: int = 48) -> None:
+        self.geloescht += 1
+        self.calls.append("clear_text")
 
     def enter(self) -> None:
         self.calls.append("enter")
@@ -132,11 +145,9 @@ class FakeEyes:
     def sheet(self, png: bytes) -> S:
         """Der normale Durchgang: dunkler Text auf Weiss -- ohne die Knopfbeschriftung."""
         voll = self.sheets.get(png, S(words=[]))
-        return S(
-            words=[w for w in voll.words if w.text.lower().strip(",.!") not in self.GO_WORDS],
-            width=voll.width,
-            height=voll.height,
-        )
+        words = [w for w in voll.words if w.text.lower().strip(",.!") not in self.GO_WORDS]
+        # Wie ocr.read_sheet: der Volltext ist die Aneinanderreihung der Woerter.
+        return S(words=words, width=voll.width, height=voll.height, text=" ".join(w.text for w in words))
 
     def go_spots(self, png: bytes) -> list[W]:
         """Die Knopfflaechen. Am Geraet kommen sie aus der Farbmaske, hier aus den Knopfwoertern."""
@@ -188,12 +199,16 @@ def test_group_lines_ohne_woerter() -> None:
 
 # Die echten Karten, wie sie am 26.09.2026 auf dem Geraet standen.
 ECHTE_KARTEN = [
-    ("Tägliche Anmeldung", "Den heutigen Check-in abschließen", BLOCKED),
+    # Der Check-in selbst, als Knopf in der Liste. Am 26.09.2026 freigegeben: er ist meistens
+    # schon erledigt, kostet dann nichts, und wenn nicht, holt er die eine Muenze nach.
+    ("Tägliche Anmeldung", "Den heutigen Check-in abschließen", TAKE),
     ("Gesponserte Artikel entdecken", "Stöbern, shoppen und sparen", TAKE),
     (
+        # Stand bis 26.09.2026 auf BLOCKED, weil "Warenkorb" in der Beschreibung vorkommt.
+        # Hineingelegt wird dabei nichts -- es geht nur ums Ansehen.
         "In kürzlich angesehenen Artikeln stöbern",
         "Münzangebot für zuletzt angesehene Artikel im Warenkorb",
-        BLOCKED,  # "Warenkorb" in der Beschreibung -- bewusst vorsichtig, siehe docs/STATUS.md
+        TAKE,
     ),
     ("Übersicht über Ihre Münzeinsparungen anzeigen", "", TAKE),
     ("Super Rabatte anzeigen", "Surfen Sie 15 Sek. auf dieser Seite, um 5 Münzen zu verdienen", TAKE),
@@ -203,6 +218,24 @@ ECHTE_KARTEN = [
     ("Schließen Sie 1 Merge-Boss-Spielrunde ab", "Weitere Angebote und noch mehr Spaß!", BLOCKED),
     ("Tagesquiz-Herausforderung", "Schalten Sie Münzbelohnungen im Spiel frei", BLOCKED),
 ]
+
+
+# Nicht zu verwechseln: "Anmeldung" ist eine Aufgabe der Coin-Seite, "Anmelden" der Login.
+# Die beiden Woerter sind keine Teilzeichenkette voneinander, darum tragen sie verschiedene
+# Urteile -- und das soll so bleiben.
+LOGIN_KARTEN = [
+    "Jetzt anmelden und 100 Münzen sichern",
+    "Bitte einloggen",
+]
+
+
+@pytest.mark.parametrize("titel", LOGIN_KARTEN)
+def test_login_bleibt_gesperrt(cfg, titel) -> None:
+    card = extras.Card(text=titel, go_x=600, go_y=500)
+    urteil = extras.judge(
+        card, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, bool(cfg.extras_search_terms)
+    )
+    assert urteil.ruling != TAKE
 
 
 @pytest.mark.parametrize(("titel", "beschreibung", "erwartet"), ECHTE_KARTEN)
@@ -527,13 +560,68 @@ def test_abarbeiten_tippt_den_knopf_der_karte_und_zaehlt_nach(cfg) -> None:
     assert knopf_taps and all(x > 500 for x, _ in knopf_taps)
 
 
+# -- Das Suchfeld ------------------------------------------------------------------------------
+#
+# Am 26.09.2026 meldete ein Lauf alle vier Aufgaben als erledigt, darunter "Suchen, was Sie
+# lieben". Der Screenshot danach zeigte im Feld den alten Begriff des Nutzers -- getippt worden
+# war nichts. `input text` schreibt dorthin, wo der Eingabefokus liegt, und nach dem Antippen
+# von "Und los" liegt er nirgends.
+
+
+def test_search_field_haengt_sich_an_das_wort_im_balken() -> None:
+    blatt = S(words=[W("70mai", 120, 70), W("A810S", 260, 70), W("Suchen", 610, 70), W("Mehr", 60, 300)])
+
+    x, y = extras.search_field(blatt)
+
+    assert x == int(720 * extras.SEARCH_FIELD_X)
+    assert y == 85  # die Hoehe des Balkens, nicht die der Vorschlagsliste darunter
+    assert x < 610  # nicht auf dem Knopf "Suchen": der schickt den alten Begriff ab
+
+
+def test_search_field_nimmt_die_mitte_wenn_das_feld_leer_ist() -> None:
+    blatt = S(words=[W("Mehr", 60, 300), W("entdecken", 200, 300)])
+
+    _x, y = extras.search_field(blatt)
+
+    assert int(1280 * 0.04) <= y <= int(1280 * 0.16)
+
+
+def test_search_field_faellt_nicht_auf_die_statuszeile_herein() -> None:
+    """Uhr und Akku stehen ganz oben. Der Suchbalken faengt darunter an."""
+    blatt = S(words=[W("14:55", 40, 5, h=20), W("70mai", 120, 70)])
+
+    _x, y = extras.search_field(blatt)
+
+    assert y == 85
+
+
+@pytest.mark.parametrize(
+    ("schirm", "erwartet"),
+    [
+        ("Jayo PETG 1.1KG Mehr entdecken", True),
+        ("Jayo Mehr entdecken", True),  # die Erkennung verliest sich an "1.1KG", an "Jayo" nicht
+        ("70mai A810S 4K Mehr entdecken", False),  # der gemeldete Fall
+        ("", False),
+    ],
+)
+def test_typed_ok(schirm, erwartet) -> None:
+    assert extras.typed_ok(schirm, "Jayo PETG 1.1KG") is erwartet
+
+
+def suchliste() -> S:
+    return S(words=karte(450, "Suchen, was Sie lieben", "Nutzung von Schlüsselwörtern"))
+
+
 def test_suchaufgabe_tippt_den_begriff_und_schickt_ab(cfg) -> None:
     from dataclasses import replace
 
     cfg = replace(cfg, extras_search_terms=("Jayo PETG 1.1KG",))
-    liste = S(words=karte(450, "Suchen, was Sie lieben", "Nutzung von Schlüsselwörtern"))
     adb = FakeAdb()
-    eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560), fallback_coins=140)
+    eyes = FakeEyes(
+        sheets={b"liste": suchliste(), b"getippt": S(words=[W("Jayo", 120, 70), W("PETG", 220, 70)])},
+        button=W("verdienen", 200, 560),
+        fallback_coins=140,
+    )
 
     uhr = Uhr()
     result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, choose=lambda terms: terms[0], act=True)
@@ -541,6 +629,51 @@ def test_suchaufgabe_tippt_den_begriff_und_schickt_ab(cfg) -> None:
     assert adb.getippt == ["Jayo PETG 1.1KG"]
     assert adb.calls.count("enter") == 1
     assert "Jayo PETG 1.1KG" in result.runs[0].note
+    assert result.runs[0].ok
+
+
+def test_vor_dem_tippen_wird_das_feld_angetippt_und_geleert(cfg) -> None:
+    """Die beiden Schritte, die gefehlt haben -- in dieser Reihenfolge."""
+    from dataclasses import replace
+
+    cfg = replace(cfg, extras_search_terms=("Jayo PETG 1.1KG",))
+    adb = FakeAdb()
+    eyes = FakeEyes(
+        sheets={b"liste": suchliste(), b"getippt": S(words=[W("Jayo", 120, 70)])},
+        button=W("verdienen", 200, 560),
+        fallback_coins=140,
+    )
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, choose=lambda terms: terms[0], act=True)
+
+    assert adb.geloescht == 1
+    # Erst hinsehen, dann das Feld antippen, dann leeren, dann tippen.
+    i = adb.calls.index("clear_text")
+    assert adb.calls[i - 2 : i + 2] == ["screenshot", "tap", "clear_text", "text"]
+    # Und der Tap sass im Feld, nicht auf dem Knopf "Und los" (der steht rechts, x > 500).
+    assert adb.taps[-1][0] == int(720 * extras.SEARCH_FIELD_X)
+
+
+def test_leeres_suchfeld_gilt_nicht_als_erledigt(cfg) -> None:
+    """Der gemeldete Fall: im Feld steht noch der alte Begriff. Das ist kein Erfolg."""
+    from dataclasses import replace
+
+    cfg = replace(cfg, extras_search_terms=("Jayo PETG 1.1KG",))
+    adb = FakeAdb()
+    eyes = FakeEyes(
+        # Nach dem Tippen steht immer noch der alte Begriff da.
+        sheets={b"liste": suchliste(), b"getippt": S(words=[W("70mai", 120, 70), W("A810S", 240, 70)])},
+        button=W("verdienen", 200, 560),
+        fallback_coins=140,
+    )
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, choose=lambda terms: terms[0], act=True)
+
+    assert not result.runs[0].ok
+    assert "kam nicht im Feld an" in result.runs[0].note
+    assert "enter" not in adb.calls  # nicht abschicken, was nicht dasteht
 
 
 def test_ohne_suchbegriff_wird_nichts_getippt(cfg) -> None:

@@ -480,3 +480,178 @@ def test_a_short_pause_is_not_overslept(cfg):
     uhr = Uhr()
     warte(cfg, FakeAdb(), 0.4, uhr)
     assert uhr.geschlafen == [0.4]
+
+
+# -- Zusatzaufgaben ----------------------------------------------------------------------------
+#
+# Bis 0.19.2 liefen sie nur von Hand ueber die Kommandozeile. Jetzt haengt der Dienst sie an
+# jeden erfolgreichen Lauf und nimmt sie ausserdem als Auftrag der Oberflaeche entgegen.
+
+
+class ExtrasAdb(FakeAdb):
+    """Wie FakeAdb, aber mit dem, was ein Ausflug ausserdem anfasst."""
+
+    def wake(self):
+        self.calls.append("wake")
+        self._awake = True
+
+    def sleep_screen(self):
+        self.calls.append("sleep_screen")
+        self._awake = False
+
+    def force_stop(self, package):
+        self.calls.append("force_stop")
+
+    def start_url(self, url, package):
+        self.calls.append("start_url")
+
+
+def fake_explore(result):
+    """Ein explore, das ohne Geraet und ohne Tesseract ein festes Ergebnis liefert."""
+
+    def _explore(adb, config, eyes, **kw):
+        return result
+
+    return _explore
+
+
+def geglueckter_ausflug():
+    from aliexpress_coin_collector import extras
+
+    return extras.ExtrasResult(
+        entered=True,
+        verdicts=[
+            extras.Verdict(extras.Card("Super Rabatte anzeigen", 600, 500), extras.TAKE, "erlaubt durch 'rabatt'"),
+            extras.Verdict(extras.Card("Tagesquiz", 600, 800), extras.BLOCKED, "gesperrt durch 'quiz'"),
+        ],
+        runs=[extras.TaskRun(text="Super Rabatte anzeigen", ok=True, note="erledigt")],
+    )
+
+
+def test_collect_extras_schreibt_die_aufgaben_weg(cfg, monkeypatch):
+    store = Store(cfg.data_dir)
+    monkeypatch.setattr(scheduler.extras, "explore", fake_explore(geglueckter_ausflug()))
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+
+    result = scheduler.collect_extras(cfg, ExtrasAdb(), store, now=NOW)
+
+    assert result.entered
+    zeilen = store.tasks_between(NOW - timedelta(hours=1), NOW + timedelta(hours=1))
+    assert [z.text for z in zeilen] == ["Super Rabatte anzeigen", "Tagesquiz"]
+    assert zeilen[0].done and not zeilen[1].done
+
+
+def test_collect_extras_weckt_und_legt_wieder_schlafen(cfg, monkeypatch):
+    monkeypatch.setattr(scheduler.extras, "explore", fake_explore(geglueckter_ausflug()))
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+    adb = ExtrasAdb(awake=False)
+
+    scheduler.collect_extras(cfg, adb, Store(cfg.data_dir), now=NOW)
+
+    assert "wake" in adb.calls and "sleep_screen" in adb.calls
+
+
+def test_collect_extras_laesst_einen_wachen_bildschirm_an(cfg, monkeypatch):
+    """Wer gerade am Geraet sitzt, soll nicht mitten im Tippen den Bildschirm verlieren."""
+    monkeypatch.setattr(scheduler.extras, "explore", fake_explore(geglueckter_ausflug()))
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+    adb = ExtrasAdb(awake=True)
+
+    scheduler.collect_extras(cfg, adb, Store(cfg.data_dir), now=NOW)
+
+    assert "wake" not in adb.calls and "sleep_screen" not in adb.calls
+
+
+def test_collect_extras_haelt_einen_fehler_aus(cfg, monkeypatch):
+    """Ein Ausflug darf den Dienst nie anhalten -- er ist die Zugabe, nicht die Hauptsache."""
+
+    def kaputt(*a, **kw):
+        raise RuntimeError("irgendwas")
+
+    monkeypatch.setattr(scheduler.extras, "explore", kaputt)
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+    store = Store(cfg.data_dir)
+
+    result = scheduler.collect_extras(cfg, ExtrasAdb(), store, now=NOW)
+
+    assert not result.entered
+    assert "irgendwas" in result.note
+    assert store.tasks_between(NOW - timedelta(days=1), NOW + timedelta(days=1)) == []
+
+
+def test_collect_extras_ohne_verbindung(cfg, monkeypatch):
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+
+    result = scheduler.collect_extras(cfg, ExtrasAdb(connects=False), Store(cfg.data_dir), now=NOW)
+
+    assert not result.entered
+    assert result.note == "Geraet nicht erreichbar"
+
+
+def test_der_auftrag_extras_wird_ausgefuehrt(cfg, monkeypatch):
+    store = Store(cfg.data_dir)
+    monkeypatch.setattr(scheduler.extras, "explore", fake_explore(geglueckter_ausflug()))
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+
+    commands.submit(cfg.data_dir, commands.EXTRAS, NOW)
+    assert scheduler.process_commands(cfg, ExtrasAdb(), store) == 1
+
+    erledigt = [c for c in commands.recent(cfg.data_dir) if c.name == commands.EXTRAS]
+    assert erledigt and erledigt[0].status == commands.DONE
+    assert "1 von 1 erledigt" in erledigt[0].message
+
+
+def tick_mit_lauf(cfg, monkeypatch, ausflug=True):
+    """Einen Takt fahren, in dem ein geplanter Lauf faellig ist und glueckt.
+
+    Gibt zurueck, wie oft der Ausflug zu den Zusatzaufgaben stattgefunden hat.
+    """
+    from dataclasses import replace
+
+    from aliexpress_coin_collector.runner import Outcome, RunResult
+
+    ausfluege = []
+    monkeypatch.setattr(scheduler.notify, "send", lambda *a, **k: None)
+    monkeypatch.setattr(
+        scheduler,
+        "run_once",
+        lambda config, adb, force=False: RunResult(
+            outcome=Outcome.CLAIMED, message="ok", coins_before=10, coins_after=17
+        ),
+    )
+    monkeypatch.setattr(scheduler, "collect_extras", lambda *a, **k: ausfluege.append(True))
+
+    cfg = replace(cfg, extras_after_run=ausflug)
+    plan = scheduler.plan_for(NOW.date(), cfg)
+    scheduler.tick(cfg, ExtrasAdb(), Store(cfg.data_dir), scheduler.Reconnect(), "0.9.0", now=plan.morning_at)
+    return len(ausfluege)
+
+
+def test_der_dienst_nimmt_die_zusatzaufgaben_nach_dem_lauf_mit(cfg, monkeypatch):
+    assert tick_mit_lauf(cfg, monkeypatch, ausflug=True) == 1
+
+
+def test_die_zusatzaufgaben_lassen_sich_abschalten(cfg, monkeypatch):
+    assert tick_mit_lauf(cfg, monkeypatch, ausflug=False) == 0
+
+
+def test_ohne_erfolgreichen_lauf_kein_ausflug(cfg, monkeypatch):
+    """Den Knopf fuer die Zusatzaufgaben zeigt die Seite erst nach erledigtem Check-in."""
+    from dataclasses import replace
+
+    from aliexpress_coin_collector.runner import Outcome, RunResult
+
+    ausfluege = []
+    monkeypatch.setattr(scheduler.notify, "send", lambda *a, **k: None)
+    monkeypatch.setattr(
+        scheduler,
+        "run_once",
+        lambda config, adb, force=False: RunResult(outcome=Outcome.UNREACHABLE, message="weg"),
+    )
+    monkeypatch.setattr(scheduler, "collect_extras", lambda *a, **k: ausfluege.append(True))
+
+    cfg = replace(cfg, extras_after_run=True)
+    plan = scheduler.plan_for(NOW.date(), cfg)
+    scheduler.tick(cfg, ExtrasAdb(), Store(cfg.data_dir), scheduler.Reconnect(), "0.9.0", now=plan.morning_at)
+
+    assert ausfluege == []
