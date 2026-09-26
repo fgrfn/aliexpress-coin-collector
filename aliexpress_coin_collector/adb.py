@@ -186,6 +186,27 @@ class Adb:
     def tap(self, x: int, y: int) -> None:
         self.shell(f"input tap {int(x)} {int(y)}")
 
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, ms: int = 400) -> None:
+        """Wischen. Wird zum Blaettern in der Liste der Zusatzaufgaben gebraucht."""
+        self.shell(f"input swipe {int(x1)} {int(y1)} {int(x2)} {int(y2)} {int(ms)}")
+
+    def back(self) -> None:
+        """Zurueck-Taste. Bringt uns von einer geoeffneten Aufgabe in die Liste zurueck."""
+        self.shell("input keyevent 4")
+
+    def text(self, value: str) -> None:
+        """Text eintippen -- fuer die Suchaufgaben der Coin-Seite.
+
+        Leerzeichen gehen als %s: das versteht `input text` auf allen Android-Fassungen,
+        waehrend ein echtes Leerzeichen je nach Version verschluckt wird. Was hier ankommt,
+        ist von der Konfiguration auf Buchstaben, Ziffern und wenige Zeichen begrenzt --
+        Umlaute und Sonderzeichen gehen nicht sauber durch die Shell.
+        """
+        self.shell(f"input text {shlex.quote(value.replace(' ', '%s'))}")
+
+    def enter(self) -> None:
+        self.shell("input keyevent 66")
+
     # -- Akku ----------------------------------------------------------------
     def battery(self) -> Battery:
         """Ladestand, Temperatur und Zustand des Akkus.

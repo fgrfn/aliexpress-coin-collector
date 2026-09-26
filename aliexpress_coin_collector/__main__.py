@@ -4,10 +4,11 @@ import argparse
 import logging
 import shutil
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import __version__, logs, notify, ocr, scheduler
+from . import __version__, extras, logs, notify, ocr, scheduler
 from .adb import Adb, AdbError
 from .config import Config, ConfigError
 from .runner import run_once
@@ -44,6 +45,50 @@ def cmd_daemon(cfg: Config, args: argparse.Namespace) -> int:
     # Die Version wandert mit in die Zustandsmeldung: die Oberflaeche erkennt daran,
     # ob der Dienst nach einem Update noch in der alten Fassung laeuft.
     daemon(cfg, Adb(cfg.adb_serial, cfg.adb_path), Store(cfg.data_dir), version=__version__)
+    return 0
+
+
+def cmd_extras(cfg: Config, args: argparse.Namespace) -> int:
+    """Die Zusatzaufgaben der Coin-Seite ansehen -- und mit --los auch abarbeiten.
+
+    Ohne --los wird nichts angetippt ausser dem Knopf, der die Liste oeffnet. Die Screenshots
+    landen unter data/extras/ und lassen sich mit dem ocr-Befehl nachpruefen.
+    """
+    adb = Adb(cfg.adb_serial, cfg.adb_path)
+    if not adb.ensure_connected():
+        print("Geraet nicht erreichbar", file=sys.stderr)
+        return 1
+
+    shots = None if args.no_shots else cfg.data_dir / "extras"
+    if not args.hier_bleiben:
+        adb.wake()
+        adb.force_stop(cfg.app_package)
+        adb.start_url(cfg.coin_url, cfg.app_package)
+        print(f"Coin-Seite geoeffnet, warte {cfg.page_timeout_s} s auf die Seite ...")
+        time.sleep(cfg.page_timeout_s)
+
+    result = extras.explore(adb, cfg, ocr.Sight(cfg), act=args.los, shots=shots)
+
+    if not result.entered:
+        print(result.note)
+        return 1
+
+    print(f"\nGelesen: {len(result.verdicts)} Aufgaben")
+    for v in result.verdicts:
+        zeichen = {extras.TAKE: "+", extras.BLOCKED: "-", extras.UNKNOWN: "?"}[v.ruling]
+        print(f"  {zeichen} {v.card.short}")
+        print(f"      {v.reason}")
+    if result.runs:
+        print("\nAbgearbeitet:")
+        for lauf in result.runs:
+            print(f"  {'ok ' if lauf.ok else '-- '}{lauf.text}: {lauf.note or 'nichts passiert'}")
+    print(f"\n{result.summary()}")
+    if result.note:
+        print(result.note)
+    if shots is not None and result.shots:
+        print(f"Screenshots: {shots}")
+    if not args.los:
+        print("Nichts angetippt. Mit --los werden die mit + markierten Aufgaben abgearbeitet.")
     return 0
 
 
@@ -218,6 +263,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("image")
     p.add_argument("--text", action="store_true", help="auch den erkannten Volltext ausgeben")
     p.set_defaults(func=cmd_ocr)
+
+    p = sub.add_parser("extras", help="Zusatzaufgaben der Coin-Seite ansehen (fasst das Geraet an!)")
+    p.add_argument("--los", action="store_true", help="die erlaubten Aufgaben auch wirklich abarbeiten")
+    p.add_argument(
+        "--hier-bleiben",
+        action="store_true",
+        dest="hier_bleiben",
+        help="die App nicht neu starten, sondern nehmen, was gerade auf dem Schirm ist",
+    )
+    p.add_argument("--no-shots", action="store_true", help="keine Screenshots ablegen")
+    p.set_defaults(func=cmd_extras)
 
     p = sub.add_parser("status", help="Letzte Laeufe und Summen anzeigen")
     p.add_argument("-n", type=int, default=14)

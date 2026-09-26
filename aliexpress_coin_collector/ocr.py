@@ -110,6 +110,47 @@ def find_button(
     return max(candidates, key=lambda w: w.conf) if candidates else None
 
 
+@dataclass(frozen=True)
+class Sheet:
+    """Ein Bildschirm, in Woerter zerlegt -- ohne Deutung.
+
+    `analyze` beantwortet die Frage des taeglichen Laufs: Knopf da, erledigt, wie viele Muenzen.
+    Fuer die Liste der Zusatzaufgaben braucht es die Woerter selbst samt Lage -- aus ihnen werden
+    Zeilen, aus Zeilen Karten.
+    """
+
+    words: list[Word]
+    width: int
+    height: int
+    text: str
+
+
+def read_sheet(png: bytes, cfg: Config) -> Sheet:
+    img = decode_png(png)
+    height, width = img.shape[:2]
+    words = read_words(img, cfg.ocr_lang)
+    return Sheet(words=words, width=width, height=height, text=" ".join(w.text for w in words))
+
+
+class Sight:
+    """Die Augen fuer `extras.explore`: Screenshot rein, gedeutete Werte raus."""
+
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+
+    def sheet(self, png: bytes) -> Sheet:
+        return read_sheet(png, self.cfg)
+
+    def more_button(self, png: bytes) -> Word | None:
+        """Der Knopf "Mehr Muenzen verdienen" -- dort, wo vorher "Sammeln" stand."""
+        img = decode_png(png)
+        words = read_words(img, self.cfg.ocr_lang)
+        return find_button(img, words, self.cfg.extras_button_labels, self.cfg.ocr_lang)
+
+    def coins(self, sheet: Sheet) -> int | None:
+        return read_coin_balance(sheet.words, sheet.width, sheet.height)
+
+
 def looks_logged_out(text: str, markers: tuple[str, ...] = DEFAULT_LOGIN_MARKERS) -> bool:
     """Steht eine Anmeldeaufforderung auf der Seite?
 

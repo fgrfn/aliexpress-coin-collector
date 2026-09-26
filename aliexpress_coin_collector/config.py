@@ -65,6 +65,25 @@ def _int(name: str, default: int) -> int:
         raise ConfigError(f"{name} muss eine ganze Zahl sein, nicht {raw!r}") from exc
 
 
+def _list_raw(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Kommaliste, Gross- und Kleinschreibung bleibt -- fuer Werte, die eingetippt werden."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Kommaliste lesen: nicht gesetzt = Vorgabe, leer gesetzt = leere Liste.
+
+    Kleingeschrieben, weil die Vergleiche im kleingeschriebenen Text stattfinden.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return tuple(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
 def _text(name: str, default: str) -> str:
     """Optionalen Textwert lesen: nicht gesetzt = Standard, leer gesetzt = Fehler."""
     raw = os.environ.get(name)
@@ -80,6 +99,54 @@ def _text(name: str, default: str) -> str:
 # kann, ohne cv2 und pytesseract in ihren Prozess zu ziehen. Kleingeschrieben, weil im
 # kleingeschriebenen Volltext gesucht wird.
 DEFAULT_LOGIN_MARKERS = ("anmelden", "einloggen", "anmeldung", "sign in", "log in", "登录")
+
+# Zusatzaufgaben der Coin-Seite. Angefasst wird nur, was auf der Positivliste steht -- die
+# Aufgaben wechseln staendig, und eine Sperrliste waere morgen unvollstaendig. Verglichen wird
+# gegen die normalisierte Zeile (klein, ohne Umlaute), darum stehen hier Wortstaemme.
+DEFAULT_EXTRAS_ALLOW = (
+    "entdeck",  # "Gesponserte Artikel entdecken"
+    "stober",  # "In kuerzlich angesehenen Artikeln stoebern", "Stoebern Sie auf dieser Seite 15 Sekunden"
+    "ubersicht",  # "Uebersicht ueber Ihre Muenzeinsparungen anzeigen"
+    "rabatt",  # "Super Rabatte anzeigen"
+    "surfen",  # "Surfen Sie 15 Sek. auf dieser Seite"
+    "browse",
+    "explore",
+)
+# Bewusst nicht dabei: "Suchen, was Sie lieben" -- dort muss ein Suchwort eingetippt werden,
+# das ist keine reine Verweildauer mehr.
+DEFAULT_EXTRAS_DENY = (
+    "merge",  # "Schliessen Sie 1 Merge-Boss-Spielrunde ab"
+    "spiel",
+    "runde",
+    "quiz",  # "Tagesquiz-Herausforderung"
+    "game",
+    "video",
+    "bewert",
+    "kaufen",  # bewusst nicht "kauf": das traefe auch "Einkaufsguthaben"
+    "bestell",
+    "warenkorb",
+    "hinzufug",  # "1 x Wasser bei Preisland hinzufuegen" legt etwas in den Warenkorb
+    "preisland",
+    "abonn",
+    "folgen",
+    "teilen",
+    "einladen",
+    "freund",
+    "bezahl",
+    "anmeldung",  # "Taegliche Anmeldung" ist der Check-in selbst, den haben wir schon
+    "anmelden",
+)
+# Die Knoepfe in der Liste. Auf ihnen wird getippt, nicht auf dem Titel -- und sie zeigen
+# zugleich an, dass wir ueberhaupt in der Liste sind.
+DEFAULT_EXTRAS_GO = ("und los", "los geht", "go")
+# Aufgaben, bei denen ein Suchbegriff eingetippt werden muss ("Suchen, was Sie lieben --
+# Verdienen Sie durch die Nutzung von Schluesselwoertern"). Sie werden nur angefasst, wenn
+# EXTRAS_SEARCH_TERMS etwas hergibt.
+DEFAULT_EXTRAS_SEARCH_MARKERS = ("suchen", "schlusselwort", "search", "keyword")
+# Was gesucht wird. Landet im Suchverlauf des Kontos -- darum nur, was hier ausdruecklich steht.
+DEFAULT_EXTRAS_SEARCH_TERMS = ("Jayo PETG 1.1KG",)
+# Ohne Umlaute und Sonderzeichen: der Begriff geht durch Shell und `input text`.
+_SEARCH_TERM_RE = re.compile(r"[A-Za-z0-9 .,+-]{2,40}")
 
 
 def _check_min(name: str, value: int, minimum: int) -> None:
@@ -173,6 +240,18 @@ class Config:
     button_labels: tuple[str, ...]
     login_markers: tuple[str, ...]
     ocr_lang: str
+    # Zusatzaufgaben. Steht alles nur in der .env: es haengt an der Erkennung, und ein Vertipper
+    # in der Oberflaeche liesse den Dienst ins Leere greifen, ohne dass es auffiele.
+    extras_button_labels: tuple[str, ...]
+    extras_allow: tuple[str, ...]
+    extras_deny: tuple[str, ...]
+    extras_go: tuple[str, ...]
+    extras_search_markers: tuple[str, ...]
+    extras_search_terms: tuple[str, ...]
+    extras_dwell_s: int
+    extras_max: int
+    extras_scrolls: int
+    extras_budget_s: int
     notify_on_success: bool
     notify_on_already_done: bool
     notify_on_offline: bool
@@ -235,6 +314,20 @@ class Config:
             "button_labels": labels,
             "login_markers": markers,
             "ocr_lang": _text("OCR_LANG", "deu"),
+            # Der Knopf heisst nach dem Einsammeln "Mehr Muenzen verdienen". Gesucht wird ein
+            # einzelnes Wort, nicht die Wortgruppe -- "verdienen" ist das kennzeichnende.
+            "extras_button_labels": _list("EXTRAS_BUTTON_LABELS", ("verdienen", "earn")),
+            "extras_allow": _list("EXTRAS_ALLOW", DEFAULT_EXTRAS_ALLOW),
+            "extras_deny": _list("EXTRAS_DENY", DEFAULT_EXTRAS_DENY),
+            "extras_go": _list("EXTRAS_GO", DEFAULT_EXTRAS_GO),
+            "extras_search_markers": _list("EXTRAS_SEARCH_MARKERS", DEFAULT_EXTRAS_SEARCH_MARKERS),
+            "extras_search_terms": _list_raw("EXTRAS_SEARCH_TERMS", DEFAULT_EXTRAS_SEARCH_TERMS),
+            # Die App zaehlt 15 Sekunden -- aber erst, wenn die Seite steht. Auf dem langsamen
+            # Geraet gehen dafuer die ersten Sekunden drauf, darum reichlich Luft.
+            "extras_dwell_s": _int("EXTRAS_DWELL_S", 25),
+            "extras_max": _int("EXTRAS_MAX", 6),
+            "extras_scrolls": _int("EXTRAS_SCROLLS", 3),
+            "extras_budget_s": _int("EXTRAS_BUDGET_S", 300),
             "notify_on_success": _bool(get("NOTIFY_ON_SUCCESS") or "true"),
             "notify_on_already_done": _bool(get("NOTIFY_ON_ALREADY_DONE") or "false"),
             "notify_on_offline": _bool(get("NOTIFY_ON_OFFLINE") or "true"),
@@ -295,6 +388,22 @@ class Config:
         _check_min("BUSY_MAX_WAIT_MIN", self.busy_max_wait_min, 1)
         _check_min("LAUNCH_RETRIES", self.launch_retries, 0)
         _check_min("OFFLINE_ALERT_MIN", self.offline_alert_min, 1)
+        _check_min("EXTRAS_DWELL_S", self.extras_dwell_s, 1)
+        # 0 heisst: hinsehen, aber nichts antippen.
+        _check_min("EXTRAS_MAX", self.extras_max, 0)
+        _check_min("EXTRAS_SCROLLS", self.extras_scrolls, 0)
+        _check_min("EXTRAS_BUDGET_S", self.extras_budget_s, 30)
+        for term in self.extras_search_terms:
+            if not _SEARCH_TERM_RE.fullmatch(term):
+                raise ConfigError(
+                    f"EXTRAS_SEARCH_TERMS enthaelt einen unbrauchbaren Begriff: {term!r}. "
+                    "Erlaubt sind 2 bis 40 Buchstaben, Ziffern, Leerzeichen und . , + - "
+                    "(keine Umlaute: der Begriff geht durch Shell und ADB)"
+                )
+        if not self.extras_go:
+            raise ConfigError("EXTRAS_GO darf nicht leer sein (weglassen setzt die Vorgabe)")
+        if not self.extras_button_labels:
+            raise ConfigError("EXTRAS_BUTTON_LABELS darf nicht leer sein (weglassen setzt die Vorgabe)")
         # 0 ist erlaubt und heisst: nur bei einem Lauf nachsehen, nicht regelmaessig.
         _check_min("BATTERY_POLL_MIN", self.battery_poll_min, 0)
         _check_range("BATTERY_LOW_PCT", self.battery_low_pct, 1, 99)
