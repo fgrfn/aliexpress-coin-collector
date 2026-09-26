@@ -417,6 +417,10 @@ SEARCH_LOAD_S = 8
 # So lange darf die Liste brauchen, bis sie nach einem Zurueck wieder da ist. Das Fenster faehrt
 # hoch, und auf einem langsamen Geraet dauert das -- zwei Sekunden reichten nicht.
 BACK_TIMEOUT_S = 20
+# So oft wird beim Suchen einer Karte hoechstens geblaettert. Mehr als beim Hinsehen: dort
+# reichen drei Runden, um die Liste einmal zu sehen, hier muss eine bestimmte Karte gefunden
+# werden -- und zwar von ganz oben.
+FIND_SCROLLS = 8
 
 
 def _await(
@@ -482,6 +486,18 @@ def _await_cards(
         if cards or monotonic() >= deadline:
             return cards, blatt, png
         sleep(POLL_S)
+
+
+def _to_top(adb: Adb, sheet: Sheet, sleep: Callable[[float], None], rounds: int) -> None:
+    """Die Liste ganz nach oben schieben.
+
+    Ohne das sucht jede Aufgabe von der Stelle aus, an der die vorige sie hinterlassen hat --
+    und weil nur nach unten geblaettert wird, ist alles darueber unerreichbar. Am 26.09.2026
+    wurden so drei von fuenf Aufgaben "nicht mehr gefunden", obwohl sie in der Liste standen.
+    """
+    for _ in range(rounds):
+        _scroll(adb, sheet, down=False)
+        sleep(SCROLL_SETTLE_S)
 
 
 def explore(
@@ -671,22 +687,43 @@ def _work(
     """
     lauf = TaskRun(text=wanted.short)
 
-    # Die Karte kann seit dem Hinsehen verrutscht sein -- also frisch nachsehen, notfalls blaettern.
+    # Von ganz oben suchen: nach einer erledigten Aufgabe steht die Liste irgendwo, und
+    # geblaettert wird nur nach unten.
+    _cards, blatt, png = _look(adb, eyes, cfg, sleep)
+    if blatt is not None:
+        _to_top(adb, blatt, sleep, cfg.extras_scrolls + 2)
+
     stelle: Card | None = None
-    blatt: Sheet | None = None
-    for versuch in range(cfg.extras_scrolls + 1):
-        cards, blatt, _png = _look(adb, eyes, cfg, sleep)
+    gesehen: set[str] = set()
+    for versuch in range(FIND_SCROLLS + 1):
+        cards, blatt, png = _look(adb, eyes, cfg, sleep)
         # Gleichheit traegt hier nicht: zwischen Hinsehen und Abarbeiten liest die Erkennung
         # denselben Text leicht anders.
         stelle = next((c for c in cards if same_card(c.key, wanted.key)), None)
+        log.debug(
+            "Suche %r: Versuch %d, %d Karten sichtbar%s",
+            lauf.text,
+            versuch + 1,
+            len(cards),
+            " -- gefunden" if stelle else "",
+        )
         if stelle is not None:
             break
-        if versuch < cfg.extras_scrolls:
+        neue = {c.key for c in cards} - gesehen
+        if versuch and not neue:
+            # Nichts Neues mehr: wir sind unten angekommen, weiter zu blaettern bringt nichts.
+            log.debug("Suche %r: Ende der Liste erreicht", lauf.text)
+            break
+        gesehen |= neue
+        if versuch < FIND_SCROLLS:
             _scroll(adb, blatt)
             sleep(SCROLL_SETTLE_S)
     if stelle is None or blatt is None:
         lauf.note = "Karte nicht mehr gefunden"
-        log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
+        # Das Bild dazu ablegen: ohne es laesst sich nicht sagen, ob die Karte fehlte oder nur
+        # nicht gelesen wurde.
+        _save(shots, f"nicht-gefunden-{len(result.runs) + 1:02d}.png", png, result.shots)
+        log.info("Zusatzaufgabe %r: %s (%d Karten unterwegs gesehen)", lauf.text, lauf.note, len(gesehen))
         return lauf
 
     lauf.coins_before = eyes.coins(blatt)

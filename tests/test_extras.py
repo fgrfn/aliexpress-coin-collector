@@ -605,6 +605,59 @@ def test_am_ende_wird_die_app_beendet(cfg) -> None:
     assert adb.calls[-1] == "force_stop"
 
 
+class Rollbar(FakeAdb):
+    """Eine Liste mit drei Sichtfenstern. Wischen verschiebt das Fenster, und nach einer
+    erledigten Aufgabe kommt sie unten zurueck -- so wie am Geraet."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pos = 0
+        self.in_liste = False
+
+    def tap(self, x: int, y: int) -> None:
+        self.taps.append((x, y))
+        self.calls.append("tap")
+        if len(self.taps) == 1:
+            self.in_liste, self.pos = True, 0  # das Fenster faehrt oben hoch
+        else:
+            self.in_liste = False  # eine Aufgabenseite hat sich geoeffnet
+
+    def back(self) -> None:
+        self.calls.append("back")
+        self.in_liste, self.pos = True, 2  # die Liste steht danach unten
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, ms: int = 400) -> None:
+        self.calls.append("swipe")
+        self.pos = min(2, self.pos + 1) if y1 > y2 else max(0, self.pos - 1)
+
+    def screenshot(self) -> bytes:
+        self.calls.append("screenshot")
+        return f"pos{self.pos}".encode() if self.in_liste else b"coin"
+
+
+def test_karte_oberhalb_wird_wiedergefunden(cfg) -> None:
+    """Der Fehler vom 26.09.2026: drei von fuenf Aufgaben "nicht mehr gefunden".
+
+    Gesucht wurde von der Stelle aus, an der die vorige Aufgabe die Liste hinterlassen hatte --
+    und geblaettert wird nur nach unten. Alles darueber war damit unerreichbar, obwohl es in der
+    Liste stand.
+    """
+    fenster = {
+        b"pos0": S(words=karte(450, "Gesponserte Artikel entdecken")),
+        b"pos1": S(words=karte(450, "Super Rabatte anzeigen")),
+        b"pos2": S(words=karte(450, "Gutscheine Einkaufsguthaben stöbern")),
+    }
+    adb = Rollbar()
+    eyes = FakeEyes(sheets=fenster, button=W("verdienen", 200, 560), fallback_coins=140)
+    uhr = Uhr()
+
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert len(result.verdicts) == 3, [v.card.short for v in result.verdicts]
+    # Alle drei sind erledigt -- auch die, die nach der ersten Aufgabe oberhalb lagen.
+    assert [r.ok for r in result.runs] == [True, True, True], [r.note for r in result.runs]
+
+
 def test_abbruch_wenn_die_liste_nach_dem_zurueck_fehlt(cfg) -> None:
     liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
     fremd = S(words=[W("Irgendeine", 100, 300), W("Produktseite", 100, 400)])
