@@ -271,9 +271,21 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   die erste Karte da ist. Vorher schlief der Befehl stur die volle Zeitspanne -- bei 90 Sekunden Zeitlimit
   anderthalb Minuten, bevor ueberhaupt etwas geschah, und danach nochmal 30 Sekunden nach jedem Blaettern.
   Nach einem Wisch muss die Liste nur zur Ruhe kommen, das sind zwei Sekunden.
-- **Zwei Durchgaenge.** Die Kartentexte stehen dunkel auf weiss und kommen im Originalbild durch. Die
-  Knoepfe "Und los" stehen weiss auf orange und brauchen dieselbe Umkehrung wie der Sammeln-Knopf
-  (`Sight.bright`). Beides zusammen ergibt erst eine Karte.
+- **Die Knoepfe ueber die Farbe, die Texte ueber die Schrift** (0.18.0). Zwei verschiedene Dinge, zwei
+  Wege. Die Kartentexte stehen dunkel auf weiss und kommen im Originalbild durch. Die Beschriftung der
+  Knoepfe steht weiss auf orange und war am Geraet **auch mit Umkehrung nicht zu lesen** -- zwei Anlaeufe
+  am 26.09.2026 fanden einen von drei Knoepfen, dann keinen. Die Flaeche dagegen ist eindeutig:
+  `find_orange_buttons` sucht kraeftiges Orange (Farbton 5-25, hoch gesaettigt) in Knopfgroesse am rechten
+  Rand. Was dort liegt, muss gar nicht gelesen werden -- dass ein Knopf da ist, genuegt. Die Schriftsuche
+  bleibt als Rueckfall, falls die App die Farbe aendert.
+- Geprueft ist die Farbsuche an **gemalten** Bildern (`tests/test_button_color.py`): drei Knoepfe
+  untereinander, weisse Schrift darin (die Loecher in die Flaeche stanzt), goldene Muenzsymbole daneben,
+  ein breites Banner und ein Knopf am linken Rand. Echte Screenshots liegen nicht im Repo, sie zeigen
+  Kontodaten. **Am Geraet ist die Farbsuche nicht belegt.**
+- **Nachsehen ohne Geraet:** `acc ocr data/extras/01-liste.png --extras` zeigt an einem abgelegten
+  Screenshot, wie viele Knoepfe gefunden wurden und ob ueber Farbe oder Schrift, wie die Karten
+  geschnitten und wie sie beurteilt wurden. Damit laesst sich die Erkennung nachstellen, ohne das Geraet
+  anzufassen.
 - **Karten statt Zeilen.** Titel brechen ueber zwei Zeilen um, und was eine Aufgabe ausmacht, steht teils
   im Titel, teils in der Beschreibung. Die Knoepfe geben die Grenzen vor: je Karte genau ein "Und los",
   also gehoert zu einer Karte, was naeher an ihrem Knopf liegt als am naechsten. Die Kopfzeile mit dem

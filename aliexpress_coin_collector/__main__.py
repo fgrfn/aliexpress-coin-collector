@@ -102,7 +102,36 @@ def cmd_ocr(cfg: Config, args: argparse.Namespace) -> int:
     print(f"Muenzstand: {state.coins}")
     if args.text:
         print("\nText:", state.text)
+    if args.extras:
+        _zeige_extras(cfg, png)
     return 0
+
+
+def _zeige_extras(cfg: Config, png: bytes) -> None:
+    """Zeigt an einem abgelegten Screenshot, was die Zusatzaufgaben-Erkennung daraus macht.
+
+    Damit laesst sich ohne Geraet nachsehen, woran es hakt: Werden die Knoepfe gefunden? Ueber
+    die Farbe oder ueber die Schrift? Wie werden die Karten geschnitten, und wie beurteilt?
+    """
+    sight = ocr.Sight(cfg)
+    ueber_farbe = ocr.find_orange_buttons(ocr.decode_png(png))
+    spots = sight.go_spots(png)
+    print(f"\nKnoepfe: {len(spots)} gefunden ({'ueber die Farbe' if ueber_farbe else 'ueber die Schrift'})")
+    for spot in spots:
+        print(f"  x={spot.x}..{spot.x + spot.w} y={spot.y}..{spot.y + spot.h} ({spot.w}x{spot.h})")
+
+    if not ueber_farbe:
+        # Wenn die Farbe nichts hergibt, interessiert, was die Umkehrung ueberhaupt liest.
+        print("\nUmgekehrter Durchgang (weisse Schrift):", sight.bright(png).text[:400] or "nichts")
+
+    cards, _blatt = extras.cards_on(sight, png, cfg)
+    print(f"\nKarten: {len(cards)}")
+    for verdict in extras.sift(
+        cards, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, bool(cfg.extras_search_terms)
+    ):
+        zeichen = {extras.TAKE: "+", extras.BLOCKED: "-", extras.UNKNOWN: "?"}[verdict.ruling]
+        print(f"  {zeichen} {verdict.card.short}")
+        print(f"      {verdict.reason}")
 
 
 def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
@@ -262,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("ocr", help="Erkennung auf einem gespeicherten Screenshot testen")
     p.add_argument("image")
     p.add_argument("--text", action="store_true", help="auch den erkannten Volltext ausgeben")
+    p.add_argument(
+        "--extras",
+        action="store_true",
+        help="zeigen, was die Zusatzaufgaben-Erkennung aus dem Bild macht (Knoepfe, Karten, Urteile)",
+    )
     p.set_defaults(func=cmd_ocr)
 
     p = sub.add_parser("extras", help="Zusatzaufgaben der Coin-Seite ansehen (fasst das Geraet an!)")

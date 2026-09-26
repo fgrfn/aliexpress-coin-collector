@@ -36,6 +36,7 @@ ruff check . && ruff format --check .
 python -m aliexpress_coin_collector doctor                     # Installation + Geräteverbindung
 python -m aliexpress_coin_collector once --force --no-notify   # ein Lauf (fasst das Gerät an!)
 python -m aliexpress_coin_collector ocr bild.png --text        # Erkennung an Screenshot testen
+python -m aliexpress_coin_collector ocr bild.png --extras      # ... samt Knöpfen, Karten und Urteilen
 python -m aliexpress_coin_collector extras                     # Zusatzaufgaben ansehen (fasst das Gerät an!)
 python -m aliexpress_coin_collector extras --los               # ... und die erlaubten abarbeiten
 python -m aliexpress_coin_collector status                     # letzte Läufe + Summen
@@ -91,6 +92,7 @@ tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings
                 brauchen ein installiertes mosquitto und werden sonst uebersprungen),
                 test_web_pages.py, test_web_device.py, test_web_diagnose.py,
                 test_extras.py (Aufgabentexte aus echten Screenshots),
+                test_button_color.py (Knopfsuche über die Farbe, an gemalten Bildern),
                 test_web_stats.py, test_web_settings.py, test_notify.py,
                 test_ocr_login.py, test_stall.py
                 (Attrappen, weder Gerät noch Tesseract nötig)
