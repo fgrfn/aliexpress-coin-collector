@@ -109,6 +109,7 @@ DEFAULT_EXTRAS_ALLOW = (
     "ubersicht",  # "Uebersicht ueber Ihre Muenzeinsparungen anzeigen"
     "rabatt",  # "Super Rabatte anzeigen"
     "surfen",  # "Surfen Sie 15 Sek. auf dieser Seite"
+    "anmeldung",  # "Taegliche Anmeldung" -- ein Knopf auf der Coin-Seite, kein Login
     "browse",
     "explore",
 )
@@ -124,7 +125,9 @@ DEFAULT_EXTRAS_DENY = (
     "bewert",
     "kaufen",  # bewusst nicht "kauf": das traefe auch "Einkaufsguthaben"
     "bestell",
-    "warenkorb",
+    # "warenkorb" stand hier und sperrte "In kuerzlich angesehenen Artikeln stoebern" mit --
+    # in dessen Beschreibung kommt das Wort vor, ohne dass etwas hineingelegt wuerde. Das
+    # Hineinlegen sperren "hinzufug" und "preisland", und die treffen genauer.
     "hinzufug",  # "1 x Wasser bei Preisland hinzufuegen" legt etwas in den Warenkorb
     "preisland",
     "abonn",
@@ -133,7 +136,9 @@ DEFAULT_EXTRAS_DENY = (
     "einladen",
     "freund",
     "bezahl",
-    "anmeldung",  # "Taegliche Anmeldung" ist der Check-in selbst, den haben wir schon
+    # "anmelden" bleibt gesperrt: das ist der Login, und der bleibt Sache des Nutzers.
+    # "anmeldung" nicht -- "Taegliche Anmeldung" ist eine Aufgabe der Coin-Seite und enthaelt
+    # "anmelden" nicht als Teilzeichenkette.
     "anmelden",
 )
 # Die Knoepfe in der Liste. Auf ihnen wird getippt, nicht auf dem Titel -- und sie zeigen

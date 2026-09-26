@@ -20,8 +20,9 @@ irgendwann etwas, das niemand wollte -- eine Spielrunde, eine Bewertung, im schl
 liegen. Das ist der guenstigere Fehler. Die Sperrliste gibt es trotzdem, als zweites Netz:
 sie gewinnt immer.
 
-**Verglichen wird auf Wortanfang, nicht auf Teilzeichenkette.** Sonst spraeche "kauf" auch auf
-"Einkaufsguthaben" an und sperrte eine harmlose Stoeber-Aufgabe.
+**Verglichen wird auf Teilzeichenkette, nicht auf Wortanfang.** Deutsch setzt zusammen:
+"durchstoebern" muss "stober" treffen. Dafuer muessen die Stichwoerter genau gewaehlt sein --
+in der Sperrliste steht "kaufen" und nicht "kauf", sonst traefe es "Einkaufsguthaben".
 
 **Der Check-in ist die Hauptsache.** Hier laeuft nichts, bevor er verbucht ist -- den Knopf
 gibt es vorher gar nicht. Findet sich die Liste nach einem Zurueck nicht wieder, wird
@@ -346,6 +347,44 @@ def sift(
     return out
 
 
+# Der Suchbalken steht ganz oben. Unterhalb beginnen schon die Vorschlaege, oberhalb liegt
+# die Statuszeile mit Uhr und Akku -- beides darf nicht mitzaehlen.
+SEARCH_BAND = (0.04, 0.16)
+# Waagrecht wird in der Mitte des Feldes getippt: links sitzt der Zurueckpfeil, rechts Kamera
+# und der Knopf "Suchen". Auf Letzteren darf nicht getippt werden -- er schickt den alten
+# Begriff ab, und genau das sah am 26.09.2026 nach einer erfolgreichen Suche aus.
+SEARCH_FIELD_X = 0.40
+
+
+def search_field(sheet: Sheet) -> tuple[int, int]:
+    """Wo getippt werden muss, damit das Suchfeld die Eingabe bekommt.
+
+    Waagrecht steht die Stelle fest, als Anteil der Breite. Senkrecht wird sie an einem Wort im
+    Balken festgemacht, wenn eines zu lesen ist -- meist der alte Begriff. Steht das Feld leer
+    und die Erkennung findet nichts, bleibt die Mitte des Balkens.
+    """
+    oben = int(sheet.height * SEARCH_BAND[0])
+    unten = int(sheet.height * SEARCH_BAND[1])
+    x = int(sheet.width * SEARCH_FIELD_X)
+    im_balken = [w.cy for w in sheet.words if oben <= w.cy <= unten and w.cx < sheet.width * 0.75]
+    return x, min(im_balken, default=(oben + unten) // 2)
+
+
+def typed_ok(screen: str, term: str) -> bool:
+    """Steht der Begriff im Feld?
+
+    Verlangt wird nicht der ganze: die Schrift im Suchfeld ist klein, und die Erkennung
+    verliest sich an "1.1KG" leichter als an "Jayo". Ein Wort von drei Zeichen reicht. Der
+    Fall, um den es geht, ist eindeutig -- steht dort noch der alte Begriff des Nutzers,
+    trifft keines.
+    """
+    key = normalize(screen)
+    if not key:
+        return False
+    tokens = [t for t in normalize(term).split() if len(t) >= 3]
+    return any(t in key for t in tokens) if tokens else normalize(term) in key
+
+
 # -- Der Ablauf am Geraet ----------------------------------------------------------------------
 
 
@@ -414,6 +453,12 @@ SCROLL_SETTLE_S = 2
 LIST_TIMEOUT_S = 25
 # So lange darf die Suchseite brauchen, bevor getippt wird.
 SEARCH_LOAD_S = 8
+# Nach dem Antippen des Feldes faehrt die Tastatur hoch. Wer vorher tippt, tippt ins Leere.
+SEARCH_FOCUS_S = 2
+# Zwischen Eintippen und Nachsehen. Das Feld selbst steht sofort, die Vorschlagsliste laedt.
+SEARCH_TYPE_S = 2
+# So viele Zeichen werden vor dem Tippen geloescht. Ein Begriff darf 40 lang sein.
+SEARCH_CLEAR_KEYS = 48
 # So lange darf die Liste brauchen, bis sie nach einem Zurueck wieder da ist. Das Fenster faehrt
 # hoch, und auf einem langsamen Geraet dauert das -- zwei Sekunden reichten nicht.
 BACK_TIMEOUT_S = 20
@@ -669,6 +714,30 @@ def cards_on(eyes: Eyes, png: bytes, cfg: Config) -> tuple[list[Card], Sheet]:
     return find_cards(group_lines(blatt.words), knoepfe), blatt
 
 
+def _type_search(adb: Adb, eyes: Eyes, sleep: Callable[[float], None], term: str) -> tuple[bool, str]:
+    """Suchbegriff eintippen und abschicken. Gibt zurueck, ob es geklappt hat, und eine Notiz.
+
+    Am 26.09.2026 meldete der Lauf "gesucht nach ...", und gesucht worden war nichts: im Feld
+    stand noch der alte Begriff des Nutzers. `input text` schreibt dorthin, wo der Eingabefokus
+    liegt, und nach dem Antippen von "Und los" liegt er nirgends. Also erst das Feld antippen,
+    dann leeren, dann tippen -- und abgeschickt wird erst nach einem Blick darauf. Lieber eine
+    Aufgabe als nicht erledigt melden, als eine Erfolgsmeldung, hinter der nichts steht.
+    """
+    sleep(SEARCH_LOAD_S)
+    blatt = eyes.sheet(adb.screenshot())
+    x, y = search_field(blatt)
+    log.info("Suchaufgabe: Feld antippen (%d, %d) und %r eintippen", x, y, term)
+    adb.tap(x, y)
+    sleep(SEARCH_FOCUS_S)
+    adb.clear_text(SEARCH_CLEAR_KEYS)
+    adb.text(term)
+    sleep(SEARCH_TYPE_S)
+    if not typed_ok(eyes.sheet(adb.screenshot()).text, term):
+        return False, f"Suchbegriff {term!r} kam nicht im Feld an"
+    adb.enter()
+    return True, f"gesucht nach {term!r}"
+
+
 def _work(
     adb: Adb,
     cfg: Config,
@@ -729,13 +798,14 @@ def _work(
     lauf.coins_before = eyes.coins(blatt)
     log.info("Zusatzaufgabe %r: antippen", lauf.text)
     adb.tap(stelle.go_x, stelle.go_y)
+    getippt = True
     if search_term:
-        sleep(SEARCH_LOAD_S)
-        log.info("Zusatzaufgabe %r: suche nach %r", lauf.text, search_term)
-        adb.text(search_term)
-        adb.enter()
-        lauf.note = f"gesucht nach {search_term!r}"
-    sleep(cfg.extras_dwell_s)
+        getippt, lauf.note = _type_search(adb, eyes, sleep, search_term)
+    if getippt:
+        # Die Verweildauer zaehlt erst ab der Ergebnisseite -- ohne Suche gibt es keine.
+        sleep(cfg.extras_dwell_s)
+    else:
+        log.warning("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
 
     # Warten, bis die Liste wieder da ist -- nicht einmal hinsehen und aufgeben. Das Fenster
     # faehrt hoch, und auf dem langsamen Geraet standen nach zwei Sekunden noch keine Karten:
@@ -754,7 +824,10 @@ def _work(
 
     lauf.coins_after = eyes.coins(zurueck)
     gewinn = lauf.gain
-    lauf.ok = True
+    lauf.ok = getippt
+    if not getippt:
+        log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
+        return lauf
     fertig = "erledigt" if gewinn is None else f"erledigt, {gewinn:+d} Muenzen"
     lauf.note = f"{fertig} ({lauf.note})" if lauf.note else fertig
     log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)

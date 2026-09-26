@@ -354,15 +354,27 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   ein Begriff steht; sonst gelten sie als unbekannt und bleiben liegen. Der Begriff geht durch Shell und
   `input text` und ist darum auf Buchstaben, Ziffern, Leerzeichen und `. , + -` begrenzt -- Umlaute kommen
   dort nicht sauber an. Die Sperrliste gewinnt auch gegen eine Suchaufgabe.
-- Bewusst gesperrt: "Taegliche Anmeldung" (ist der Check-in selbst), Merge Boss, Tagesquiz und "1 x Wasser bei
-  Preisland hinzufuegen" -- Letzteres legt etwas in den Warenkorb.
+  - **Getippt wurde bis 0.19.2 ins Leere** (auf dem Geraet gesehen, 26.09.2026). Der Lauf meldete
+    "gesucht nach ...", im Feld stand aber noch der alte Begriff des Nutzers. `input text` schreibt
+    dorthin, wo der Eingabefokus liegt, und nach dem Antippen von "Und los" liegt er nirgends. Jetzt wird
+    erst das Feld angetippt (`search_field`: waagrecht 40 % der Breite, weit weg von Zurueckpfeil, Kamera
+    und dem Knopf "Suchen"; senkrecht an einem Wort im Balken festgemacht), dann geleert, dann getippt --
+    und **abgeschickt erst nach einem Blick darauf** (`typed_ok`). Kommt der Begriff nicht an, gilt die
+    Aufgabe als nicht erledigt, statt Erfolg zu melden. Noch nicht am Geraet geprueft.
+- Bewusst gesperrt: Merge Boss, Tagesquiz, Bewertungen, Abos und "1 x Wasser bei Preisland hinzufuegen" --
+  Letzteres legt etwas in den Warenkorb. Ebenso `anmelden`: das ist der Login, und der bleibt Sache des
+  Nutzers.
 - **Die Verweildauer ist geraten, nicht gemessen.** Die App zaehlt 15 Sekunden, aber erst ab geladener Seite,
   und rechts am Rand laeuft dabei ein Zaehler, der am Ende einen gruenen Haken zeigt. Gewartet wird bisher
   stur `EXTRAS_DWELL_S` (25 s). Den Zaehler wirklich abzulesen -- und damit zu wissen, ob eine Aufgabe zaehlte,
   statt es zu hoffen -- geht erst, wenn ein Screenshot einer laufenden Aufgabenseite vorliegt.
-- Eine Aufgabe faellt derzeit **zu Unrecht** durch: "In kuerzlich angesehenen Artikeln stoebern" traegt
-  "Warenkorb" in der Beschreibung und wird davon gesperrt. Wer sie will, nimmt `warenkorb` aus
-  `EXTRAS_DENY` -- der eigentliche Schutz vor dem Warenkorb ist `hinzufug`.
+- Zwei Aufgaben fielen bis 0.19.2 **zu Unrecht** durch und sind jetzt frei:
+  - "In kuerzlich angesehenen Artikeln stoebern" trug "Warenkorb" in der Beschreibung. Hineingelegt wird
+    dabei nichts; der eigentliche Schutz vor dem Warenkorb sind `hinzufug` und `preisland`, und die treffen
+    genauer. `warenkorb` ist aus der Sperrliste raus.
+  - "Taegliche Anmeldung" ist der Check-in selbst. Meistens ist er schon erledigt, dann kostet die Karte
+    nichts; ist er es nicht, holt sie ihn nach. `anmeldung` steht jetzt auf der Positivliste. Nicht zu
+    verwechseln mit `anmelden` (Login), das gesperrt bleibt -- "Anmeldung" enthaelt "anmelden" nicht.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)
 
