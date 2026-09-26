@@ -251,6 +251,26 @@ Fenster hoch ("Weitere Muenzen verdienen") mit einer scrollbaren Liste. Jede Auf
 Titel, Beschreibung, Muenzwert und einem orangen Knopf **"Und los"** rechts. Die meisten verlangen nur,
 sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
 
+- **Das Werbefenster** (0.17.2). Beim Verlassen der Coin-Seite schiebt die App ein Fenster davor:
+  "Nicht vergessen: morgen fuer weitere Muenzen einchecken! +40", mit den Knoepfen **Verlassen** und
+  **Bleiben**. Es legt sich ueber die Liste, und das Zurueck loest es aus. Getippt wird immer
+  "Bleiben" -- "Verlassen" traegt uns aus der App und kostet den Rest des Durchgangs. Und getippt
+  wird auf das **Wort**, nicht auf die Zeile: beide Knoepfe stehen nebeneinander, die Zeilenmitte
+  liegt dazwischen. Nachgesehen wird nur, wenn gar keine Karte zu sehen ist -- liegt etwas davor,
+  sind es keine.
+- **Karten wachsen nicht ueber ihre uebliche Hoehe** (0.17.2). Wird nur ein Knopf gelesen, fehlt der
+  Abstand zum naechsten als Massstab; ohne Grenze zieht die eine Karte den Fenstertitel und die
+  Nachbarbeschreibung mit herein. Am 26.09.2026 hiess die einzige gefundene Karte darum "Weitere
+  Muenzen verdienen 15s stoebern und sehen, wie viel ...". Jetzt reicht eine Karte hoechstens eine
+  Kartenhoehe weit, bei einem einzelnen Knopf `LONE_CARD_SPAN`.
+- **Der umgekehrte Durchgang nimmt den besten Schwellwert**, nicht den ersten, der irgendetwas
+  hergibt (0.17.2): am 26.09.2026 fand der erste genau einen von drei Knoepfen. Das kostet drei
+  Texterkennungen statt einer -- an den Knoepfen haengt die ganze Liste, die Genauigkeit ist es wert.
+- **Gewartet wird auf den Bildschirm, nicht auf die Uhr** (0.17.2). `PAGE_TIMEOUT_S` ist die Obergrenze,
+  nicht die Wartezeit: `_await` sieht alle `POLL_S` Sekunden nach und geht weiter, sobald der Knopf oder
+  die erste Karte da ist. Vorher schlief der Befehl stur die volle Zeitspanne -- bei 90 Sekunden Zeitlimit
+  anderthalb Minuten, bevor ueberhaupt etwas geschah, und danach nochmal 30 Sekunden nach jedem Blaettern.
+  Nach einem Wisch muss die Liste nur zur Ruhe kommen, das sind zwei Sekunden.
 - **Zwei Durchgaenge.** Die Kartentexte stehen dunkel auf weiss und kommen im Originalbild durch. Die
   Knoepfe "Und los" stehen weiss auf orange und brauchen dieselbe Umkehrung wie der Sammeln-Knopf
   (`Sight.bright`). Beides zusammen ergibt erst eine Karte.

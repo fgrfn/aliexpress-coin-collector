@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import logging
 import re
 from dataclasses import dataclass
 
@@ -10,6 +11,8 @@ import pytesseract
 from pytesseract import Output
 
 from .config import DEFAULT_LOGIN_MARKERS, Config
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -155,23 +158,25 @@ class Sight:
         (dunkel auf weiss) sauber durchkamen. Dieselbe Umkehrung, die schon den Sammeln-Knopf
         findet, macht sie lesbar.
 
-        Genommen wird der erste Durchgang, in dem eine Knopfbeschriftung auftaucht -- sonst der
-        wortreichste. Jeder Durchgang kostet eine volle Texterkennung, darum nicht alle drei,
-        wenn der erste schon traegt.
+        Genommen wird der Durchgang mit den **meisten** Knopfbeschriftungen, nicht der erste mit
+        irgendeiner: am 26.09.2026 fand der erste Schwellwert genau einen von drei Knoepfen, und
+        aus einem Knopf wird eine einzige, viel zu grosse Karte. Das kostet drei Texterkennungen
+        statt einer -- die Genauigkeit ist es wert, denn an den Knoepfen haengt die ganze Liste.
         """
         img = decode_png(png)
         height, width = img.shape[:2]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         best: list[Word] = []
+        best_score = (-1, -1)
         for threshold in THRESHOLDS:
             _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
             words = read_words(binary, self.cfg.ocr_lang)
-            if len(words) > len(best):
-                best = words
             joined = " ".join(w.text for w in words).lower()
-            if any(term in joined for term in self.cfg.extras_go):
-                best = words
-                break
+            knoepfe = sum(joined.count(term) for term in self.cfg.extras_go)
+            score = (knoepfe, len(words))
+            if score > best_score:
+                best, best_score = words, score
+        log.debug("Umgekehrter Durchgang: %d Knopfbeschriftungen, %d Woerter", *best_score)
         return Sheet(words=best, width=width, height=height, text=" ".join(w.text for w in best))
 
     def coins(self, sheet: Sheet) -> int | None:

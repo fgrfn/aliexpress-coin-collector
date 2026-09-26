@@ -223,12 +223,18 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
         abstaende.sort()
         ueblich = abstaende[len(abstaende) // 2]
     else:
-        ueblich = 400
+        ueblich = LONE_CARD_SPAN
 
     cards: list[Card] = []
     for i, knopf in enumerate(knoepfe):
-        oben = (knoepfe[i - 1].cy + knopf.cy) // 2 if i else knopf.cy - ueblich // 2
-        unten = (knopf.cy + knoepfe[i + 1].cy) // 2 if i + 1 < len(knoepfe) else knopf.cy + ueblich // 2
+        # Nie weiter als eine Kartenhoehe nach oben oder unten greifen. Ohne die Grenze zieht
+        # ein einzeln gefundener Knopf den Fenstertitel und die Nachbarkarte mit herein --
+        # genau das passierte am 26.09.2026, als nur einer von drei Knoepfen gelesen wurde.
+        oben = max(knopf.cy - ueblich, (knoepfe[i - 1].cy + knopf.cy) // 2 if i else knopf.cy - ueblich)
+        unten = min(
+            knopf.cy + ueblich,
+            (knopf.cy + knoepfe[i + 1].cy) // 2 if i + 1 < len(knoepfe) else knopf.cy + ueblich,
+        )
         body = [line for line in lines if oben <= line.cy < unten]
         text = " ".join(line.text for line in sorted(body, key=lambda line: (line.cy, line.cx)))
         # Rechts der Mitte der Knopfzeile: steht der Knopf allein, liegt der Punkt weiter
@@ -238,6 +244,11 @@ def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
         if text.strip():
             cards.append(Card(text=text.strip(), go_x=(knopf.cx + knopf.x2) // 2, go_y=knopf.cy))
     return cards
+
+
+# Wird nur ein einziger Knopf gefunden, fehlt der Abstand zum naechsten als Massstab. Lieber zu
+# eng schneiden und die halbe Beschreibung verlieren als den Fenstertitel mit hereinziehen.
+LONE_CARD_SPAN = 200
 
 
 TAKE = "nehmen"
@@ -364,6 +375,41 @@ def _save(shots: Path | None, name: str, png: bytes, into: list[Path]) -> None:
     into.append(path)
 
 
+# Zwischen zwei Blicken auf den Bildschirm. Jeder kostet eine Texterkennung, bei der Knopfsuche
+# bis zu vier -- haeufiger nachsehen bringt darum nichts.
+POLL_S = 3
+# Nach einem Wisch muss die Liste nur zur Ruhe kommen, nicht laden.
+SCROLL_SETTLE_S = 2
+# So lange darf das Fenster brauchen, bis Karten darin stehen.
+LIST_TIMEOUT_S = 25
+# So lange darf die Suchseite brauchen, bevor getippt wird.
+SEARCH_LOAD_S = 8
+
+
+def _await(
+    adb: Adb,
+    look: Callable[[bytes], object | None],
+    sleep: Callable[[float], None],
+    monotonic: Callable[[], float],
+    timeout: float,
+) -> tuple[object | None, bytes]:
+    """Nachsehen, bis `look` etwas hergibt oder die Zeit um ist.
+
+    Wartet nicht stur eine Frist ab, sondern nur so lange wie noetig: die Coin-Seite steht auf
+    einem langsamen Geraet nach zehn Sekunden, nicht nach neunzig. Gibt das Gesehene und den
+    letzten Screenshot zurueck -- Letzteren auch im Fehlerfall, damit er abgelegt werden kann.
+    """
+    deadline = monotonic() + timeout
+    while True:
+        png = adb.screenshot()
+        found = look(png)
+        if found:
+            return found, png
+        if monotonic() >= deadline:
+            return None, png
+        sleep(POLL_S)
+
+
 def _scroll(adb: Adb, sheet: Sheet, down: bool = True) -> None:
     """Innerhalb des Fensters blaettern, mit Abstand zu Kopfzeile und Rand."""
     x = sheet.width // 2
@@ -372,6 +418,37 @@ def _scroll(adb: Adb, sheet: Sheet, down: bool = True) -> None:
         adb.swipe(x, weit, x, nah)
     else:
         adb.swipe(x, nah, x, weit)
+
+
+def _look(adb: Adb, eyes: Eyes, cfg: Config, sleep: Callable[[float], None]) -> tuple[list[Card], Sheet, bytes]:
+    """Nachsehen, was auf dem Schirm steht -- und ein Werbefenster vorher wegtippen.
+
+    Nur wenn gar keine Karte zu sehen ist: liegt etwas davor, sind es keine, und dann lohnt der
+    Blick nach dem "Bleiben"-Knopf. Stehen Karten da, wird nichts angetippt.
+    """
+    png = adb.screenshot()
+    cards, blatt = _cards_now(eyes, png, cfg)
+    if not cards and _dismiss(adb, cfg, blatt, sleep):
+        png = adb.screenshot()
+        cards, blatt = _cards_now(eyes, png, cfg)
+    return cards, blatt, png
+
+
+def _await_cards(
+    adb: Adb,
+    eyes: Eyes,
+    cfg: Config,
+    sleep: Callable[[float], None],
+    monotonic: Callable[[], float],
+    timeout: float,
+) -> tuple[list[Card], Sheet, bytes]:
+    """Warten, bis Karten zu sehen sind -- hoechstens `timeout` lang."""
+    deadline = monotonic() + timeout
+    while True:
+        cards, blatt, png = _look(adb, eyes, cfg, sleep)
+        if cards or monotonic() >= deadline:
+            return cards, blatt, png
+        sleep(POLL_S)
 
 
 def explore(
@@ -392,14 +469,14 @@ def explore(
     """
     result = ExtrasResult()
     frist = monotonic() + cfg.extras_budget_s
-    ruhe = max(2, cfg.page_timeout_s // 3)
 
-    png = adb.screenshot()
+    # Auf den Knopf warten, nicht auf die Uhr: PAGE_TIMEOUT_S ist die Obergrenze, nicht die
+    # Wartezeit. Steht die Seite nach zehn Sekunden, geht es nach zehn Sekunden weiter.
+    knopf, png = _await(adb, eyes.more_button, sleep, monotonic, cfg.page_timeout_s)
     _save(shots, "00-coinseite.png", png, result.shots)
     # Der Muenzstand wird hier gelesen, nicht in der Liste: dort liegt das Fenster ueber der
     # Kopfzeile, sie ist abgedunkelt und die Zahl kommt nicht mehr durch.
     result.coins_before = eyes.coins(eyes.sheet(png))
-    knopf = eyes.more_button(png)
     if knopf is None:
         result.note = (
             "Der Knopf fuer die Zusatzaufgaben war nicht zu finden. Er erscheint erst, wenn der "
@@ -410,20 +487,23 @@ def explore(
 
     log.info("Zusatzaufgaben: Knopf gefunden (%r), oeffne die Liste", knopf.text)
     adb.tap(knopf.cx, knopf.cy)
-    sleep(ruhe)
     result.entered = True
 
     # -- Hinsehen: die Liste einmal von oben nach unten durchblaettern -------------------------
     gesehen: list[Card] = []
     blatt: Sheet | None = None
     for runde in range(cfg.extras_scrolls + 1):
-        png = adb.screenshot()
+        if runde == 0:
+            # Erste Runde: warten, bis das Fenster oben ist und Karten zeigt.
+            neue, blatt, png = _await_cards(adb, eyes, cfg, sleep, monotonic, LIST_TIMEOUT_S)
+        else:
+            neue, blatt, png = _look(adb, eyes, cfg, sleep)
+        log.debug("Zusatzaufgaben: Runde %d, %d Karten", runde + 1, len(neue))
         _save(shots, f"{runde + 1:02d}-liste.png", png, result.shots)
-        neue, blatt = _cards_now(eyes, png, cfg)
         gesehen.extend(neue)
         if runde < cfg.extras_scrolls:
             _scroll(adb, blatt)
-            sleep(ruhe)
+            sleep(SCROLL_SETTLE_S)
 
     result.verdicts = sift(
         gesehen,
@@ -438,14 +518,14 @@ def explore(
 
     if not act or cfg.extras_max == 0:
         result.note = "nur hingesehen, nichts angetippt"
-        _heimweg(adb, sleep)
+        _heimweg(adb, eyes, cfg, sleep)
         return result
 
     # -- Abarbeiten ----------------------------------------------------------------------------
     if blatt is not None:
         for _ in range(cfg.extras_scrolls):
             _scroll(adb, blatt, down=False)
-            sleep(1)
+            sleep(SCROLL_SETTLE_S)
 
     for verdict in [v for v in result.verdicts if v.wanted][: cfg.extras_max]:
         if monotonic() >= frist:
@@ -461,8 +541,8 @@ def explore(
             break
 
     # Erst das Fenster schliessen, dann zaehlen: in der Liste ist die Kopfzeile verdeckt.
-    _heimweg(adb, sleep)
-    sleep(ruhe)
+    _heimweg(adb, eyes, cfg, sleep)
+    sleep(SCROLL_SETTLE_S)
     png = adb.screenshot()
     _save(shots, "99-ende.png", png, result.shots)
     result.coins_after = eyes.coins(eyes.sheet(png))
@@ -473,14 +553,40 @@ def explore(
 LOST = "Liste nicht wiedergefunden"
 
 
-def _heimweg(adb: Adb, sleep: Callable[[float], None]) -> None:
-    """Das Fenster wieder schliessen. Misslingt es, ist es kein Beinbruch -- der naechste Lauf
-    startet die App ohnehin neu."""
+def _heimweg(adb: Adb, eyes: Eyes, cfg: Config, sleep: Callable[[float], None]) -> None:
+    """Das Fenster wieder schliessen.
+
+    Das Zurueck loest oft das Werbefenster aus ("Nicht vergessen: morgen einchecken!"). Es bliebe
+    sonst offen auf dem Geraet stehen, darum gleich wegtippen -- mit "Bleiben", nie mit
+    "Verlassen". Misslingt der Rueckweg, ist es kein Beinbruch: der naechste Lauf startet die
+    App ohnehin neu.
+    """
     try:
         adb.back()
-        sleep(1)
+        sleep(SCROLL_SETTLE_S)
+        _dismiss(adb, cfg, eyes.sheet(adb.screenshot()), sleep)
     except AdbError as exc:  # pragma: no cover - reiner Aufraeumweg
         log.debug("Zusatzaufgaben: Rueckweg misslungen (%s)", exc)
+
+
+def _dismiss(adb: Adb, cfg: Config, sheet: Sheet, sleep: Callable[[float], None]) -> bool:
+    """Das Werbefenster wegtippen, falls eines im Weg steht.
+
+    Beim Verlassen der Coin-Seite schiebt die App ein Fenster davor ("Nicht vergessen: morgen
+    einchecken!") mit den Knoepfen "Verlassen" und "Bleiben". Getippt wird immer **Bleiben**:
+    das macht das Fenster weg, ohne die Coin-Seite zu verlassen -- "Verlassen" wuerde uns aus
+    der App tragen und den Rest des Durchgangs kosten.
+    """
+    # Auf dem Wort, nicht auf der Zeile: "Verlassen" und "Bleiben" stehen nebeneinander, und die
+    # Mitte ihrer gemeinsamen Zeile liegt zwischen beiden Knoepfen -- im schlimmsten Fall auf dem
+    # falschen.
+    for word in sheet.words:
+        if hits(normalize(word.text), cfg.extras_stay) is not None:
+            log.info("Zusatzaufgaben: Werbefenster weggetippt (%r)", word.text)
+            adb.tap(word.cx, word.cy)
+            sleep(SCROLL_SETTLE_S)
+            return True
+    return False
 
 
 def _cards_now(eyes: Eyes, png: bytes, cfg: Config) -> tuple[list[Card], Sheet]:
@@ -512,14 +618,13 @@ def _work(
     stelle: Card | None = None
     blatt: Sheet | None = None
     for versuch in range(cfg.extras_scrolls + 1):
-        png = adb.screenshot()
-        cards, blatt = _cards_now(eyes, png, cfg)
+        cards, blatt, _png = _look(adb, eyes, cfg, sleep)
         stelle = next((c for c in cards if c.key == wanted.key), None)
         if stelle is not None:
             break
         if versuch < cfg.extras_scrolls:
             _scroll(adb, blatt)
-            sleep(1)
+            sleep(SCROLL_SETTLE_S)
     if stelle is None or blatt is None:
         lauf.note = "Karte nicht mehr gefunden"
         log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
@@ -529,7 +634,7 @@ def _work(
     log.info("Zusatzaufgabe %r: antippen", lauf.text)
     adb.tap(stelle.go_x, stelle.go_y)
     if search_term:
-        sleep(max(2, cfg.page_timeout_s // 3))
+        sleep(SEARCH_LOAD_S)
         log.info("Zusatzaufgabe %r: suche nach %r", lauf.text, search_term)
         adb.text(search_term)
         adb.enter()
@@ -537,16 +642,14 @@ def _work(
     sleep(cfg.extras_dwell_s)
 
     adb.back()
-    sleep(max(2, cfg.page_timeout_s // 3))
-    png = adb.screenshot()
+    sleep(SCROLL_SETTLE_S)
+    cards, zurueck, png = _look(adb, eyes, cfg, sleep)
     _save(shots, f"task-{len(result.runs) + 1:02d}.png", png, result.shots)
-    cards, zurueck = _cards_now(eyes, png, cfg)
 
     if not cards:
         adb.back()
-        sleep(2)
-        png = adb.screenshot()
-        cards, zurueck = _cards_now(eyes, png, cfg)
+        sleep(SCROLL_SETTLE_S)
+        cards, zurueck, _png = _look(adb, eyes, cfg, sleep)
         if not cards:
             lauf.note = LOST
             return lauf
