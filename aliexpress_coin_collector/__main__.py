@@ -4,7 +4,6 @@ import argparse
 import logging
 import shutil
 import sys
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -64,8 +63,9 @@ def cmd_extras(cfg: Config, args: argparse.Namespace) -> int:
         adb.wake()
         adb.force_stop(cfg.app_package)
         adb.start_url(cfg.coin_url, cfg.app_package)
-        print(f"Coin-Seite geoeffnet, warte {cfg.page_timeout_s} s auf die Seite ...")
-        time.sleep(cfg.page_timeout_s)
+        # Gewartet wird in explore, und zwar nur so lange wie noetig: PAGE_TIMEOUT_S ist die
+        # Obergrenze, nicht die Wartezeit.
+        print(f"Coin-Seite geoeffnet, warte auf den Knopf (hoechstens {cfg.page_timeout_s} s) ...")
 
     result = extras.explore(adb, cfg, ocr.Sight(cfg), act=args.los, shots=shots)
 

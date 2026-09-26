@@ -251,6 +251,11 @@ Fenster hoch ("Weitere Muenzen verdienen") mit einer scrollbaren Liste. Jede Auf
 Titel, Beschreibung, Muenzwert und einem orangen Knopf **"Und los"** rechts. Die meisten verlangen nur,
 sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
 
+- **Gewartet wird auf den Bildschirm, nicht auf die Uhr** (0.17.2). `PAGE_TIMEOUT_S` ist die Obergrenze,
+  nicht die Wartezeit: `_await` sieht alle `POLL_S` Sekunden nach und geht weiter, sobald der Knopf oder
+  die erste Karte da ist. Vorher schlief der Befehl stur die volle Zeitspanne -- bei 90 Sekunden Zeitlimit
+  anderthalb Minuten, bevor ueberhaupt etwas geschah, und danach nochmal 30 Sekunden nach jedem Blaettern.
+  Nach einem Wisch muss die Liste nur zur Ruhe kommen, das sind zwei Sekunden.
 - **Zwei Durchgaenge.** Die Kartentexte stehen dunkel auf weiss und kommen im Originalbild durch. Die
   Knoepfe "Und los" stehen weiss auf orange und brauchen dieselbe Umkehrung wie der Sammeln-Knopf
   (`Sight.bright`). Beides zusammen ergibt erst eine Karte.

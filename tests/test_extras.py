@@ -59,6 +59,24 @@ def karte(y: int, *zeilen: str, go: str = "Und los") -> list[W]:
     return out
 
 
+class Uhr:
+    """Eine Uhr, die nur durch Warten laeuft.
+
+    Die Warteschleifen in `explore` sehen nach, warten, sehen wieder nach. Mit einem `sleep`,
+    das nichts tut, und einer echten Uhr drehen sie bis zum Zeitlimit leer -- die Tests liefen
+    damit halbe Minuten. So haengen beide zusammen wie im Betrieb, nur ohne Wartezeit.
+    """
+
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def sleep(self, seconds: float) -> None:
+        self.t += seconds
+
+    def now(self) -> float:
+        return self.t
+
+
 class FakeAdb:
     """Bildet nach, was ein Tap bewirkt: der erste oeffnet die Liste, jeder weitere eine
     Aufgabenseite. `back` fuehrt zurueck -- wohin, sagt der Test."""
@@ -257,10 +275,37 @@ def test_sift_zaehlt_jede_karte_nur_einmal(cfg) -> None:
 
 def test_ohne_knopf_passiert_nichts(cfg) -> None:
     adb = FakeAdb()
-    result = extras.explore(adb, cfg, FakeEyes(sheets={}, button=None), sleep=lambda s: None)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, FakeEyes(sheets={}, button=None), sleep=uhr.sleep, monotonic=uhr.now)
     assert not result.entered
     assert "Check-in" in result.note
     assert adb.taps == []
+
+
+def test_wartet_nur_bis_der_knopf_da_ist(cfg) -> None:
+    """PAGE_TIMEOUT_S ist die Obergrenze, nicht die Wartezeit.
+
+    Vorher schlief der Befehl stur die volle Zeitspanne -- bei 90 Sekunden Zeitlimit also anderthalb
+    Minuten, auch wenn die Seite nach zehn Sekunden stand.
+    """
+    from dataclasses import replace
+
+    cfg = replace(cfg, page_timeout_s=90)
+    liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
+    adb = FakeAdb()
+
+    class Spaet(FakeEyes):
+        blicke = 0
+
+        def more_button(self, png: bytes):
+            Spaet.blicke += 1
+            return W("verdienen", 200, 560) if Spaet.blicke >= 3 else None
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, Spaet(sheets={b"liste": liste}), sleep=uhr.sleep, monotonic=uhr.now, act=False)
+
+    assert result.entered
+    assert uhr.now() < 30, f"zu lange gewartet: {uhr.now()} s"
 
 
 def test_hinsehen_tippt_nur_den_knopf(cfg) -> None:
@@ -268,7 +313,8 @@ def test_hinsehen_tippt_nur_den_knopf(cfg) -> None:
     adb = FakeAdb()
     eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560))
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=False)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=False)
 
     assert result.entered
     assert len(adb.taps) == 1  # nur der Knopf, der die Liste oeffnet
@@ -293,7 +339,8 @@ def test_ohne_umgekehrten_durchgang_bleiben_die_karten_unsichtbar(cfg) -> None:
     adb = FakeAdb()
     eyes = Blind(sheets={b"liste": liste}, button=W("verdienen", 200, 560))
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=False)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=False)
 
     assert result.entered and result.verdicts == []
 
@@ -307,7 +354,8 @@ def test_muenzstand_kommt_von_der_coinseite(cfg) -> None:
     # Nur die Coin-Seite gibt einen Stand her, die Liste nicht.
     eyes.coins = lambda sheet: 140 if any(w.text == "140" for w in sheet.words) else None  # type: ignore[assignment]
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=False)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=False)
 
     assert result.coins_before == 140
 
@@ -320,7 +368,8 @@ def test_abarbeiten_tippt_den_knopf_der_karte_und_zaehlt_nach(cfg) -> None:
     staende = iter([140, 140, 145, 145, 145])
     eyes.coins = lambda sheet: next(staende, 145)  # type: ignore[assignment]
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=True)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
 
     assert [r.ok for r in result.runs] == [True]
     assert result.runs[0].gain == 5
@@ -338,7 +387,8 @@ def test_suchaufgabe_tippt_den_begriff_und_schickt_ab(cfg) -> None:
     adb = FakeAdb()
     eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560), fallback_coins=140)
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, choose=lambda terms: terms[0], act=True)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, choose=lambda terms: terms[0], act=True)
 
     assert adb.getippt == ["Jayo PETG 1.1KG"]
     assert adb.calls.count("enter") == 1
@@ -353,7 +403,8 @@ def test_ohne_suchbegriff_wird_nichts_getippt(cfg) -> None:
     adb = FakeAdb()
     eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560), fallback_coins=140)
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=True)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
 
     assert adb.getippt == []
     assert result.runs == []  # die Karte gilt als unbekannt und wird nicht angefasst
@@ -366,7 +417,8 @@ def test_abbruch_wenn_die_liste_nach_dem_zurueck_fehlt(cfg) -> None:
     adb = FakeAdb(nach_back=b"fremd")
     eyes = FakeEyes(sheets={b"liste": liste, b"fremd": fremd}, button=W("verdienen", 200, 560), fallback_coins=140)
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=True)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
 
     assert result.runs[0].note == extras.LOST
     assert "abgebrochen" in result.note
@@ -380,7 +432,8 @@ def test_extras_max_null_sieht_nur_hin(cfg, monkeypatch) -> None:
     adb = FakeAdb()
     eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560))
 
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=True)
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
 
     assert result.runs == []
     assert len(adb.taps) == 1
@@ -389,13 +442,15 @@ def test_extras_max_null_sieht_nur_hin(cfg, monkeypatch) -> None:
 def test_zeitbudget_bricht_ab(cfg) -> None:
     from dataclasses import replace
 
-    cfg = replace(cfg, extras_max=5)
+    # Null Sekunden Budget: das Hinsehen kostet schon Zeit, danach ist die Frist um.
+    cfg = replace(cfg, extras_max=5, extras_budget_s=0)
     liste = S(words=[*karte(300, "Gesponserte Artikel entdecken"), *karte(700, "Super Rabatte anzeigen")])
     adb = FakeAdb()
     eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560), fallback_coins=140)
-    # Die Uhr springt sofort ueber die Frist.
-    uhr = iter([0.0, 10_000.0, 20_000.0])
-    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, monotonic=lambda: next(uhr, 30_000.0), act=True)
+    uhr = Uhr()
+
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
     assert result.runs == []
     assert "Zeitbudget" in result.note
 
