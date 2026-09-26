@@ -27,6 +27,15 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 
 ### Nur mit Attrappen oder Näherungen getestet
 
+- **Zusatzaufgaben (0.17.0): gebaut, aber nie am Geraet gelaufen.** Die Auswahl ist an den
+  echten Aufgabentexten vom 26.09.2026 geprueft (Screenshots des Nutzers, in
+  `tests/test_extras.py` als Testfaelle hinterlegt) -- alle zehn Karten werden richtig
+  einsortiert. **Ungetestet ist alles davor und danach:** ob die OCR die Karten auf dem
+  Telefon wirklich so liest, ob der Tap den Knopf "Und los" trifft, ob das Zurueck in die
+  Liste fuehrt und ob die Muenzen am Ende ankommen. Die Bilder lagen nur als Anschauung vor,
+  nicht als Testbilder -- sie enthalten Kontodaten und sind nicht im Repo.
+
+
 - **Erkennung von "Sammeln"** (weiße Schrift auf oranger Fläche): gefunden an einem Video-Frame in 1200×1920 mit
   Schwellwert-Vorverarbeitung (Konfidenz 96) und an auf 720 px Breite verkleinerten Kopien. Ein echter Screenshot
   eines Telefons im Offen-Zustand liegt bisher nicht vor.
@@ -221,6 +230,37 @@ können Anpassungen erfordern.
   Installation, die noch nicht aktualisiert hat, startet damit trotzdem.
 - `MQTT_PASSWORD` ist ein Geheimnis wie `DISCORD_WEBHOOK_URL`: in `settings.SECRET_KEYS`, nie in der Seite, nie im
   Protokoll. Dafür gibt es Tests.
+
+## 3c. Zusatzaufgaben (`extras.py`)
+
+Nach dem Einsammeln heisst der Knopf an derselben Stelle **"Mehr Muenzen verdienen"**. Dahinter faehrt ein
+Fenster hoch ("Weitere Muenzen verdienen") mit einer scrollbaren Liste. Jede Aufgabe ist eine Karte aus
+Titel, Beschreibung, Muenzwert und einem orangen Knopf **"Und los"** rechts. Die meisten verlangen nur,
+sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
+
+- **Karten statt Zeilen.** Titel brechen ueber zwei Zeilen um, und was eine Aufgabe ausmacht, steht teils
+  im Titel, teils in der Beschreibung. Die Knoepfe geben die Grenzen vor: je Karte genau ein "Und los",
+  also gehoert zu einer Karte, was naeher an ihrem Knopf liegt als am naechsten. Die Kopfzeile mit dem
+  Muenzstand faellt damit von selbst heraus.
+- **Positivliste, keine Sperrliste.** Angefasst wird nur, was in `EXTRAS_ALLOW` steht. Die Aufgaben wechseln
+  taeglich; eine Sperrliste waere morgen unvollstaendig. `EXTRAS_DENY` gibt es trotzdem als zweites Netz und
+  gewinnt immer.
+- **Teilzeichenkette, nicht Wortanfang.** Deutsch setzt zusammen: "durchstoebern" muss "stober" treffen.
+  Der Preis ist, dass die Sperrliste gelegentlich zu viel trifft. Das ist die richtige Richtung -- eine
+  Aufgabe zu viel liegen zu lassen kostet fuenf Muenzen, eine zu viel angetippt zu haben kann etwas in den
+  Warenkorb legen. Die Stichwoerter muessen dafuer genau sitzen: in der Sperrliste steht **"kaufen"**, nicht
+  "kauf", sonst traefe es auch "Einkaufsguthaben" -- eine harmlose Stoeber-Aufgabe.
+- **Die Liste ist der Beleg.** Nach jedem Zurueck wird geprueft, ob wieder ein "Und los" zu sehen ist. Ist
+  es das nicht, wird ein zweites Mal zurueckgegangen und danach abgebrochen -- blind weiterzutippen waere
+  der teuerste Fehler. Der Check-in ist zu diesem Zeitpunkt ohnehin schon verbucht.
+- **Gezaehlt wird, was ankommt.** Vor und nach jeder Aufgabe wird der Muenzstand gelesen. Damit steht
+  hinterher da, was eine Aufgabe wirklich gebracht hat, statt was sie verspricht.
+- Bewusst **nicht** auf der Positivliste: "Suchen, was Sie lieben" (verlangt ein eingetipptes Suchwort) und
+  "Taegliche Anmeldung" (ist der Check-in selbst). Bewusst gesperrt: Merge Boss, Tagesquiz, "1 x Wasser bei
+  Preisland hinzufuegen" -- Letzteres legt etwas in den Warenkorb.
+- Eine Aufgabe faellt derzeit **zu Unrecht** durch: "In kuerzlich angesehenen Artikeln stoebern" traegt
+  "Warenkorb" in der Beschreibung und wird davon gesperrt. Wer sie will, nimmt `warenkorb` aus
+  `EXTRAS_DENY` -- der eigentliche Schutz vor dem Warenkorb ist `hinzufug`.
 
 ## 4. Zeitplan und Entscheidung (`scheduler.py`)
 
@@ -436,8 +476,12 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    `Outcome.LOGIN_REQUIRED`). **Die Marker sind an keinem echten abgemeldeten Screenshot geprüft** —
    sie sind begründete Vorgaben. Nachprüfbar ohne Wartezeit über das Werkzeug auf der Diagnose-Seite.
 5. **Popups wegtippen** (Bewertungsaufforderung, Update-Hinweis) statt daran zu scheitern.
-6. **Zusatzaufgaben** der Coin-Seite als eigene, austauschbare Module. Erst nach stabilem Check-in sinnvoll, und mit
-   hohem Pflegeaufwand verbunden, weil die Aufgaben wechseln.
+6. **Zusatzaufgaben** der Coin-Seite. Angefangen in 0.17.0 (`extras.py`, Befehl `extras`), noch von Hand
+   auszuloesen und **nicht** in den taeglichen Lauf eingebaut -- das kommt erst, wenn die Erkennung am Geraet
+   belegt ist. Offen bleibt ausserdem: "Suchen, was Sie lieben" verlangt ein eingetipptes Suchwort und steht
+   darum nicht auf der Positivliste; die Zaehler an den Karten ("0/3") werden nicht ausgewertet, obwohl sie
+   sagen, wie oft eine Aufgabe noch geht; und eine Aufgabe, die dreimal nichts einbrachte, koennte sich
+   selbst abschalten.
 7. **Vision-Modell als Ausweichweg** für die Button-Erkennung, falls die OCR zu oft danebenliegt.
 8. **Neustart des Geräts abfangen.** `adb tcpip 5555` lässt sich ohne USB nicht wiederholen; die `unreachable`-Meldung
    weist bereits darauf hin. Bei Android 11+ wäre Wireless Debugging eine Alternative.

@@ -36,6 +36,8 @@ ruff check . && ruff format --check .
 python -m aliexpress_coin_collector doctor                     # Installation + Geräteverbindung
 python -m aliexpress_coin_collector once --force --no-notify   # ein Lauf (fasst das Gerät an!)
 python -m aliexpress_coin_collector ocr bild.png --text        # Erkennung an Screenshot testen
+python -m aliexpress_coin_collector extras                     # Zusatzaufgaben ansehen (fasst das Gerät an!)
+python -m aliexpress_coin_collector extras --los               # ... und die erlaubten abarbeiten
 python -m aliexpress_coin_collector status                     # letzte Läufe + Summen
 python -m aliexpress_coin_collector schedule                   # geplante Uhrzeiten der nächsten Tage
 python -m aliexpress_coin_collector notify-test                # Testmeldung an Discord (ohne Gerät)
@@ -48,7 +50,7 @@ Arbeitsverzeichnis, venv und Dienstbenutzer. `python -m …` gilt nur im Quellba
 Der Dienst liest ausserdem regelmäßig den Akkustand (`dumpsys battery`). Das ist ein reiner
 Lesezugriff — er weckt nichts und tippt nichts an — fasst aber trotzdem das Gerät an.
 
-`once`, `doctor` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `notify-test`, `--version` und die Tests
+`once`, `doctor`, `extras` und `daemon` brauchen Netzzugang zum Gerät. `ocr`, `notify-test`, `--version` und die Tests
 brauchen kein Gerät (`notify-test` braucht Netz nach draußen).
 
 Bei Änderungen an `install.sh` zusätzlich `bash -n install.sh` und `shellcheck install.sh`. Dieselben Prüfungen
@@ -61,6 +63,8 @@ aliexpress_coin_collector/
   config.py     .env laden, Config (frozen dataclass), alle Einstellungen
   adb.py        ADB-Wrapper (connect, screenshot, tap, wake/sleep, Deep-Link, Akkustand)
   ocr.py        Screenshot -> PageState (Button, erledigt, Münzstand)
+  extras.py     Zusatzaufgaben der Coin-Seite: Karten erkennen, auswählen, abarbeiten
+                (Positivliste; die Sperrliste gewinnt immer)
   runner.py     ein Lauf: Outcome-Logik, Wartezeiten, Wiederholung, Bestätigung
   scheduler.py  Zeitplan (plan_for, next_runs, next_due), Entscheidung (decide), Dienstschleife, Meldungen
   store.py      SQLite (Tabelle runs)
@@ -86,6 +90,7 @@ tests/          test_config.py, test_runner.py, test_scheduler.py, test_settings
                 test_store.py, test_mqtt.py (drei Tests darin
                 brauchen ein installiertes mosquitto und werden sonst uebersprungen),
                 test_web_pages.py, test_web_device.py, test_web_diagnose.py,
+                test_extras.py (Aufgabentexte aus echten Screenshots),
                 test_web_stats.py, test_web_settings.py, test_notify.py,
                 test_ocr_login.py, test_stall.py
                 (Attrappen, weder Gerät noch Tesseract nötig)
