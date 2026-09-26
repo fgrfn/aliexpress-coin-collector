@@ -264,6 +264,10 @@ class Config:
     extras_after_run: bool
     extras_dwell_s: int
     extras_max: int
+    # So oft wird dieselbe Aufgabe hoechstens hintereinander abgearbeitet. Manche lassen sich
+    # mehrfach abholen ("2/3" auf der Karte). Schluss ist, sobald die Karte den Haken traegt --
+    # die Zahl ist nur die Reissleine, falls die Karte das nie tut.
+    extras_repeats: int
     extras_scrolls: int
     extras_budget_s: int
     notify_on_success: bool
@@ -345,6 +349,7 @@ class Config:
             "extras_after_run": _bool(get("EXTRAS_AFTER_RUN") or "true"),
             "extras_dwell_s": _int("EXTRAS_DWELL_S", 25),
             "extras_max": _int("EXTRAS_MAX", 6),
+            "extras_repeats": _int("EXTRAS_REPEATS", 3),
             "extras_scrolls": _int("EXTRAS_SCROLLS", 3),
             "extras_budget_s": _int("EXTRAS_BUDGET_S", 300),
             "notify_on_success": _bool(get("NOTIFY_ON_SUCCESS") or "true"),
@@ -410,6 +415,7 @@ class Config:
         _check_min("EXTRAS_DWELL_S", self.extras_dwell_s, 1)
         # 0 heisst: hinsehen, aber nichts antippen.
         _check_min("EXTRAS_MAX", self.extras_max, 0)
+        _check_min("EXTRAS_REPEATS", self.extras_repeats, 1)
         _check_min("EXTRAS_SCROLLS", self.extras_scrolls, 0)
         _check_min("EXTRAS_BUDGET_S", self.extras_budget_s, 30)
         for term in self.extras_search_terms:

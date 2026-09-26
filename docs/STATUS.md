@@ -75,6 +75,13 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
+- **Wiederholungen und der Muenzwert (0.19.7): nur mit Attrappen.** Dass eine Aufgabe
+  wiederholt wird, bis ihre Karte den Haken traegt, und dass erst alle einmal drankommen, ist
+  durch Tests gedeckt (`tests/test_extras.py`). **Nicht gesehen** ist, ob eine Aufgabe am Geraet
+  im selben Ausflug ueberhaupt ein zweites Mal zaehlt -- moeglich, dass die App dazwischen
+  Zeit verlangt. Dann bringt der zweite Durchgang nichts ausser Wartezeit, und `EXTRAS_REPEATS`
+  gehoert auf 1.
+
 - **Erledigte Karten als Anker (0.19.6): die Erkennung ist belegt, ein Lauf damit nicht.**
   Am echten Screenshot geprueft (siehe oben). **Nicht gesehen** ist ein `--los`-Lauf mit dieser
   Fassung: ob die Namen im Log nun durchgehend stimmen und ob `same_card` die Karten damit
@@ -373,6 +380,31 @@ Versaeumnis, sondern Absicht.
   Saettigung und Helligkeit Luft. Die Groessenpruefung (`find_anchors`) laeuft ueber **beide**
   Sorten zusammen: getrennt haette keine genug Kandidaten, und die Muenzgrafik im Fensterkopf
   bliebe stehen.
+
+- **Wiederholungen, und der Muenzwert von der Karte** (0.19.7). Gemeldet am 26.09.2026: "eins
+  wurde nur 2/3 mal abgeholt". Manche Aufgaben lassen sich mehrfach abholen; "Super Rabatte
+  anzeigen" stand nach einem Durchgang auf 2/3, zwei Muenzen blieben liegen.
+  - **Schluss ist beim Haken, nicht beim Zaehler.** Nach jedem Durchgang wird die Karte neu
+    gesucht: traegt sie den orangen Knopf, geht sie noch einmal; traegt sie den Haken, ist
+    fertig. Derselbe Anker, der seit 0.19.6 die Kartengrenzen traegt. Der Zaehler taugt nicht
+    dafuer -- am Geraet wurde "1/3" als "B2 I" gelesen. `EXTRAS_REPEATS` (Vorgabe 3) ist nur
+    die Reissleine, falls eine Karte den Haken nie bekommt.
+  - **Erst jede Aufgabe einmal, dann die Wiederholungen.** Andersherum fraesse eine dreifache
+    Aufgabe das Zeitbudget der anderen auf, bevor die auch nur einmal drankaemen.
+  - **Eine Zeile je Aufgabe**, mit Zaehler: aus drei Durchgaengen wird "3x erledigt, +15
+    Muenzen laut Karte", nicht drei fast gleiche Eintraege (`extras._merge`). `to_tasks` ordnet
+    darum ueber `Card.short` zu und nicht mehr ueber die Reihenfolge -- eine Aufgabe kann jetzt
+    ganz ohne Lauf dastehen, wenn das Zeitbudget vorher alle ist.
+
+- **Der Muenzwert je Aufgabe ist versprochen, nicht gemessen** (0.19.7). Gewuenscht war, im
+  Dashboard zu sehen, wofuer es wie viele Muenzen gab. Gemessen geht das nicht: der Muenzstand
+  steht in der Kopfzeile, und die liegt unter dem Aufgabenfenster -- `acc ocr 02-liste.png` gab
+  dort `Muenzstand: None`. Bis 0.19.6 stand darum bei **jeder** Aufgabe kein Zuwachs, und im
+  Dashboard sah alles nach einem Topf aus.
+  Gelesen wird jetzt der Wert **auf der Karte** ("+5", `extras.reward`). Eine Spanne wie
+  "+1~5" beim Tagesquiz zaehlt nicht -- was dabei herauskommt, steht nicht fest. Laesst sich
+  der Zuwachs doch messen, gewinnt die Messung; sonst steht "laut Karte" dabei, damit der
+  Unterschied sichtbar bleibt.
 
 - **Ohne Liste wird nicht gewischt** (0.19.4). Gemeldet am 26.09.2026: "klick auf mehr coins
   verdienen, dann lange nichts, app schliesst und es wird zwischen dem homescreen hin und her
@@ -783,10 +815,7 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
      `tasks.gain` und in der Tagesliste, aber der Stand, den die Oberflaeche gross anzeigt, kommt weiter
      vom letzten Check-in. Eine eigene Zeile in `runs` (Art `extras`) waere die kleinste Loesung,
      verwaessert aber die Erfolgsquote des Check-ins.
-    - **Mehrfach erledigbare Aufgaben.** Die Karten tragen einen Zaehler ("1/2", "0/3"). Er wird
-     seit 0.19.5 gelesen und angezeigt, entscheidet aber noch nichts. Jetzt, wo die
-     Kartengrenzen stimmen, waere er brauchbar -- zu klaeren bleibt, ob eine Aufgabe mit "1/3"
-     im selben Ausflug noch zweimal geht oder erst am naechsten Tag wieder.
+    - ~~**Mehrfach erledigbare Aufgaben.**~~ Umgesetzt in 0.19.7, siehe Abschnitt 3c.
    - **Der Zaehler am Rand wird nicht abgelesen.** Waehrend der Verweildauer laeuft rechts eine Uhr und
      zeigt am Ende einen gruenen Haken. Gewartet wird stur `EXTRAS_DWELL_S`; ob eine Aufgabe wirklich
      zaehlte, wird aus dem Muenzstand geschlossen, nicht abgelesen.

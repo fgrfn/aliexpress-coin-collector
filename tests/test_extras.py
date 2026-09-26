@@ -1234,3 +1234,166 @@ def test_erledigte_karten_werden_nicht_abgearbeitet(cfg) -> None:
     assert [v.ruling for v in result.verdicts] == [extras.ALREADY, extras.TAKE, extras.ALREADY]
     assert len(result.runs) == 1
     assert "kürzlich angesehenen" in result.runs[0].text
+
+
+# -- Wiederholungen ------------------------------------------------------------------------------
+#
+# Gemeldet am 26.09.2026: "eins wurde nur 2/3 mal abgeholt". Manche Aufgaben lassen sich
+# mehrfach machen -- "Super Rabatte anzeigen" stand nach einem Durchgang auf 2/3, zwei Muenzen
+# blieben liegen. Wiederholt wird, solange die Karte den orangen Knopf behaelt; der Zaehler
+# taugt nicht dafuer, er wurde am Geraet als "B2 I" gelesen.
+
+from dataclasses import replace as _replace  # noqa: E402
+
+
+class Mehrfach(FakeAdb):
+    """Eine Karte, die erst nach `bis` Durchgaengen den Haken bekommt.
+
+    Nach jedem Zurueck wird die Liste neu gezeigt -- ab dem `bis`-ten Mal mit Haken statt Knopf.
+    """
+
+    def __init__(self, bis: int = 3) -> None:
+        super().__init__()
+        self.bis = bis
+        self.durchgaenge = 0
+
+    def back(self) -> None:
+        self.calls.append("back")
+        self.durchgaenge += 1
+        self.current = b"fertig" if self.durchgaenge >= self.bis else b"liste"
+
+
+def dreimal_sheets(titel: str = "Super Rabatte anzeigen") -> dict:
+    return {
+        b"liste": S(words=karte(450, titel, "Surfen Sie 15 Sek. auf dieser Seite +5")),
+        b"fertig": S(words=erledigte_karte(450, titel, "Surfen Sie 15 Sek. auf dieser Seite +5")),
+    }
+
+
+def lauf_mit(cfg, adb, sheets, repeats: int = 3, muenzen: int | None = None):
+    """Ein Ausflug. `muenzen=None` bildet das Geraet nach: in der Liste liegt das Fenster ueber
+    der Kopfzeile, der Muenzstand ist dort nicht zu lesen (`acc ocr 02-liste.png` gab dafuer
+    `Muenzstand: None`). Genau darum braucht es den Wert von der Karte."""
+    cfg = _replace(cfg, extras_repeats=repeats)
+    eyes = FakeEyes(sheets=sheets, button=W("verdienen", 200, 560), fallback_coins=muenzen)
+    uhr = Uhr()
+    return extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+
+def test_aufgabe_wird_wiederholt_bis_der_haken_kommt(cfg) -> None:
+    adb = Mehrfach(bis=3)
+
+    result = lauf_mit(cfg, adb, dreimal_sheets())
+
+    assert len(result.runs) == 1, "eine Zeile, nicht drei"
+    assert result.runs[0].times == 3
+    assert "3x erledigt" in result.runs[0].note
+
+
+def test_der_haken_beendet_die_wiederholungen(cfg) -> None:
+    """Eine Aufgabe, die nur einmal geht: ein Durchgang, dann steht der Haken da."""
+    adb = Mehrfach(bis=1)
+
+    result = lauf_mit(cfg, adb, dreimal_sheets())
+
+    assert result.runs[0].times == 1
+    assert "3x" not in result.runs[0].note
+
+
+def test_die_reissleine_haelt(cfg) -> None:
+    """Bekommt eine Karte den Haken nie, ist trotzdem bei EXTRAS_REPEATS Schluss."""
+    adb = FakeAdb()  # die Liste kommt immer unveraendert zurueck
+
+    result = lauf_mit(cfg, adb, {b"liste": S(words=karte(450, "Super Rabatte anzeigen"))}, repeats=2)
+
+    assert result.runs[0].times == 2
+
+
+def test_ohne_wiederholung_bleibt_es_bei_einem_durchgang(cfg) -> None:
+    adb = FakeAdb()
+
+    result = lauf_mit(cfg, adb, {b"liste": S(words=karte(450, "Super Rabatte anzeigen"))}, repeats=1)
+
+    assert result.runs[0].times == 1
+
+
+def test_erst_jede_aufgabe_einmal_dann_die_wiederholungen(cfg) -> None:
+    """Sonst fraesse eine dreifache Aufgabe das Zeitbudget der anderen auf."""
+    adb = FakeAdb()
+    sheets = {
+        b"liste": S(
+            words=[
+                *karte(450, "Super Rabatte anzeigen"),
+                *karte(750, "Gesponserte Artikel entdecken"),
+            ]
+        )
+    }
+
+    result = lauf_mit(cfg, adb, sheets, repeats=2)
+
+    assert len(result.runs) == 2
+    assert all(r.times == 2 for r in result.runs)
+    # Die Reihenfolge der Taps: erst beide Aufgaben, dann beide noch einmal.
+    getippt = [y for _x, y in adb.taps[1:]]
+    assert getippt[:2] != [getippt[0], getippt[0]], getippt
+
+
+def test_muenzwert_der_karte_landet_in_der_notiz(cfg) -> None:
+    """Gemessen geht nicht -- in der Liste ist der Muenzstand nicht zu lesen."""
+    adb = Mehrfach(bis=1)
+
+    result = lauf_mit(cfg, adb, dreimal_sheets())
+
+    assert "+5 Muenzen laut Karte" in result.runs[0].note
+
+
+def test_gemessen_schlaegt_versprochen(cfg) -> None:
+    """Laesst sich der Zuwachs doch messen, gilt die Messung -- nicht das Versprechen."""
+    adb = Mehrfach(bis=1)
+    eyes = FakeEyes(sheets=dreimal_sheets(), button=W("verdienen", 200, 560), fallback_coins=140)
+    # Nach dem Zurueck steht ein hoeherer Stand da.
+    eyes.coin_by_png = {}
+    uhr = Uhr()
+
+    class Steigend(FakeEyes):
+        def coins(self, sheet):
+            self.gelesen = getattr(self, "gelesen", 0) + 1
+            return 140 + (self.gelesen - 1) * 3
+
+    steigend = Steigend(sheets=dreimal_sheets(), button=W("verdienen", 200, 560))
+    result = extras.explore(
+        adb, _replace(cfg, extras_repeats=1), steigend, sleep=uhr.sleep, monotonic=uhr.now, act=True
+    )
+
+    assert "laut Karte" not in result.runs[0].note
+    assert "Muenzen" in result.runs[0].note
+
+
+def test_muenzwert_mal_anzahl_bei_wiederholungen(cfg) -> None:
+    adb = Mehrfach(bis=3)
+
+    result = lauf_mit(cfg, adb, dreimal_sheets())
+
+    assert "+15 Muenzen laut Karte" in result.runs[0].note
+
+
+def test_der_wert_steht_auch_in_der_begruendung(cfg) -> None:
+    card = extras.Card("Super Rabatte anzeigen Surfen Sie 15 Sek. auf dieser Seite 1/3 +5", 600, 500)
+
+    urteil = extras.judge(card, cfg.extras_allow, cfg.extras_deny)
+
+    assert urteil.reason == "erlaubt durch 'rabatt' (1/3, +5)"
+
+
+@pytest.mark.parametrize(
+    ("text", "erwartet"),
+    [
+        ("Super Rabatte anzeigen +5", 5),
+        ("Mehr Münzen verdienen +40", 40),
+        ("Tagesquiz-Herausforderung +1~5", None),  # eine Spanne steht nicht fest
+        ("Tagesquiz-Herausforderung +1〜5", None),
+        ("Ohne Wert", None),
+    ],
+)
+def test_reward(text, erwartet) -> None:
+    assert extras.reward(text) == erwartet
