@@ -25,6 +25,15 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 - **Akkuwerte vom Produktivgeraet** (Samsung SM-J330FN): `dumpsys battery` liefert Ladestand und
   Temperatur so, wie der Parser sie erwartet — die beiden Werte oben kommen von dort.
 
+- **Die Vordergrund-App ist auslesbar** (Samsung SM-J330FN, 26.09.2026). `dumpsys window |
+  grep mCurrentFocus` liefert die erwartete Zeile, und zwar zweimal, unterschiedlich weit
+  eingerueckt:
+  `mCurrentFocus=Window{6f5b03a u0 com.sec.android.app.launcher/...LauncherActivity}`.
+  Damit ist die Grundlage der Notbremse belegt: `FOCUS_RE` liest daraus
+  `com.sec.android.app.launcher`, und weil das nicht `APP_PACKAGE` ist, wuerde die Bremse in
+  genau dem Zustand ziehen, in dem sie es soll. Die Ausgabe steht wortwoertlich in
+  `tests/test_focus.py`.
+
 - **Zusatzaufgaben von Anfang bis Ende** (26.09.2026, 720x1280, 0.19.1). Ein Lauf `acc extras --los`
   meldete "9 Aufgaben gelesen, 4 davon brauchbar, 4 von 4 erledigt": Gesponserte Artikel entdecken,
   Super Rabatte anzeigen, Suchen was Sie lieben, Gutscheine & Einkaufsguthaben. Damit ist der ganze
@@ -42,13 +51,12 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
-- **Die Notbremse (0.19.3): nur mit Attrappen.** Der gemeldete Verlauf steht als Testfall in
-  `tests/test_extras.py` (eine Aufgabe erledigt, dann ist die App weg -- danach kein Wisch, kein
-  Tap, kein zweites Zurueck mehr). **Nicht gesehen** ist, ob `dumpsys window` auf dem
-  Produktivgeraet (Samsung SM-J330FN) die erwartete `mCurrentFocus`-Zeile liefert. Tut es das
-  nicht, gibt `current_package` "" zurueck und die Bremse zieht nie -- der Ausflug verhaelt sich
-  dann wie vor 0.19.3. Das laesst sich am Geraet mit einem Blick pruefen:
-  `adb shell "dumpsys window | grep mCurrentFocus"`.
+- **Die Notbremse (0.19.3): halb belegt.** Dass `dumpsys window` auf dem Produktivgeraet die
+  erwartete Zeile liefert und `FOCUS_RE` den Paketnamen daraus liest, ist am Geraet geprueft
+  (siehe oben). **Nicht gesehen** ist die Bremse in Aktion: ein Ausflug, bei dem die App
+  unterwegs verlorengeht. Der gemeldete Verlauf steht als Testfall in `tests/test_extras.py`
+  (eine Aufgabe erledigt, dann ist die App weg -- danach kein Wisch, kein Tap, kein zweites
+  Zurueck mehr), aber das ist eine Attrappe, kein Telefon.
 
 - **Der reparierte Suchweg (0.19.2): nur mit Attrappen.** Dass das Suchfeld vor dem Tippen
   angetippt und geleert wird und dass ohne nachgewiesene Eingabe nichts abgeschickt wird, ist durch
