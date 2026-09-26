@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS runs (
     duration_s REAL
 );
 CREATE INDEX IF NOT EXISTS idx_runs_day ON runs(day);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    text TEXT NOT NULL,
+    ruling TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    done INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '',
+    gain INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_ts ON tasks(ts);
 """
 
 # Spalten, die erst spaeter dazugekommen sind. Eine bestehende Datenbank bekommt sie beim
@@ -50,6 +62,23 @@ class Attempt:
     battery_status: str = ""
 
 
+@dataclass(frozen=True)
+class Task:
+    """Eine Zusatzaufgabe, so wie ein Ausflug sie vorgefunden und hinterlassen hat.
+
+    Je Ausflug eine Zeile je Aufgabe -- auch fuer die gesperrten. Sonst stuende in der
+    Tagesliste nur, was geklappt hat, und nicht, was bewusst liegen blieb.
+    """
+
+    ts: datetime
+    text: str
+    ruling: str  # take | blocked | unknown, siehe extras.judge
+    reason: str = ""
+    done: bool = False
+    note: str = ""
+    gain: int | None = None
+
+
 class Store:
     """Zugriff auf die Laufhistorie.
 
@@ -64,12 +93,21 @@ class Store:
             uri = f"file:{self.path}?mode=ro"
             self._conn = sqlite3.connect(uri, uri=True)
             self._select = self._build_select()
+            self._has_tasks = self._table_exists("tasks")
             return
         data_dir.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._migrate()
         self._select = self._build_select()
+        self._has_tasks = True
+
+    def _table_exists(self, name: str) -> bool:
+        """Die Oberflaeche liest nur und kann nichts anlegen. Startet sie nach einem Update
+        vor dem Dienst, fehlt die Tabelle noch -- dann ist sie eben leer, statt die Seite
+        abzuwerfen. Derselbe Gedanke wie bei `_build_select`."""
+        cur = self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,))
+        return cur.fetchone() is not None
 
     def _migrate(self) -> None:
         """Fehlende Spalten nachziehen. Laeuft bei jedem Start, tut aber nur beim ersten Mal etwas."""
@@ -159,6 +197,41 @@ class Store:
             (n,),
         )
         return [self._row(r) for r in cur.fetchall()]
+
+    # -- Zusatzaufgaben ------------------------------------------------------------------
+
+    def add_tasks(self, tasks: list[Task]) -> None:
+        """Alle Aufgaben eines Ausflugs auf einmal. Ohne Aufgaben passiert nichts."""
+        if self.read_only:
+            raise RuntimeError("Store wurde schreibgeschuetzt geoeffnet")
+        if not tasks:
+            return
+        with self._conn:
+            self._conn.executemany(
+                "INSERT INTO tasks (ts, text, ruling, reason, done, note, gain) VALUES (?,?,?,?,?,?,?)",
+                [
+                    (
+                        t.ts.isoformat(timespec="seconds"),
+                        t.text,
+                        t.ruling,
+                        t.reason,
+                        int(t.done),
+                        t.note,
+                        t.gain,
+                    )
+                    for t in tasks
+                ],
+            )
+
+    def tasks_between(self, start: datetime, end: datetime) -> list[Task]:
+        """Zusatzaufgaben in einem Zeitraum [start, end), aelteste zuerst."""
+        if not self._has_tasks:
+            return []
+        rows = self._conn.execute(
+            "SELECT ts, text, ruling, reason, done, note, gain FROM tasks WHERE ts >= ? AND ts < ? ORDER BY ts",
+            (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")),
+        )
+        return [Task(datetime.fromisoformat(r[0]), r[1], r[2], r[3] or "", bool(r[4]), r[5] or "", r[6]) for r in rows]
 
     def outcome_counts(self) -> dict[str, int]:
         cur = self._conn.execute("SELECT outcome, COUNT(*) FROM runs GROUP BY outcome")

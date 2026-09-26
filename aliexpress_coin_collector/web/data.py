@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
+from ..extras import BLOCKED, TAKE, normalize, same_card
 from ..runner import Outcome
 from ..stats import (
     SUCCESS_VALUES,
@@ -23,7 +24,7 @@ from ..stats import (
     success_quota,
     total_gain,
 )
-from ..store import Attempt
+from ..store import Attempt, Task
 
 # Die Rechenregeln stehen in stats.py, weil der Dienst sie fuer den Wochenrueckblick ebenfalls
 # braucht. Hier weitergereicht, damit Vorlagen und Tests sie unveraendert ueber data.* finden.
@@ -161,6 +162,127 @@ def button_state(
         return ButtonState(False, "Es ist bereits ein Lauf angefordert, der Dienst holt ihn gleich ab.")
     if succeeded_on(attempts, today):
         return ButtonState(False, "Heute wurde bereits erfolgreich eingecheckt, ein weiterer Lauf brächte nichts.")
+    return ButtonState(True)
+
+
+# ---------------------------------------------------------------------------- Tagesliste
+#
+# Was der Tag hergab, in einer Zeile je Sache: der Check-in selbst und darunter jede
+# Zusatzaufgabe, die der Dienst gesehen hat -- auch die, die er bewusst hat liegen lassen.
+# Sonst saehe ein Tag mit zwei Aufgaben genauso aus wie einer, an dem acht dastanden.
+
+DONE = "erledigt"
+OPEN = "offen"
+SKIPPED = "übersprungen"
+FAILED = "fehlgeschlagen"
+
+_TONE = {DONE: "ok", OPEN: "warn", SKIPPED: "", FAILED: "bad"}
+
+
+@dataclass(frozen=True)
+class CheckItem:
+    """Eine Zeile der Tagesliste."""
+
+    text: str
+    state: str
+    detail: str = ""
+    at: datetime | None = None
+    gain: int | None = None
+
+    @property
+    def tone(self) -> str:
+        return _TONE.get(self.state, "")
+
+    @property
+    def done(self) -> bool:
+        return self.state == DONE
+
+
+def _checkin_item(attempts: list[Attempt]) -> CheckItem:
+    """Der taegliche Check-in als erste Zeile -- er ist die Hauptsache, nicht ein Punkt unter vielen."""
+    erfolg = next((a for a in attempts if a.outcome in SUCCESS_VALUES), None)
+    if erfolg is not None:
+        gain = None
+        if erfolg.coins_before is not None and erfolg.coins_after is not None:
+            gain = erfolg.coins_after - erfolg.coins_before
+        return CheckItem("Täglicher Check-in", DONE, outcome_label(erfolg.outcome), erfolg.ts, gain)
+    if not attempts:
+        return CheckItem("Täglicher Check-in", OPEN, "steht noch aus")
+    letzter = attempts[-1]
+    return CheckItem("Täglicher Check-in", FAILED, outcome_label(letzter.outcome), letzter.ts)
+
+
+def _task_item(task: Task) -> CheckItem:
+    if task.ruling != TAKE:
+        wort = "gesperrt" if task.ruling == BLOCKED else "unklar"
+        return CheckItem(task.text, SKIPPED, task.reason or wort, task.ts)
+    if task.done:
+        return CheckItem(task.text, DONE, task.note or "erledigt", task.ts, task.gain)
+    return CheckItem(task.text, FAILED, task.note or "nicht erledigt", task.ts)
+
+
+def checklist(attempts: list[Attempt], tasks: list[Task]) -> list[CheckItem]:
+    """Die Tagesliste: Check-in, dann jede Zusatzaufgabe genau einmal.
+
+    Ein Tag kann mehrere Ausfluege haben -- nach dem Morgenlauf, nach dem Abendlauf, einen von
+    Hand. Dieselbe Aufgabe steht dann mehrfach in der Datenbank. Gezeigt wird der jeweils beste
+    Stand: erledigt bleibt erledigt, auch wenn ein spaeterer Ausflug sie nicht mehr angefasst
+    hat. Zusammengefasst wird ueber `same_card`, nicht ueber Textgleichheit -- die Erkennung
+    liest denselben Titel von Mal zu Mal leicht anders.
+
+    Erwartet die Aufgaben aeltester zuerst, so wie `Store.tasks_between` sie liefert.
+    """
+    out: list[CheckItem] = [_checkin_item(attempts)]
+    keys: list[str] = [""]  # Platzhalter fuer den Check-in, der nie zusammengefasst wird
+    for task in tasks:
+        neu = _task_item(task)
+        key = normalize(task.text)
+        i = next((i for i, k in enumerate(keys) if k and same_card(k, key)), None)
+        if i is None:
+            out.append(neu)
+            keys.append(key)
+        elif not out[i].done:
+            out[i] = neu
+    return out
+
+
+@dataclass(frozen=True)
+class ChecklistSummary:
+    done: int
+    open: int
+    skipped: int
+
+    @property
+    def total(self) -> int:
+        return self.done + self.open + self.skipped
+
+
+def checklist_summary(items: list[CheckItem]) -> ChecklistSummary:
+    """Gesperrte zaehlen fuer sich: sie sind kein Versaeumnis, sondern Absicht."""
+    return ChecklistSummary(
+        done=sum(1 for i in items if i.state == DONE),
+        open=sum(1 for i in items if i.state in (OPEN, FAILED)),
+        skipped=sum(1 for i in items if i.state == SKIPPED),
+    )
+
+
+def extras_button_state(
+    attempts: list[Attempt],
+    today: date,
+    alive: bool,
+    request_pending: bool,
+) -> ButtonState:
+    """Der Gegenpart zu `button_state` -- beim Check-in mit umgekehrter Bedingung.
+
+    Den Knopf "Mehr Muenzen verdienen" zeigt die Coin-Seite erst, wenn der taegliche Check-in
+    erledigt ist. Vorher waere der Ausflug ein Griff ins Leere.
+    """
+    if not alive:
+        return ButtonState(False, "Der Dienst läuft nicht, ein Auftrag würde nie abgeholt werden.")
+    if request_pending:
+        return ButtonState(False, "Es ist bereits ein Ausflug angefordert, der Dienst holt ihn gleich ab.")
+    if not succeeded_on(attempts, today):
+        return ButtonState(False, "Die Zusatzaufgaben gibt es erst nach dem Check-in — der steht heute noch aus.")
     return ButtonState(True)
 
 

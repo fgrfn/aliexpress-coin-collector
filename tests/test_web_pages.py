@@ -225,3 +225,79 @@ def test_both_copies_of_the_mark_have_their_own_gradient_ids(client):
         assert f"url(#{stamp}Hot)" in body
         assert f'id="{stamp}Gold"' in body
     assert 'id="mkHot"' not in body
+
+
+# -- Die Tagesliste auf der Startseite --------------------------------------------------------
+
+
+def seed_tasks(tmp_path, tasks):
+    Store(tmp_path).add_tasks(tasks)
+
+
+def heute(hour=9):
+    return datetime.now().replace(hour=hour, minute=30, second=0, microsecond=0)
+
+
+def test_dashboard_zeigt_die_tagesliste(client, tmp_path):
+    from aliexpress_coin_collector import extras
+    from aliexpress_coin_collector.store import Task
+
+    seed(tmp_path, [run(0, hour=9, before=140, after=152)])
+    seed_tasks(
+        tmp_path,
+        [
+            Task(ts=heute(), text="Super Rabatte anzeigen", ruling=extras.TAKE, done=True, note="erledigt", gain=5),
+            Task(ts=heute(), text="Tagesquiz", ruling=extras.BLOCKED, reason="gesperrt durch 'quiz'"),
+        ],
+    )
+
+    body = client.get("/").text
+
+    assert "Heute gesammelt" in body
+    assert "Täglicher Check-in" in body
+    assert "Super Rabatte anzeigen" in body
+    assert "Tagesquiz" in body
+    assert "gesperrt durch &#39;quiz&#39;" in body  # maskiert, wie alles aus der Datenbank
+
+
+def test_dashboard_zeigt_die_tagesliste_auch_ohne_zusatzaufgaben(client, tmp_path):
+    seed(tmp_path, [run(0, hour=9, before=140, after=152)])
+
+    body = client.get("/").text
+
+    assert "Heute gesammelt" in body
+    assert "1 von 1 erledigt" in body
+
+
+def test_dashboard_hat_beide_knoepfe(client, tmp_path):
+    seed(tmp_path, [run(0, hour=9, before=140, after=152)])
+
+    body = client.get("/").text
+
+    assert 'action="/run"' in body
+    assert 'action="/extras"' in body
+
+
+def test_extras_knopf_legt_einen_auftrag_ab(client, tmp_path, monkeypatch):
+    from aliexpress_coin_collector import commands
+    from aliexpress_coin_collector.web import app as web_app
+
+    seed(tmp_path, [run(0, hour=9, before=140, after=152)])
+    # Ohne Lebenszeichen des Dienstes waere der Knopf gesperrt.
+    monkeypatch.setattr(web_app.data, "service_alive", lambda *a, **k: True)
+
+    assert client.post("/extras").status_code == 303
+
+    offen = commands.pending(tmp_path)
+    assert [c.name for c in offen] == [commands.EXTRAS]
+
+
+def test_ohne_checkin_wird_kein_extras_auftrag_angenommen(client, tmp_path, monkeypatch):
+    """Serverseitig geprueft: ein deaktivierter Knopf im Browser ist keine Absicherung."""
+    from aliexpress_coin_collector import commands
+    from aliexpress_coin_collector.web import app as web_app
+
+    monkeypatch.setattr(web_app.data, "service_alive", lambda *a, **k: True)
+
+    assert client.post("/extras").status_code == 303
+    assert commands.pending(tmp_path) == []

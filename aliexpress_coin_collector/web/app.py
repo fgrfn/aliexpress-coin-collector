@@ -45,7 +45,7 @@ from ..scheduler import (
     plan_for,
     with_current_settings,
 )
-from ..store import Attempt, Store
+from ..store import Attempt, Store, Task
 from . import auth, charts, data, imagecheck, view
 
 log = logging.getLogger(__name__)
@@ -84,6 +84,15 @@ def _read_attempts(cfg: Config) -> list[Attempt]:
         return Store(cfg.data_dir, read_only=True).recent(HISTORY_LIMIT)
     except sqlite3.Error as exc:
         log.warning("Datenbank nicht lesbar: %s", exc)
+        return []
+
+
+def _read_tasks(cfg: Config, start: datetime, end: datetime) -> list[Task]:
+    """Die Zusatzaufgaben eines Muenztags. Fehlt die Tabelle noch, ist der Tag eben leer."""
+    try:
+        return Store(cfg.data_dir, read_only=True).tasks_between(start, end)
+    except sqlite3.Error as exc:
+        log.warning("Zusatzaufgaben nicht lesbar: %s", exc)
         return []
 
 
@@ -146,6 +155,9 @@ def create_app(cfg: Config) -> FastAPI:
         if (active.data_dir / REQUEST_FILE).is_file():
             return True
         return any(c.name == commands.RUN for c in commands.pending(active.data_dir))
+
+    def _extras_pending(active: Config) -> bool:
+        return any(c.name == commands.EXTRAS for c in commands.pending(active.data_dir))
 
     def current_cfg() -> Config:
         """Einstellungen bei jeder Anfrage frisch lesen, damit die Seite nach dem Speichern stimmt.
@@ -279,6 +291,11 @@ def create_app(cfg: Config) -> FastAPI:
         attempts = _read_attempts(active)
         status = status_values(request)
         series = data.coin_series(attempts)
+        # Die Tagesliste laeuft ueber den Muenztag, nicht den Kalendertag: vor dessen Beginn
+        # gehoert alles Bisherige noch zu gestern.
+        von, bis = coin_day_bounds(coin_day(now, active.coin_day_start), active.coin_day_start)
+        heute = [a for a in attempts if von <= a.ts < bis]
+        items = data.checklist(list(reversed(heute)), _read_tasks(active, von, bis))
         return page(
             "dashboard.html",
             request,
@@ -287,6 +304,9 @@ def create_app(cfg: Config) -> FastAPI:
             cfg=active,
             plan=plan_for(now.date(), active),
             button=data.button_state(attempts, now.date(), status["alive"], _run_pending(active)),
+            extras_button=data.extras_button_state(attempts, now.date(), status["alive"], _extras_pending(active)),
+            checklist=items,
+            checklist_summary=data.checklist_summary(items),
             series=series,
             chart=charts.coin_chart(series),
             attempts=view.rows(attempts[:TABLE_LIMIT], _shots(active)),
@@ -609,6 +629,27 @@ def create_app(cfg: Config) -> FastAPI:
         log.info("Lauf ueber die Weboberflaeche angefordert")
         return RedirectResponse("/", status_code=303)
 
+    @app.post("/extras")
+    def request_extras(request: Request) -> Response:
+        """Die Zusatzaufgaben von Hand anstossen, unabhaengig vom Zeitplan."""
+        gate = _gate(request)
+        if gate is not None:
+            return gate
+        active = current_cfg()
+        now = datetime.now()
+        attempts = _read_attempts(active)
+        alive = data.service_alive(_heartbeat(active), now)
+        # Serverseitig erneut pruefen: ein deaktivierter Knopf im Browser ist keine Absicherung.
+        if not data.extras_button_state(attempts, now.date(), alive, _extras_pending(active)).enabled:
+            return RedirectResponse("/", status_code=303)
+        try:
+            commands.submit(active.data_dir, commands.EXTRAS, now)
+        except commands.CommandError as exc:
+            log.info("Ausflug zu den Zusatzaufgaben nicht angenommen: %s", exc)
+            return RedirectResponse("/", status_code=303)
+        log.info("Zusatzaufgaben ueber die Weboberflaeche angefordert")
+        return RedirectResponse("/", status_code=303)
+
     # ------------------------------------------------------------------ Einstellungen
 
     def settings_html(request: Request, pw_error: str = "") -> str:
@@ -674,6 +715,7 @@ def create_app(cfg: Config) -> FastAPI:
         evening_end: str = Form(default=""),
         evening_enabled: str = Form(default=""),
         skip_if_awake: str = Form(default=""),
+        extras_after_run: str = Form(default=""),
         busy_retry_min: str = Form(default=""),
         busy_max_wait_min: str = Form(default=""),
         page_timeout_s: str = Form(default=""),
@@ -691,6 +733,7 @@ def create_app(cfg: Config) -> FastAPI:
                 "evening_end": _parse_time(evening_end),
                 "evening_enabled": bool(evening_enabled),
                 "skip_if_awake": bool(skip_if_awake),
+                "extras_after_run": bool(extras_after_run),
                 "busy_retry_min": _parse_int("Wiederholung", busy_retry_min),
                 "busy_max_wait_min": _parse_int("Spätestens erzwingen", busy_max_wait_min),
                 "page_timeout_s": _parse_int("Wartezeit auf die Seite", page_timeout_s),

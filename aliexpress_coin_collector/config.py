@@ -259,6 +259,9 @@ class Config:
     extras_search_markers: tuple[str, ...]
     extras_stay: tuple[str, ...]
     extras_search_terms: tuple[str, ...]
+    # Ob der Dienst nach einem erfolgreichen Check-in gleich die Zusatzaufgaben mitnimmt.
+    # Abschaltbar in der Oberflaeche: es ist der einzige Teil, der ohne Not am Geraet tippt.
+    extras_after_run: bool
     extras_dwell_s: int
     extras_max: int
     extras_scrolls: int
@@ -339,6 +342,7 @@ class Config:
             "extras_search_terms": _list_raw("EXTRAS_SEARCH_TERMS", DEFAULT_EXTRAS_SEARCH_TERMS),
             # Die App zaehlt 15 Sekunden -- aber erst, wenn die Seite steht. Auf dem langsamen
             # Geraet gehen dafuer die ersten Sekunden drauf, darum reichlich Luft.
+            "extras_after_run": _bool(get("EXTRAS_AFTER_RUN") or "true"),
             "extras_dwell_s": _int("EXTRAS_DWELL_S", 25),
             "extras_max": _int("EXTRAS_MAX", 6),
             "extras_scrolls": _int("EXTRAS_SCROLLS", 3),

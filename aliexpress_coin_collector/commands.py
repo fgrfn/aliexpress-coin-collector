@@ -29,13 +29,15 @@ STATUS_FILE = "status.json"
 
 # Was die Oberflaeche anfordern darf. Alles andere wird abgelehnt, statt es durchzureichen.
 RUN = "run"
+EXTRAS = "extras"
 RECONNECT = "reconnect"
 SCREENSHOT = "screenshot"
 CHECK = "check"
-KNOWN = (RUN, RECONNECT, SCREENSHOT, CHECK)
+KNOWN = (RUN, EXTRAS, RECONNECT, SCREENSHOT, CHECK)
 
 LABELS = {
     RUN: "Lauf starten",
+    EXTRAS: "Extra-Münzen sammeln",
     RECONNECT: "Neu verbinden",
     SCREENSHOT: "Screenshot holen",
     CHECK: "Zustand prüfen",

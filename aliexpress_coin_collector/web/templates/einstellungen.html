@@ -78,6 +78,20 @@
       </p>
     </details>
 
+    <h3 class="group">Zusatzaufgaben</h3>
+    <label class="opt">
+      <input type="checkbox" name="extras_after_run" value="1" {% if cfg.extras_after_run %}checked{% endif %}>
+      <span>
+        Nach jedem erfolgreichen Lauf die Extra-Münzen mitnehmen {{ saved('extras_after_run') }}
+        <span class="opt-note">
+          Öffnet die Coin-Seite ein zweites Mal und arbeitet die Aufgaben ab, die auf der
+          Positivliste stehen — Stöbern, Rabatte ansehen, suchen. Gesperrtes bleibt gesperrt.
+          Kostet ein paar Minuten am Gerät; abgeschaltet laufen sie nur über den Knopf auf der
+          Übersicht.
+        </span>
+      </span>
+    </label>
+
     <h3 class="group">Wenn das Gerät gerade benutzt wird</h3>
     <label class="opt">
       <input type="checkbox" name="skip_if_awake" value="1" {% if cfg.skip_if_awake %}checked{% endif %}>

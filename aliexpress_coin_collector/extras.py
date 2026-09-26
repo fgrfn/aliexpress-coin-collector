@@ -38,11 +38,13 @@ import time
 import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
 from .adb import Adb, AdbError
 from .config import Config
+from .store import Task
 
 log = logging.getLogger(__name__)
 
@@ -433,6 +435,34 @@ class ExtrasResult:
         if self.gain is not None:
             teile.append(f"{self.gain:+d} Muenzen")
         return ", ".join(teile)
+
+
+def to_tasks(result: ExtrasResult, now: datetime) -> list[Task]:
+    """Aus einem Ausflug die Zeilen fuer die Datenbank -- eine je gesehener Aufgabe.
+
+    Auch die gesperrten kommen mit. In der Tagesliste soll stehen, was bewusst liegen blieb,
+    nicht nur was geklappt hat: sonst sieht ein Tag mit zwei Aufgaben genauso aus wie einer,
+    an dem acht dastanden und sechs davon nichts fuer uns waren.
+
+    Zugeordnet wird ueber die Reihenfolge, nicht ueber den Text: `explore` arbeitet die
+    brauchbaren Urteile der Reihe nach ab, und `TaskRun.text` ist gekuerzt.
+    """
+    out: list[Task] = []
+    offen = list(result.runs)
+    for v in result.verdicts:
+        lauf = offen.pop(0) if v.wanted and offen else None
+        out.append(
+            Task(
+                ts=now,
+                text=v.card.short,
+                ruling=v.ruling,
+                reason=v.reason,
+                done=bool(lauf and lauf.ok),
+                note=lauf.note if lauf else "",
+                gain=lauf.gain if lauf else None,
+            )
+        )
+    return out
 
 
 def _save(shots: Path | None, name: str, png: bytes, into: list[Path]) -> None:

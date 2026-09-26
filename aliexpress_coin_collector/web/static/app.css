@@ -497,6 +497,71 @@ a {
     align-items: center;
 }
 
+/* ---------------------------------------------------------------- Tagesliste */
+.checklist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.check-item {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 11px 0;
+    border-top: 1px solid var(--line);
+}
+
+.check-item:first-child {
+    border-top: 0;
+}
+
+/* Das Zeichen traegt die Farbe, nicht die ganze Zeile: eine Liste aus fuenf farbigen
+   Balken liest sich schlechter als eine, in der nur die Haken hervorstechen. */
+.check-mark {
+    flex: none;
+    width: 1.2em;
+    text-align: center;
+    font: 700 15px/1.3 var(--body);
+    color: var(--muted);
+}
+
+.check-item.ok .check-mark {
+    color: var(--ok);
+}
+
+.check-item.warn .check-mark {
+    color: var(--warn);
+}
+
+.check-item.bad .check-mark {
+    color: var(--bad);
+}
+
+.check-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.check-text .sub {
+    display: block;
+    font: 400 12px/1.4 var(--body);
+    color: var(--muted);
+}
+
+.check-side {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+}
+
+.check-time {
+    font: 400 12px/1 var(--body);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
 /* ---------------------------------------------------------------- Formulare */
 .fields {
     display: grid;
@@ -1233,8 +1298,11 @@ input[type="number"] {
     }
 
     .btn,
-    .btn-row > .btn {
+    .btn-row > .btn,
+    .btn-row > form,
+    .btn-row > form > .btn {
         flex-grow: 1;
+        width: 100%;
     }
 
     /* Tabellen werden zu Karten, statt seitwaerts zu scrollen.

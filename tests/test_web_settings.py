@@ -25,6 +25,7 @@ ABLAUF = {
     "evening_end": "20:00",
     "evening_enabled": "1",
     "skip_if_awake": "1",
+    "extras_after_run": "1",
     "busy_retry_min": "12",
     "busy_max_wait_min": "90",
     "page_timeout_s": "60",
@@ -98,6 +99,7 @@ def test_saving_the_schedule_stores_every_field(client, data_dir):
         "evening_end": dtime(20, 0),
         "evening_enabled": True,
         "skip_if_awake": True,
+        "extras_after_run": True,
         "busy_retry_min": 12,
         "busy_max_wait_min": 90,
         "page_timeout_s": 60,
@@ -125,7 +127,7 @@ def test_a_changed_value_is_marked_as_such(client):
     assert client.get("/einstellungen").text.count(mark) == 1, "nur die Legende"
     client.post("/einstellungen/ablauf", data=ABLAUF)
     # Die elf gespeicherten Werte plus die Legende.
-    assert client.get("/einstellungen").text.count(mark) == 12
+    assert client.get("/einstellungen").text.count(mark) == 13
 
 
 # -- Geprueft wird mit den Regeln des Dienstes --------------------------------------------------
