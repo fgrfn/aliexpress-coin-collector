@@ -142,6 +142,9 @@ DEFAULT_EXTRAS_GO = ("und los", "los geht", "go")
 # Aufgaben, bei denen ein Suchbegriff eingetippt werden muss ("Suchen, was Sie lieben --
 # Verdienen Sie durch die Nutzung von Schluesselwoertern"). Sie werden nur angefasst, wenn
 # EXTRAS_SEARCH_TERMS etwas hergibt.
+# Das Werbefenster beim Verlassen ("Nicht vergessen: morgen einchecken!") hat zwei Knoepfe.
+# Getippt wird immer "Bleiben": es macht das Fenster weg, ohne die Coin-Seite zu verlassen.
+DEFAULT_EXTRAS_STAY = ("bleiben", "stay")
 DEFAULT_EXTRAS_SEARCH_MARKERS = ("suchen", "schlusselwort", "search", "keyword")
 # Was gesucht wird. Landet im Suchverlauf des Kontos -- darum nur, was hier ausdruecklich steht.
 DEFAULT_EXTRAS_SEARCH_TERMS = ("Jayo PETG 1.1KG",)
@@ -247,6 +250,7 @@ class Config:
     extras_deny: tuple[str, ...]
     extras_go: tuple[str, ...]
     extras_search_markers: tuple[str, ...]
+    extras_stay: tuple[str, ...]
     extras_search_terms: tuple[str, ...]
     extras_dwell_s: int
     extras_max: int
@@ -321,6 +325,7 @@ class Config:
             "extras_deny": _list("EXTRAS_DENY", DEFAULT_EXTRAS_DENY),
             "extras_go": _list("EXTRAS_GO", DEFAULT_EXTRAS_GO),
             "extras_search_markers": _list("EXTRAS_SEARCH_MARKERS", DEFAULT_EXTRAS_SEARCH_MARKERS),
+            "extras_stay": _list("EXTRAS_STAY", DEFAULT_EXTRAS_STAY),
             "extras_search_terms": _list_raw("EXTRAS_SEARCH_TERMS", DEFAULT_EXTRAS_SEARCH_TERMS),
             # Die App zaehlt 15 Sekunden -- aber erst, wenn die Seite steht. Auf dem langsamen
             # Geraet gehen dafuer die ersten Sekunden drauf, darum reichlich Luft.

@@ -264,6 +264,57 @@ def test_find_cards_ohne_knoepfe_ergibt_nichts(cfg) -> None:
     assert extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go)) == []
 
 
+def test_einzelner_knopf_zieht_den_fenstertitel_nicht_mit(cfg) -> None:
+    """Wird nur ein Knopf gelesen, fehlt der Abstand als Massstab -- die Karte darf nicht wuchern.
+
+    Am 26.09.2026 fand der umgekehrte Durchgang einen von drei Knoepfen, und die eine Karte hiess
+    dann "Weitere Münzen verdienen 15s stöbern und sehen, wie viel ..." -- Fenstertitel plus halbe
+    Nachbarbeschreibung.
+    """
+    woerter = [
+        W("Weitere", 100, 560),
+        W("Münzen", 230, 560),
+        W("verdienen", 360, 560),
+        *karte(800, "Super Rabatte anzeigen"),
+    ]
+    zeilen = extras.group_lines(woerter)
+    cards = extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go))
+    assert len(cards) == 1
+    assert "Weitere" not in cards[0].text
+    assert "Rabatte" in cards[0].text
+
+
+def test_werbefenster_wird_weggetippt(cfg) -> None:
+    """Beim Verlassen schiebt die App ein Fenster davor. Getippt wird "Bleiben", nie "Verlassen"."""
+    dialog = S(
+        words=[
+            W("Nicht", 150, 300),
+            W("vergessen", 280, 300),
+            W("Verlassen", 120, 1100),
+            W("Bleiben", 450, 1100),
+        ]
+    )
+    liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
+
+    class MitFenster(FakeAdb):
+        def tap(self, x: int, y: int) -> None:
+            self.taps.append((x, y))
+            self.calls.append("tap")
+            # Erster Tap oeffnet die Liste -- aber das Werbefenster liegt davor.
+            self.current = b"dialog" if len(self.taps) == 1 else b"liste"
+
+    adb = MitFenster()
+    eyes = FakeEyes(sheets={b"dialog": dialog, b"liste": liste}, button=W("verdienen", 200, 560))
+    uhr = Uhr()
+
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=False)
+
+    # Zweiter Tap traf "Bleiben" (rechts), nicht "Verlassen" (links).
+    assert len(adb.taps) >= 2
+    assert adb.taps[1][0] > 400
+    assert len(result.verdicts) == 1
+
+
 def test_sift_zaehlt_jede_karte_nur_einmal(cfg) -> None:
     eine = extras.Card("Super Rabatte anzeigen", 600, 100)
     nochmal = extras.Card("Super Rabatte anzeigen", 600, 900)  # beim Blaettern wieder gesehen
