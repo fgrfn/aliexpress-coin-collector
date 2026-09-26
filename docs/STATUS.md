@@ -27,7 +27,20 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 
 ### Nur mit Attrappen oder Näherungen getestet
 
-- **Zusatzaufgaben (0.17.0): gebaut, aber nie am Geraet gelaufen.** Die Auswahl ist an den
+- **Zusatzaufgaben (0.17.1): halb belegt.** Am Geraet gesehen ist der Weg bis zur Liste: der Knopf
+  "Mehr Muenzen verdienen" wird gefunden und getippt, das Fenster geht auf, die Kartentexte werden
+  gelesen (26.09.2026, 720x1280). **Nicht gesehen** ist alles danach -- ob der Tap den Knopf "Und los"
+  trifft, ob das Zurueck in die Liste fuehrt und ob die Muenzen ankommen.
+
+  Dabei aufgefallen und in 0.17.1 behoben: die Knoepfe stehen **weiss auf orange** und wurden im
+  Originalbild gar nicht gelesen. Im erkannten Text der ganzen Liste stand kein einziges "Und los",
+  waehrend alle Kartentitel sauber durchkamen -- und weil die Karten an den Knoepfen geschnitten
+  werden, meldete der Befehl "0 Aufgaben gelesen". Seither laeuft fuer die Knoepfe ein zweiter,
+  umgekehrter Durchgang, wie ihn `find_button` fuer den Sammeln-Knopf schon hatte. Ebenfalls dabei
+  gesehen: in der Liste liegt das Fenster ueber der Kopfzeile, der Muenzstand ist dort nicht mehr
+  lesbar -- er wird jetzt auf der Coin-Seite davor und danach genommen.
+
+- **Zusatzaufgaben, die Auswahl (0.17.0):** Die Auswahl ist an den
   echten Aufgabentexten vom 26.09.2026 geprueft (Screenshots des Nutzers, in
   `tests/test_extras.py` als Testfaelle hinterlegt) -- alle zehn Karten werden richtig
   einsortiert. **Ungetestet ist alles davor und danach:** ob die OCR die Karten auf dem
@@ -238,6 +251,9 @@ Fenster hoch ("Weitere Muenzen verdienen") mit einer scrollbaren Liste. Jede Auf
 Titel, Beschreibung, Muenzwert und einem orangen Knopf **"Und los"** rechts. Die meisten verlangen nur,
 sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
 
+- **Zwei Durchgaenge.** Die Kartentexte stehen dunkel auf weiss und kommen im Originalbild durch. Die
+  Knoepfe "Und los" stehen weiss auf orange und brauchen dieselbe Umkehrung wie der Sammeln-Knopf
+  (`Sight.bright`). Beides zusammen ergibt erst eine Karte.
 - **Karten statt Zeilen.** Titel brechen ueber zwei Zeilen um, und was eine Aufgabe ausmacht, steht teils
   im Titel, teils in der Beschreibung. Die Knoepfe geben die Grenzen vor: je Karte genau ein "Und los",
   also gehoert zu einer Karte, was naeher an ihrem Knopf liegt als am naechsten. Die Kopfzeile mit dem

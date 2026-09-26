@@ -105,8 +105,25 @@ class FakeEyes:
     coin_by_png: dict = field(default_factory=dict)
     fallback_coins: int | None = None
 
+    GO_WORDS = {"und", "los", "go", "geht"}
+
     def sheet(self, png: bytes) -> S:
-        return self.sheets.get(png, S(words=[]))
+        """Der normale Durchgang: dunkler Text auf Weiss -- ohne die Knopfbeschriftung."""
+        voll = self.sheets.get(png, S(words=[]))
+        return S(
+            words=[w for w in voll.words if w.text.lower().strip(",.!") not in self.GO_WORDS],
+            width=voll.width,
+            height=voll.height,
+        )
+
+    def bright(self, png: bytes) -> S:
+        """Der umgekehrte Durchgang: nur die weisse Schrift auf den orangen Knoepfen."""
+        voll = self.sheets.get(png, S(words=[]))
+        return S(
+            words=[w for w in voll.words if w.text.lower().strip(",.!") in self.GO_WORDS],
+            width=voll.width,
+            height=voll.height,
+        )
 
     def more_button(self, png: bytes):
         return self.button
@@ -204,7 +221,8 @@ def test_find_cards_schneidet_an_den_knoepfen(cfg) -> None:
         *karte(450, "Gesponserte Artikel", "entdecken"),
         *karte(750, "Super Rabatte anzeigen"),
     ]
-    cards = extras.find_cards(extras.group_lines(woerter), cfg.extras_go)
+    zeilen = extras.group_lines(woerter)
+    cards = extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go))
     assert len(cards) == 2
     assert "entdecken" in cards[0].text
     assert "Rabatte" in cards[1].text
@@ -215,7 +233,8 @@ def test_find_cards_schneidet_an_den_knoepfen(cfg) -> None:
 def test_einzeilige_karte_verschmilzt_mit_ihrem_knopf(cfg) -> None:
     """Titel und Knopf auf gleicher Hoehe werden eine Zeile -- die Karte darf trotzdem stehen."""
     woerter = [W("Super", 150, 700), W("Rabatte", 260, 700), W("Und", 530, 700), W("los", 600, 700)]
-    cards = extras.find_cards(extras.group_lines(woerter), cfg.extras_go)
+    zeilen = extras.group_lines(woerter)
+    cards = extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go))
     assert len(cards) == 1
     assert "Rabatte" in cards[0].text
     # Getippt wird rechts, auf dem Knopf -- nicht in der Mitte ueber dem Titel.
@@ -223,7 +242,8 @@ def test_einzeilige_karte_verschmilzt_mit_ihrem_knopf(cfg) -> None:
 
 
 def test_find_cards_ohne_knoepfe_ergibt_nichts(cfg) -> None:
-    assert extras.find_cards(extras.group_lines([W("Irgendwas", 10, 10)]), cfg.extras_go) == []
+    zeilen = extras.group_lines([W("Irgendwas", 10, 10)])
+    assert extras.find_cards(zeilen, extras.go_lines(zeilen, cfg.extras_go)) == []
 
 
 def test_sift_zaehlt_jede_karte_nur_einmal(cfg) -> None:
@@ -256,6 +276,40 @@ def test_hinsehen_tippt_nur_den_knopf(cfg) -> None:
     assert urteile["Gesponserte"] == TAKE
     assert urteile["Merge-Boss-Spielrunde"] == BLOCKED
     assert result.note == "nur hingesehen, nichts angetippt"
+
+
+def test_ohne_umgekehrten_durchgang_bleiben_die_karten_unsichtbar(cfg) -> None:
+    """Der Fehler vom 26.09.2026: die Knoepfe stehen weiss auf orange und wurden nicht gelesen.
+
+    Ohne sie faellt die ganze Liste weg, denn an ihnen werden die Karten geschnitten -- im
+    Betrieb kamen alle Kartentitel durch und trotzdem "0 Aufgaben gelesen".
+    """
+
+    class Blind(FakeEyes):
+        def bright(self, png: bytes) -> S:
+            return S(words=[])
+
+    liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
+    adb = FakeAdb()
+    eyes = Blind(sheets={b"liste": liste}, button=W("verdienen", 200, 560))
+
+    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=False)
+
+    assert result.entered and result.verdicts == []
+
+
+def test_muenzstand_kommt_von_der_coinseite(cfg) -> None:
+    """In der Liste liegt das Fenster ueber der Kopfzeile -- dort ist die Zahl nicht lesbar."""
+    coin = S(words=[W("140", 230, 120)])
+    liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
+    adb = FakeAdb()
+    eyes = FakeEyes(sheets={b"coin": coin, b"liste": liste}, button=W("verdienen", 200, 560))
+    # Nur die Coin-Seite gibt einen Stand her, die Liste nicht.
+    eyes.coins = lambda sheet: 140 if any(w.text == "140" for w in sheet.words) else None  # type: ignore[assignment]
+
+    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=False)
+
+    assert result.coins_before == 140
 
 
 def test_abarbeiten_tippt_den_knopf_der_karte_und_zaehlt_nach(cfg) -> None:

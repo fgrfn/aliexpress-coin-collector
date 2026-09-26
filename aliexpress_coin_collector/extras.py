@@ -81,6 +81,8 @@ class Eyes(Protocol):
 
     def sheet(self, png: bytes) -> Sheet: ...
 
+    def bright(self, png: bytes) -> Sheet: ...
+
     def more_button(self, png: bytes) -> Spot | None: ...
 
     def coins(self, sheet: Sheet) -> int | None: ...
@@ -196,17 +198,25 @@ class Card:
         return self.text if len(self.text) <= 60 else self.text[:57] + "..."
 
 
-def find_cards(lines: Sequence[Line], go: Sequence[str]) -> list[Card]:
+def go_lines(lines: Sequence[Line], go: Sequence[str]) -> list[Line]:
+    """Die Zeilen, die eine Knopfbeschriftung tragen."""
+    return [line for line in lines if hits(line.key, go) is not None]
+
+
+def find_cards(lines: Sequence[Line], knoepfe: Sequence[Line]) -> list[Card]:
     """Aus Zeilen Karten machen, entlang der "Und los"-Knoepfe.
 
     Je Karte ein Knopf. Die Grenze zwischen zwei Karten liegt auf halbem Weg zwischen ihren
     Knoepfen; ueber der ersten und unter der letzten wird derselbe Abstand angenommen. Was
     darueber liegt -- Kopfzeile, Muenzstand, der Titel des Fensters -- faellt damit heraus.
+
+    Die Knopfzeilen kommen von aussen, weil sie aus einem anderen Durchgang stammen: weisse
+    Schrift auf Orange ist erst nach einer Umkehrung lesbar, die Kartentexte dagegen stehen
+    dunkel auf weiss und kaemen dort schlechter durch.
     """
-    knoepfe = [line for line in lines if hits(line.key, go) is not None]
     if not knoepfe:
         return []
-    knoepfe.sort(key=lambda line: line.cy)
+    knoepfe = sorted(knoepfe, key=lambda line: line.cy)
 
     if len(knoepfe) > 1:
         abstaende = [b.cy - a.cy for a, b in zip(knoepfe, knoepfe[1:], strict=False)]
@@ -386,6 +396,9 @@ def explore(
 
     png = adb.screenshot()
     _save(shots, "00-coinseite.png", png, result.shots)
+    # Der Muenzstand wird hier gelesen, nicht in der Liste: dort liegt das Fenster ueber der
+    # Kopfzeile, sie ist abgedunkelt und die Zahl kommt nicht mehr durch.
+    result.coins_before = eyes.coins(eyes.sheet(png))
     knopf = eyes.more_button(png)
     if knopf is None:
         result.note = (
@@ -406,10 +419,8 @@ def explore(
     for runde in range(cfg.extras_scrolls + 1):
         png = adb.screenshot()
         _save(shots, f"{runde + 1:02d}-liste.png", png, result.shots)
-        blatt = eyes.sheet(png)
-        if result.coins_before is None:
-            result.coins_before = eyes.coins(blatt)
-        gesehen.extend(find_cards(group_lines(blatt.words), cfg.extras_go))
+        neue, blatt = _cards_now(eyes, png, cfg)
+        gesehen.extend(neue)
         if runde < cfg.extras_scrolls:
             _scroll(adb, blatt)
             sleep(ruhe)
@@ -449,11 +460,13 @@ def explore(
             log.warning("Zusatzaufgaben: %s", result.note)
             break
 
+    # Erst das Fenster schliessen, dann zaehlen: in der Liste ist die Kopfzeile verdeckt.
+    _heimweg(adb, sleep)
+    sleep(ruhe)
     png = adb.screenshot()
     _save(shots, "99-ende.png", png, result.shots)
     result.coins_after = eyes.coins(eyes.sheet(png))
     log.info("Zusatzaufgaben fertig: %s", result.summary())
-    _heimweg(adb, sleep)
     return result
 
 
@@ -470,9 +483,12 @@ def _heimweg(adb: Adb, sleep: Callable[[float], None]) -> None:
         log.debug("Zusatzaufgaben: Rueckweg misslungen (%s)", exc)
 
 
-def _in_list(lines: Sequence[Line], go: Sequence[str]) -> bool:
-    """Sind wir (wieder) in der Liste? Ein "Und los"-Knopf genuegt als Beleg."""
-    return any(hits(line.key, go) is not None for line in lines)
+def _cards_now(eyes: Eyes, png: bytes, cfg: Config) -> tuple[list[Card], Sheet]:
+    """Was gerade auf dem Schirm steht: Kartentexte aus dem normalen Durchgang, die Knoepfe
+    aus dem umgekehrten."""
+    blatt = eyes.sheet(png)
+    knoepfe = go_lines(group_lines(eyes.bright(png).words), cfg.extras_go)
+    return find_cards(group_lines(blatt.words), knoepfe), blatt
 
 
 def _work(
@@ -497,8 +513,8 @@ def _work(
     blatt: Sheet | None = None
     for versuch in range(cfg.extras_scrolls + 1):
         png = adb.screenshot()
-        blatt = eyes.sheet(png)
-        stelle = next((c for c in find_cards(group_lines(blatt.words), cfg.extras_go) if c.key == wanted.key), None)
+        cards, blatt = _cards_now(eyes, png, cfg)
+        stelle = next((c for c in cards if c.key == wanted.key), None)
         if stelle is not None:
             break
         if versuch < cfg.extras_scrolls:
@@ -524,14 +540,14 @@ def _work(
     sleep(max(2, cfg.page_timeout_s // 3))
     png = adb.screenshot()
     _save(shots, f"task-{len(result.runs) + 1:02d}.png", png, result.shots)
-    zurueck = eyes.sheet(png)
+    cards, zurueck = _cards_now(eyes, png, cfg)
 
-    if not _in_list(group_lines(zurueck.words), cfg.extras_go):
+    if not cards:
         adb.back()
         sleep(2)
         png = adb.screenshot()
-        zurueck = eyes.sheet(png)
-        if not _in_list(group_lines(zurueck.words), cfg.extras_go):
+        cards, zurueck = _cards_now(eyes, png, cfg)
+        if not cards:
             lauf.note = LOST
             return lauf
 
