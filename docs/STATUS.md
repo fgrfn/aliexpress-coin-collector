@@ -278,10 +278,14 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   `find_orange_buttons` sucht kraeftiges Orange (Farbton 5-25, hoch gesaettigt) in Knopfgroesse am rechten
   Rand. Was dort liegt, muss gar nicht gelesen werden -- dass ein Knopf da ist, genuegt. Die Schriftsuche
   bleibt als Rueckfall, falls die App die Farbe aendert.
-- Geprueft ist die Farbsuche an **gemalten** Bildern (`tests/test_button_color.py`): drei Knoepfe
-  untereinander, weisse Schrift darin (die Loecher in die Flaeche stanzt), goldene Muenzsymbole daneben,
-  ein breites Banner und ein Knopf am linken Rand. Echte Screenshots liegen nicht im Repo, sie zeigen
-  Kontodaten. **Am Geraet ist die Farbsuche nicht belegt.**
+- **Am Geraet belegt** (26.09.2026, 720x1280): die Farbmaske fand die drei sichtbaren Knoepfe, alle genau
+  154x77 an derselben x-Stelle (528..682). Dazu einen Fehltreffer, die Muenzgrafik im Kopf des Fensters
+  mit 226x121. Seit 0.18.1 faellt der heraus: echte Knoepfe sind untereinander gleich gross, und was um
+  mehr als `BUTTON_SIZE_SPREAD` von der ueblichen Groesse abweicht, ist keiner. Das misst sich selbst und
+  braucht keine festen Pixelwerte, die bei anderer Aufloesung wieder danebenlaegen -- erst ab
+  `BUTTON_QUORUM` Kandidaten, bei zweien waere der Mittelwert kein Massstab.
+- Die Testbilder sind **gemalt** (`tests/test_button_color.py`), tragen aber die am Geraet gemessenen
+  Groessen. Echte Screenshots liegen nicht im Repo, sie zeigen Kontodaten.
 - **Nachsehen ohne Geraet:** `acc ocr data/extras/01-liste.png --extras` zeigt an einem abgelegten
   Screenshot, wie viele Knoepfe gefunden wurden und ob ueber Farbe oder Schrift, wie die Karten
   geschnitten und wie sie beurteilt wurden. Damit laesst sich die Erkennung nachstellen, ohne das Geraet

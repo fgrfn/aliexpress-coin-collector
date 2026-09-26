@@ -154,7 +154,39 @@ def find_orange_buttons(img: np.ndarray) -> list[Word]:
             continue
         found.append(Word(text="und los", x=x, y=y, w=w, h=h, conf=100.0))
     found.sort(key=lambda b: b.y)
-    return found
+    return _same_size(found)
+
+
+# Wie weit ein Knopf von der ueblichen Groesse abweichen darf.
+BUTTON_SIZE_SPREAD = 0.30
+# Ab so vielen Kandidaten ist die uebliche Groesse aussagekraeftig.
+BUTTON_QUORUM = 3
+
+
+def _same_size(buttons: list[Word]) -> list[Word]:
+    """Ausreisser verwerfen: echte Knoepfe sind untereinander gleich gross.
+
+    Am 26.09.2026 fand die Farbmaske auf dem Geraet vier Flaechen -- drei Knoepfe von genau
+    154x77 und die Muenzgrafik im Kopf des Fensters mit 226x121. Die Grafik faellt aus der Reihe,
+    die Knoepfe nicht. Das misst sich selbst und braucht keine festen Pixelwerte, die bei
+    anderer Aufloesung wieder danebenlaegen.
+
+    Erst ab `BUTTON_QUORUM` Kandidaten: bei zweien waere der Mittelwert kein Massstab, sondern
+    ein Muenzwurf.
+    """
+    if len(buttons) < BUTTON_QUORUM:
+        return buttons
+    breiten = sorted(b.w for b in buttons)
+    hoehen = sorted(b.h for b in buttons)
+    w_mitte, h_mitte = breiten[len(breiten) // 2], hoehen[len(hoehen) // 2]
+
+    def passt(b: Word) -> bool:
+        return abs(b.w - w_mitte) <= w_mitte * BUTTON_SIZE_SPREAD and abs(b.h - h_mitte) <= h_mitte * BUTTON_SIZE_SPREAD
+
+    passend = [b for b in buttons if passt(b)]
+    if len(passend) < len(buttons):
+        log.debug("Knopfsuche: %d Ausreisser verworfen", len(buttons) - len(passend))
+    return passend
 
 
 def _looks_like_go(text: str, labels: tuple[str, ...]) -> bool:

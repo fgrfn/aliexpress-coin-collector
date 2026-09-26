@@ -74,5 +74,34 @@ def test_knoepfe_am_linken_rand_zaehlen_nicht() -> None:
     assert find_orange_buttons(bild) == []
 
 
+def test_ausreisser_faellt_raus() -> None:
+    """Die gemessenen Werte vom Geraet, 26.09.2026, 720x1280.
+
+    Die Farbmaske fand vier Flaechen: drei Knoepfe von genau 154x77 und die Muenzgrafik im Kopf
+    des Fensters mit 226x121. Echte Knoepfe sind untereinander gleich gross, die Grafik nicht.
+    """
+    bild = leer()
+    knopf(bild, 257, x=494, w=226, h=121)  # Muenzgrafik im Fensterkopf
+    for y in (479, 757, 1052):
+        knopf(bild, y, x=528, w=154, h=77)
+
+    gefunden = find_orange_buttons(bild)
+
+    assert len(gefunden) == 3
+    # Die Grafik war 121 hoch, die Knoepfe 77 -- was uebrig bleibt, hat Knopfhoehe.
+    assert all(abs(b.h - 77) <= 4 for b in gefunden), [b.h for b in gefunden]
+    assert all(abs(b.w - 154) <= 4 for b in gefunden), [b.w for b in gefunden]
+    assert gefunden[0].y >= 470
+
+
+def test_zwei_knoepfe_bleiben_beide() -> None:
+    """Bei zweien waere die uebliche Groesse kein Massstab, sondern ein Muenzwurf."""
+    bild = leer()
+    knopf(bild, 400, w=154, h=60)
+    knopf(bild, 700, w=200, h=80)
+
+    assert len(find_orange_buttons(bild)) == 2
+
+
 def test_leeres_bild_gibt_nichts() -> None:
     assert find_orange_buttons(leer()) == []
