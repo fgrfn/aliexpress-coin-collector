@@ -86,7 +86,7 @@ def cmd_extras(cfg: Config, args: argparse.Namespace) -> int:
 
     print(f"\nGelesen: {len(result.verdicts)} Aufgaben")
     for v in result.verdicts:
-        zeichen = {extras.TAKE: "+", extras.BLOCKED: "-", extras.UNKNOWN: "?"}[v.ruling]
+        zeichen = extras.SIGNS[v.ruling]
         print(f"  {zeichen} {v.card.short}")
         print(f"      {v.reason}")
     if result.runs:
@@ -115,7 +115,24 @@ def cmd_ocr(cfg: Config, args: argparse.Namespace) -> int:
         print("\nText:", state.text)
     if args.extras:
         _zeige_extras(cfg, png)
+    if args.farben:
+        _zeige_farben(png)
     return 0
+
+
+def _zeige_farben(png: bytes) -> None:
+    """Die Knopfspalte von oben nach unten ausmessen.
+
+    Die orangen Knoepfe sind ueber ihre Farbe zu finden. Erledigte Aufgaben tragen aber keinen
+    Knopf, sondern ein blassgruenes Feld mit Haken -- und dessen Farbwerte kennt niemand. Statt
+    sie zu raten (zweimal danebengegriffen), werden sie hier abgelesen.
+    """
+    img = ocr.decode_png(png)
+    hoehe, breite = img.shape[:2]
+    kopf = f"Farbprofil der Knopfspalte (Bild {breite}x{hoehe}, x = {int(breite * ocr.PROBE_X)}):"
+    print("\n" + kopf)
+    for run in ocr.colour_profile(img):
+        print(f"  {run}")
 
 
 def _zeige_extras(cfg: Config, png: bytes) -> None:
@@ -140,7 +157,7 @@ def _zeige_extras(cfg: Config, png: bytes) -> None:
     for verdict in extras.sift(
         cards, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, bool(cfg.extras_search_terms)
     ):
-        zeichen = {extras.TAKE: "+", extras.BLOCKED: "-", extras.UNKNOWN: "?"}[verdict.ruling]
+        zeichen = extras.SIGNS[verdict.ruling]
         print(f"  {zeichen} {verdict.card.short}")
         print(f"      {verdict.reason}")
 
@@ -306,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
         "--extras",
         action="store_true",
         help="zeigen, was die Zusatzaufgaben-Erkennung aus dem Bild macht (Knoepfe, Karten, Urteile)",
+    )
+    p.add_argument(
+        "--farben",
+        action="store_true",
+        help="die Knopfspalte ausmessen (HSV von oben nach unten) -- zum Bestimmen neuer Farben",
     )
     p.set_defaults(func=cmd_ocr)
 

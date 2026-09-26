@@ -127,6 +127,57 @@ BUTTON_MIN_RATIO = 1.4
 BUTTON_MIN_CX = 0.50
 
 
+@dataclass(frozen=True)
+class ColourRun:
+    """Ein Stueck der Knopfspalte, das durchgehend dieselbe Farbe hat."""
+
+    y0: int
+    y1: int
+    h: int
+    s: int
+    v: int
+
+    def __str__(self) -> str:
+        return f"y={self.y0:4d}..{self.y1:<4d} ({self.y1 - self.y0:3d} hoch)  HSV = {self.h:3d} {self.s:3d} {self.v:3d}"
+
+
+# Wo die Knoepfe und die Haken stehen: rechts, aber nicht ganz am Rand.
+PROBE_X = 0.84
+# Alle so viele Zeilen wird eine Probe genommen. Feiner braucht es nicht -- ein Knopf ist
+# rund achtzig Pixel hoch.
+PROBE_STEP = 8
+# Bis zu diesem Unterschied gilt zweimal dieselbe Farbe. Verlaeufe und Kantenglaettung sollen
+# nicht jede Probe zu einem eigenen Abschnitt machen.
+PROBE_TOLERANCE = 12
+
+
+def colour_profile(img: np.ndarray, x_frac: float = PROBE_X) -> list[ColourRun]:
+    """Die Knopfspalte von oben nach unten abtasten und gleiche Farben zusammenfassen.
+
+    Zum Messen, nicht zum Erkennen. Die orangen Knoepfe sind ueber ihre Farbe zu finden, die
+    erledigten Aufgaben tragen aber keinen Knopf, sondern ein blassgruenes Feld mit Haken --
+    und dessen Farbwerte standen bisher nirgends. Geraten wurde an dieser Stelle schon zweimal
+    zu viel; das hier misst stattdessen.
+    """
+    height, width = img.shape[:2]
+    x = min(width - 1, max(0, int(width * x_frac)))
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    runs: list[ColourRun] = []
+    for y in range(0, height, PROBE_STEP):
+        h, s, v = (int(c) for c in hsv[y, x])
+        letzter = runs[-1] if runs else None
+        if (
+            letzter is not None
+            and abs(h - letzter.h) <= PROBE_TOLERANCE
+            and abs(s - letzter.s) <= PROBE_TOLERANCE
+            and abs(v - letzter.v) <= PROBE_TOLERANCE
+        ):
+            runs[-1] = ColourRun(letzter.y0, y, letzter.h, letzter.s, letzter.v)
+        else:
+            runs.append(ColourRun(y, y, h, s, v))
+    return runs
+
+
 def find_orange_buttons(img: np.ndarray) -> list[Word]:
     """Die orangen Knopfflaechen im Bild, von oben nach unten.
 

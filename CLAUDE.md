@@ -37,6 +37,7 @@ python -m aliexpress_coin_collector doctor                     # Installation + 
 python -m aliexpress_coin_collector once --force --no-notify   # ein Lauf (fasst das Gerät an!)
 python -m aliexpress_coin_collector ocr bild.png --text        # Erkennung an Screenshot testen
 python -m aliexpress_coin_collector ocr bild.png --extras      # ... samt Knöpfen, Karten und Urteilen
+python -m aliexpress_coin_collector ocr bild.png --farben      # Knopfspalte ausmessen (HSV), zum Bestimmen neuer Farben
 python -m aliexpress_coin_collector extras                     # Zusatzaufgaben ansehen (fasst das Gerät an!)
 python -m aliexpress_coin_collector extras --los               # ... und die erlaubten abarbeiten
 python -m aliexpress_coin_collector status                     # letzte Läufe + Summen

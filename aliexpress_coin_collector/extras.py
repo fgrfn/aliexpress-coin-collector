@@ -260,6 +260,32 @@ TAKE = "nehmen"
 BLOCKED = "gesperrt"
 UNKNOWN = "unbekannt"
 
+# Der Zaehler auf der Karte: "2/2" heisst zweimal von zwei gemacht, "0/3" noch keinmal von drei.
+# Gelesen wird er aus dem rohen Text, nicht aus `key`: `normalize` wirft den Schraegstrich weg.
+_COUNT_RE = re.compile(r"(?<!\d)(\d{1,2})\s*/\s*(\d{1,2})(?!\d)")
+# Mehr als so oft laesst sich keine Aufgabe machen -- was groesser ist, ist etwas anderes.
+COUNT_MAX = 20
+
+
+# Wie ein Urteil auf der Kommandozeile aussieht. Steht hier und nicht im CLI-Modul, damit ein
+# neues Urteil nicht an zwei Stellen vergessen wird -- ein fehlender Eintrag warf frueher einen
+# KeyError mitten in der Ausgabe.
+SIGNS = {TAKE: "+", BLOCKED: "-", UNKNOWN: "?"}
+
+
+def progress(text: str) -> tuple[int, int] | None:
+    """Der Zaehler der Karte als (gemacht, moeglich), oder None.
+
+    Vorsichtig gelesen: eine Zahl ueber `COUNT_MAX` oder ein Stand ueber dem Moeglichen ist
+    kein Zaehler, sondern etwas anderes, das zufaellig einen Schraegstrich enthaelt. Im Zweifel
+    lieber keinen Zaehler erkennen -- dann verhaelt sich alles wie vorher.
+    """
+    for treffer in _COUNT_RE.finditer(text):
+        gemacht, moeglich = int(treffer.group(1)), int(treffer.group(2))
+        if 1 <= moeglich <= COUNT_MAX and 0 <= gemacht <= moeglich:
+            return gemacht, moeglich
+    return None
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -287,20 +313,28 @@ def judge(
     Suchaufgaben sind der Sonderfall: sie verlangen nicht nur Verweildauer, sondern ein
     eingetipptes Wort, das im Suchverlauf des Kontos stehen bleibt. Sie werden nur angefasst,
     wenn dafuer ausdruecklich ein Begriff hinterlegt ist.
+
+    Der Zaehler der Karte ("1/3") wird gelesen und angezeigt, **entscheidet aber nichts**. Er
+    duerfte es erst, wenn die Kartengrenzen stimmen: erledigte Aufgaben tragen keinen Knopf,
+    ihr Text faellt darum in die Karte darunter -- und mit ihm ihr Zaehler. Wer auf ein "2/2"
+    hin ueberspringt, ueberspringt heute die falsche Aufgabe. Siehe docs/STATUS.md 3c.
     """
     key = card.key
+    zaehler = progress(card.text)
+    stand = f" ({zaehler[0]}/{zaehler[1]})" if zaehler else ""
+
     gesperrt = hits(key, deny)
     if gesperrt:
         return Verdict(card, BLOCKED, f"gesperrt durch {gesperrt!r}")
     gesucht = hits(key, search_markers)
     if gesucht:
         if has_terms:
-            return Verdict(card, TAKE, f"Suchaufgabe ({gesucht!r}), Begriff hinterlegt", search=True)
-        return Verdict(card, UNKNOWN, f"Suchaufgabe ({gesucht!r}), aber kein Suchbegriff hinterlegt")
+            return Verdict(card, TAKE, f"Suchaufgabe ({gesucht!r}), Begriff hinterlegt{stand}", search=True)
+        return Verdict(card, UNKNOWN, f"Suchaufgabe ({gesucht!r}), aber kein Suchbegriff hinterlegt{stand}")
     erlaubt = hits(key, allow)
     if erlaubt:
-        return Verdict(card, TAKE, f"erlaubt durch {erlaubt!r}")
-    return Verdict(card, UNKNOWN, "steht auf keiner Liste")
+        return Verdict(card, TAKE, f"erlaubt durch {erlaubt!r}{stand}")
+    return Verdict(card, UNKNOWN, f"steht auf keiner Liste{stand}")
 
 
 # Wie stark sich zwei Kartentexte ueberschneiden muessen, um als dieselbe Karte zu gelten.

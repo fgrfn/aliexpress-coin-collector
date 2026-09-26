@@ -304,6 +304,31 @@ Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene 
 -- erledigt, offen, fehlgeschlagen oder uebersprungen. Uebersprungene zaehlen fuer sich: sie sind kein
 Versaeumnis, sondern Absicht.
 
+- **Erledigte Aufgaben tragen keinen Knopf -- und ihr Text faellt in die Karte darunter**
+  (26.09.2026, an Screenshots des Nutzers gesehen, **noch nicht behoben**). Das ist der
+  eigentliche Grund fuer die falschen Kartennamen im Log, und er raeumt eine falsche Annahme
+  ab, auf der `find_cards` seit 0.17.0 steht:
+  - Eine **offene** Aufgabe hat rechts den orangen Knopf "Und los".
+  - Eine **erledigte** hat dort ein blassgruenes Feld mit einem Haken -- und keinen Knopf.
+  - Weil Karten an den Knoepfen geschnitten werden, hat eine erledigte Karte keinen eigenen
+    Anker. Ihr Text faellt in die Karte darunter. Genau daher kam der Logeintrag
+    `'Weitere Muenzen verdienen Gesponserte Artikel entdecken St...'`: Fenstertitel, erledigte
+    Karte und die echte Karte in einem.
+  - Gemeldet wurde es als "versucht 'Gesponserte Artikel entdecken' abzuholen, obwohl schon
+    2/2". Angetippt wurde in Wahrheit der Knopf der Karte **darunter** -- getippt wird immer
+    auf einen echten Knopf. Falsch war nur der Name. Verkehrt ist es trotzdem: der Name geht in
+    `same_card` ein, und damit ins Wiederfinden.
+  - **Der Zaehler taugt nicht als Merkmal.** Er sitzt als kleines rotes Abzeichen am Knopf, es
+    tragen ihn aber nicht alle Karten: "Super Rabatte anzeigen" hatte `1/3` **und** einen
+    Knopf, "Uebersicht ueber Ihre Muenzeinsparungen" gar kein Abzeichen und war erledigt. Der
+    **Haken** ist das Merkmal, nicht die Zahl. `extras.progress` liest den Zaehler darum zwar
+    und zeigt ihn an, **entscheidet aber nichts**: solange erledigte Karten in ihre Nachbarn
+    fallen, wuerde ein "2/2" die falsche Aufgabe ueberspringen.
+  - Zu tun: das blassgruene Feld als zweiten Anker erkennen, damit jede Karte einen hat. Die
+    Farbe dafuer ist **gemessen, nicht geraten** -- siehe `ocr.colour_profile` und
+    `acc ocr bild.png --farben`. Das blasse Feld hat kaum Saettigung und ist von Weiss nur
+    knapp zu unterscheiden; die Knopfsuche ueber den Farbton findet es darum nicht.
+
 - **Ohne Liste wird nicht gewischt** (0.19.4). Gemeldet am 26.09.2026: "klick auf mehr coins
   verdienen, dann lange nichts, app schliesst und es wird zwischen dem homescreen hin und her
   gewischt". Nach dem Knopf kam keine Liste -- und gewischt wurde trotzdem. Die Notbremse griff
@@ -713,8 +738,11 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
      `tasks.gain` und in der Tagesliste, aber der Stand, den die Oberflaeche gross anzeigt, kommt weiter
      vom letzten Check-in. Eine eigene Zeile in `runs` (Art `extras`) waere die kleinste Loesung,
      verwaessert aber die Erfolgsquote des Check-ins.
-   - **Mehrfach erledigbare Aufgaben.** Die Karten tragen einen Zaehler ("1/2", "0/3"), der bisher
-     ignoriert wird -- manche Aufgaben gingen zwei- oder dreimal.
+    - **Erledigte Karten als Anker erkennen** (das blassgruene Feld mit Haken). Siehe
+     Abschnitt 3c: solange sie keinen Anker haben, faellt ihr Text in die Karte darunter. Das
+     ist der naechste Schritt, und er macht erst den Zaehler brauchbar.
+   - **Mehrfach erledigbare Aufgaben.** Die Karten tragen einen Zaehler ("1/2", "0/3"). Er wird
+     seit 0.19.5 gelesen und angezeigt, entscheidet aber noch nichts.
    - **Der Zaehler am Rand wird nicht abgelesen.** Waehrend der Verweildauer laeuft rechts eine Uhr und
      zeigt am Ende einen gruenen Haken. Gewartet wird stur `EXTRAS_DWELL_S`; ob eine Aufgabe wirklich
      zaehlte, wird aus dem Muenzstand geschlossen, nicht abgelesen.
