@@ -885,6 +885,67 @@ def wait_for_commands(
             done += erledigt
 
 
+def mqtt_settings(cfg: Config) -> tuple | None:
+    """Woran sich ein bestehender Anschluss messen laesst. None heisst: MQTT ist aus.
+
+    Der Praefix und der Messabstand gehoeren dazu, obwohl sie nicht die Verbindung betreffen:
+    aus ihnen entstehen die Namen der Entitaeten und ihre Ablauffrist, und beides muss nach
+    einer Aenderung neu angemeldet werden.
+    """
+    if not cfg.mqtt_host:
+        return None
+    return (
+        cfg.mqtt_host,
+        cfg.mqtt_port,
+        cfg.mqtt_user,
+        cfg.mqtt_password,
+        cfg.mqtt_discovery_prefix,
+        cfg.ha_prefix,
+        cfg.battery_poll_min,
+    )
+
+
+@dataclass
+class BrokerLink:
+    """Haelt den MQTT-Anschluss und zieht ihn nach, wenn sich die Einstellungen aendern.
+
+    Ohne das entschiede der Start des Dienstes ein fuer alle Mal, ob MQTT laeuft: wer die
+    Broker-Daten spaeter in der Oberflaeche eintraegt, wartet vergeblich. Jede andere
+    Einstellung wird bei jedem Takt neu gelesen, diese muss es auch.
+
+    Ein misslungener Aufbau wird nicht bei jedem Takt wiederholt -- paho verbindet sich von
+    selbst neu, und die Faelle, in denen start() scheitert (fehlendes paho), heilen nicht
+    durch Warten. Erst eine geaenderte Einstellung loest einen neuen Versuch aus.
+    """
+
+    publisher: mqtt.Publisher | None = None
+    key: tuple | None = None
+    started_with: Config | None = None
+
+    def ensure(self, cfg: Config) -> mqtt.Publisher | None:
+        """Den Anschluss an die aktuellen Einstellungen anpassen. Wirft nie."""
+        wanted = mqtt_settings(cfg)
+        if wanted == self.key:
+            return self.publisher
+        if self.publisher is not None:
+            log.info("MQTT-Einstellungen haben sich geaendert, Anschluss wird neu aufgebaut")
+        self.close()
+        self.key = wanted
+        if wanted is None:
+            return None
+        publisher = mqtt.Publisher()
+        if not publisher.start(cfg):
+            return None
+        self.publisher, self.started_with = publisher, cfg
+        return publisher
+
+    def close(self) -> None:
+        """Sauber abmelden, und zwar mit den Einstellungen, unter denen angemeldet wurde."""
+        if self.publisher is not None and self.started_with is not None:
+            self.publisher.stop(self.started_with)
+        self.publisher, self.started_with = None, None
+
+
 def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str = "") -> None:
     log.info(
         "Dienst gestartet. Fenster morgens %s-%s, abends %s-%s",
@@ -895,11 +956,11 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
     )
     announced: date | None = None
     reconnect, outage, battery = Reconnect(), Outage(), BatteryWatch()
-    broker = mqtt.Publisher() if cfg.mqtt_host else None
-    if broker is not None and not broker.start(cfg):
-        broker = None
+    link = BrokerLink()
     try:
         while True:
+            # Vor dem Takt nachsehen: die Broker-Daten koennen seit dem Start in der
+            # Oberflaeche eingetragen oder geaendert worden sein.
             announced = tick(
                 cfg,
                 adb,
@@ -909,10 +970,9 @@ def daemon(cfg: Config, adb: Adb, store: Store, tick_s: int = 30, version: str =
                 announced,
                 outage=outage,
                 battery=battery,
-                broker=broker,
+                broker=link.ensure(with_current_settings(cfg)),
             )
             wait_for_commands(cfg, adb, store, reconnect, version, tick_s)
     finally:
         # Ordentlich abmelden, damit die Entitaeten nicht erst ueber das Testament ausfallen.
-        if broker is not None:
-            broker.stop(cfg)
+        link.close()

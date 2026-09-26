@@ -14,7 +14,7 @@ from datetime import datetime
 
 import pytest
 
-from aliexpress_coin_collector import mqtt
+from aliexpress_coin_collector import mqtt, scheduler
 from aliexpress_coin_collector.adb import Battery
 from aliexpress_coin_collector.config import Config
 from aliexpress_coin_collector.store import Attempt
@@ -439,3 +439,75 @@ def test_without_a_measurement_an_unchanged_state_stays_unsent(cfg, broker):
     broker.published.clear()
     assert pub.publish(cfg, AKKU, LAUF, True) is False
     assert broker.published == []
+
+
+# -- Der Anschluss folgt den Einstellungen ---------------------------------------------------
+#
+# Der Dienst entschied beim Start ein fuer alle Mal, ob MQTT laeuft. Wer die Broker-Daten
+# spaeter in der Oberflaeche eintrug, wartete vergeblich -- jede andere Einstellung wird bei
+# jedem Takt neu gelesen, diese nicht.
+
+
+def test_settings_entered_later_bring_the_link_up(cfg, broker):
+    """Der Fehler, der dazu fuehrte, dass in Home Assistant nichts ankam."""
+    aus = replace(cfg, mqtt_host="")
+    link = scheduler.BrokerLink()
+    assert link.ensure(aus) is None
+    assert link.ensure(cfg) is not None
+
+
+def test_an_unchanged_setting_keeps_the_same_link(cfg, broker):
+    link = scheduler.BrokerLink()
+    erster = link.ensure(cfg)
+    assert link.ensure(cfg) is erster
+
+
+def test_a_changed_broker_is_reconnected(cfg, broker):
+    link = scheduler.BrokerLink()
+    erster = link.ensure(cfg)
+    zweiter = link.ensure(replace(cfg, mqtt_host="anderer.local"))
+    assert zweiter is not erster
+
+
+def test_a_changed_prefix_reannounces_the_entities(cfg, broker):
+    """Aus dem Praefix entstehen die Namen der Entitaeten -- die muessen neu angemeldet werden."""
+    link = scheduler.BrokerLink()
+    erster = link.ensure(cfg)
+    assert link.ensure(replace(cfg, ha_prefix="handy")) is not erster
+
+
+def test_a_changed_poll_interval_reannounces_the_entities(cfg, broker):
+    """Der Messabstand steckt als expire_after in der Discovery-Konfiguration."""
+    link = scheduler.BrokerLink()
+    erster = link.ensure(cfg)
+    assert link.ensure(replace(cfg, battery_poll_min=5)) is not erster
+
+
+def test_switching_mqtt_off_says_goodbye(cfg, broker):
+    link = scheduler.BrokerLink()
+    verbinde(cfg, link.ensure(cfg), broker)
+    broker.published.clear()
+    assert link.ensure(replace(cfg, mqtt_host="")) is None
+    availability, _ = mqtt.topics(cfg)
+    assert (availability, mqtt.OFFLINE, True) in broker.published
+
+
+def test_the_goodbye_uses_the_prefix_it_signed_on_with(cfg, broker):
+    """Sonst bliebe unter dem alten Namen eine Entitaet stehen, die niemand mehr abmeldet."""
+    link = scheduler.BrokerLink()
+    verbinde(cfg, link.ensure(cfg), broker)
+    broker.published.clear()
+    link.ensure(replace(cfg, ha_prefix="handy"))
+    alt, _ = mqtt.topics(cfg)
+    assert (alt, mqtt.OFFLINE, True) in broker.published
+
+
+def test_a_failed_start_is_not_retried_every_tick(cfg, monkeypatch, caplog):
+    """paho verbindet sich selbst neu; ein fehlendes paho heilt nicht durch Warten."""
+    monkeypatch.setattr(mqtt, "HAVE_PAHO", False)
+    link = scheduler.BrokerLink()
+    with caplog.at_level(logging.ERROR):
+        assert link.ensure(cfg) is None
+        assert link.ensure(cfg) is None
+    # Ein Eintrag, nicht zwei: sonst liefe das Protokoll bei jedem Takt voll.
+    assert len([r for r in caplog.records if "paho-mqtt" in r.getMessage()]) == 1
