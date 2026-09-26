@@ -10,7 +10,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from aliexpress_coin_collector.ocr import find_orange_buttons
+from aliexpress_coin_collector.ocr import colour_profile, find_orange_buttons
 
 BREITE, HOEHE = 720, 1280
 ORANGE = (34, 103, 242)  # BGR, wie der Knopf "Und los"
@@ -22,8 +22,14 @@ def leer() -> np.ndarray:
     return bild
 
 
-def knopf(bild: np.ndarray, y: int, x: int = 527, w: int = 154, h: int = 60, farbe=ORANGE) -> None:
-    cv2.rectangle(bild, (x, y), (x + w, y + h), farbe, -1)
+def knopf(
+    bild: np.ndarray, y: int, x: int = 527, w: int = 154, h: int = 60, farbe=ORANGE, y2_h: int | None = None
+) -> None:
+    cv2.rectangle(bild, (x, y), (x + w, y + (y2_h or h)), farbe, -1)
+
+
+def find_profile(bild: np.ndarray):
+    return colour_profile(bild)
 
 
 def test_findet_die_knoepfe_von_oben_nach_unten() -> None:
@@ -105,3 +111,45 @@ def test_zwei_knoepfe_bleiben_beide() -> None:
 
 def test_leeres_bild_gibt_nichts() -> None:
     assert find_orange_buttons(leer()) == []
+
+
+# -- Farben ausmessen statt raten ----------------------------------------------------------------
+#
+# Am 26.09.2026 kam heraus, dass erledigte Aufgaben gar keinen Knopf tragen, sondern ein
+# blassgruenes Feld mit Haken. Dessen Farbwerte kannte niemand -- und an dieser Stelle war schon
+# zweimal geraten und zweimal danebengegriffen worden. Darum ein Messfuehler.
+
+MINT = (230, 244, 238)  # BGR, wie das Feld einer erledigten Aufgabe
+
+
+def test_farbprofil_findet_den_orangen_knopf() -> None:
+    bild = leer()
+    knopf(bild, 400, y2_h=77)
+
+    treffer = [r for r in find_profile(bild) if r.s > 100]
+
+    assert len(treffer) == 1
+    assert 5 <= treffer[0].h <= 25  # der Farbton, auf den die Knopfsuche hoert
+    assert treffer[0].y0 >= 396 and treffer[0].y1 <= 480
+
+
+def test_farbprofil_zeigt_das_blasse_feld_als_fast_weiss() -> None:
+    """Der Grund, warum die Knopfsuche es nicht findet -- und warum Raten hier schiefging."""
+    bild = leer()
+    cv2.rectangle(bild, (528, 700), (682, 777), MINT, -1)
+
+    feld = [r for r in find_profile(bild) if 700 <= r.y0 <= 780]
+
+    assert feld, find_profile(bild)
+    assert feld[0].s < 40, "kaum Saettigung -- von Weiss kaum zu unterscheiden"
+    assert feld[0].v > 200
+
+
+def test_farbprofil_fasst_gleiche_farben_zusammen() -> None:
+    """Sonst waere die Ausgabe eine Zahlenwueste statt einer Handvoll Abschnitte."""
+    bild = leer()
+    knopf(bild, 400, y2_h=77)
+    cv2.rectangle(bild, (528, 700), (682, 777), MINT, -1)
+
+    # Weiss oben, Knopf, Weiss, Feld, Weiss unten.
+    assert len(find_profile(bild)) == 5
