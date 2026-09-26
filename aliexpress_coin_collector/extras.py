@@ -533,6 +533,7 @@ def _scroll(adb: Adb, sheet: Sheet, down: bool = True) -> None:
 
 
 LEFT = "abgebrochen: wir waren nicht mehr in der App"
+NO_LIST = "abgebrochen: die Aufgabenliste kam nicht"
 
 
 def _in_app(adb: Adb, cfg: Config) -> bool:
@@ -654,6 +655,14 @@ def explore(
             result.note = LEFT
             _heimweg(adb, cfg)
             return result
+        if runde == 0 and not neue:
+            # Die Liste ist in der ganzen Wartezeit nicht gekommen. Weiterzuwischen hiesse, auf
+            # einem Bildschirm zu wischen, den wir nicht erkannt haben -- und wohin ein Wisch
+            # dort traegt, weiss niemand. Der abgelegte Screenshot sagt hinterher, was dastand.
+            result.note = NO_LIST
+            log.warning("Zusatzaufgaben: %s (siehe 01-liste.png)", result.note)
+            _heimweg(adb, cfg)
+            return result
         if runde < cfg.extras_scrolls:
             _scroll(adb, blatt)
             sleep(SCROLL_SETTLE_S)
@@ -688,10 +697,10 @@ def explore(
         begriff = choose(list(cfg.extras_search_terms)) if verdict.search and cfg.extras_search_terms else None
         lauf = _work(adb, cfg, eyes, sleep, monotonic, verdict.card, shots, result, begriff)
         result.runs.append(lauf)
-        if lauf.note == LEFT:
-            # Nicht weitersuchen: der naechste Durchgang wuerde auf einem fremden Bildschirm
-            # wischen und tippen. Genau das ist am 26.09.2026 passiert.
-            result.note = LEFT
+        if lauf.note in (LEFT, NO_LIST):
+            # Nicht weitersuchen: der naechste Durchgang wuerde auf einem Bildschirm wischen
+            # und tippen, den wir nicht erkannt haben. Genau das ist am 26.09.2026 passiert.
+            result.note = lauf.note
             log.warning("Zusatzaufgaben: %s", result.note)
             break
         if lauf.note == LOST:
@@ -823,12 +832,15 @@ def _work(
 
     # Von ganz oben suchen: nach einer erledigten Aufgabe steht die Liste irgendwo, und
     # geblaettert wird nur nach unten.
-    cards, blatt, png = _look(adb, eyes, cfg, sleep)
-    if not cards and not _in_app(adb, cfg):
-        lauf.note = LEFT
+    # Erst hinsehen, dann wischen. Ohne sichtbare Karten ist nicht gesagt, dass wir in der
+    # Liste stehen -- und `_to_top` wischt sonst blind auf irgendeinem Bildschirm.
+    cards, blatt, png = _await_cards(adb, eyes, cfg, sleep, monotonic, BACK_TIMEOUT_S)
+    if not cards:
+        lauf.note = LEFT if not _in_app(adb, cfg) else NO_LIST
+        _save(shots, f"keine-liste-{len(result.runs) + 1:02d}.png", png, result.shots)
+        log.warning("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
         return lauf
-    if blatt is not None:
-        _to_top(adb, blatt, sleep, cfg.extras_scrolls + 2)
+    _to_top(adb, blatt, sleep, cfg.extras_scrolls + 2)
 
     stelle: Card | None = None
     gesehen: set[str] = set()

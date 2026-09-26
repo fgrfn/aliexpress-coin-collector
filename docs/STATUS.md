@@ -25,6 +25,15 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
 - **Akkuwerte vom Produktivgeraet** (Samsung SM-J330FN): `dumpsys battery` liefert Ladestand und
   Temperatur so, wie der Parser sie erwartet — die beiden Werte oben kommen von dort.
 
+- **Die Vordergrund-App ist auslesbar** (Samsung SM-J330FN, 26.09.2026). `dumpsys window |
+  grep mCurrentFocus` liefert die erwartete Zeile, und zwar zweimal, unterschiedlich weit
+  eingerueckt:
+  `mCurrentFocus=Window{6f5b03a u0 com.sec.android.app.launcher/...LauncherActivity}`.
+  Damit ist die Grundlage der Notbremse belegt: `FOCUS_RE` liest daraus
+  `com.sec.android.app.launcher`, und weil das nicht `APP_PACKAGE` ist, wuerde die Bremse in
+  genau dem Zustand ziehen, in dem sie es soll. Die Ausgabe steht wortwoertlich in
+  `tests/test_focus.py`.
+
 - **Zusatzaufgaben von Anfang bis Ende** (26.09.2026, 720x1280, 0.19.1). Ein Lauf `acc extras --los`
   meldete "9 Aufgaben gelesen, 4 davon brauchbar, 4 von 4 erledigt": Gesponserte Artikel entdecken,
   Super Rabatte anzeigen, Suchen was Sie lieben, Gutscheine & Einkaufsguthaben. Damit ist der ganze
@@ -42,13 +51,18 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
-- **Die Notbremse (0.19.3): nur mit Attrappen.** Der gemeldete Verlauf steht als Testfall in
-  `tests/test_extras.py` (eine Aufgabe erledigt, dann ist die App weg -- danach kein Wisch, kein
-  Tap, kein zweites Zurueck mehr). **Nicht gesehen** ist, ob `dumpsys window` auf dem
-  Produktivgeraet (Samsung SM-J330FN) die erwartete `mCurrentFocus`-Zeile liefert. Tut es das
-  nicht, gibt `current_package` "" zurueck und die Bremse zieht nie -- der Ausflug verhaelt sich
-  dann wie vor 0.19.3. Das laesst sich am Geraet mit einem Blick pruefen:
-  `adb shell "dumpsys window | grep mCurrentFocus"`.
+- **"Ohne Liste wird nicht gewischt" (0.19.4): nur mit Attrappen.** Der gemeldete Verlauf steht
+  als Testfall (`tests/test_extras.py`: Knopf getippt, nie eine Liste -- kein Wisch, kein
+  zweiter Tap, kein Zurueck). **Ungeklaert bleibt die Ursache:** warum die Liste nach dem Knopf
+  gar nicht erst kam. Dafuer braucht es den Screenshot `data/extras/01-liste.png` aus einem
+  misslungenen Lauf. Bis dahin ist nur der Schaden begrenzt, nicht der Fehler behoben.
+
+- **Die Notbremse (0.19.3): halb belegt.** Dass `dumpsys window` auf dem Produktivgeraet die
+  erwartete Zeile liefert und `FOCUS_RE` den Paketnamen daraus liest, ist am Geraet geprueft
+  (siehe oben). **Nicht gesehen** ist die Bremse in Aktion: ein Ausflug, bei dem die App
+  unterwegs verlorengeht. Der gemeldete Verlauf steht als Testfall in `tests/test_extras.py`
+  (eine Aufgabe erledigt, dann ist die App weg -- danach kein Wisch, kein Tap, kein zweites
+  Zurueck mehr), aber das ist eine Attrappe, kein Telefon.
 
 - **Der reparierte Suchweg (0.19.2): nur mit Attrappen.** Dass das Suchfeld vor dem Tippen
   angetippt und geleert wird und dass ohne nachgewiesene Eingabe nichts abgeschickt wird, ist durch
@@ -289,6 +303,21 @@ gegenlaeufig -- der eine geht, wenn der andere nicht mehr geht.
 Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene Aufgabe mit ihrem Zustand
 -- erledigt, offen, fehlgeschlagen oder uebersprungen. Uebersprungene zaehlen fuer sich: sie sind kein
 Versaeumnis, sondern Absicht.
+
+- **Ohne Liste wird nicht gewischt** (0.19.4). Gemeldet am 26.09.2026: "klick auf mehr coins
+  verdienen, dann lange nichts, app schliesst und es wird zwischen dem homescreen hin und her
+  gewischt". Nach dem Knopf kam keine Liste -- und gewischt wurde trotzdem. Die Notbremse griff
+  hier nicht, weil die App zu dem Zeitpunkt noch lief: wir waren nur nicht dort, wo wir dachten.
+  Zwei Stellen wischten blind:
+  - **Die Leseschleife** blaetterte nach der Wartezeit noch `EXTRAS_SCROLLS` mal weiter, auch
+    wenn in der ersten Runde keine einzige Karte zu sehen war. Jetzt ist dort Schluss
+    (`extras.NO_LIST`), und der Screenshot `01-liste.png` sagt hinterher, was stattdessen dastand.
+  - **`_work` begann jede Kartensuche mit `_to_top`**, also mit Wischen, ohne vorher hinzusehen.
+    Jetzt wird erst auf Karten gewartet; kommen keine, wird aufgegeben und ein Screenshot
+    abgelegt.
+
+  Der Grundsatz dahinter, nach zwei Anlaeufen: **gewischt und getippt wird nur auf einem
+  Bildschirm, den wir erkannt haben.** Nicht "solange nichts dagegen spricht".
 
 - **Die Notbremse: nichts anfassen, wenn wir nicht mehr in der App sind** (0.19.3). Gemeldet am
   26.09.2026 um 15:37, auf dem Geraet gesehen: die erste Aufgabe war erledigt, danach war die App
