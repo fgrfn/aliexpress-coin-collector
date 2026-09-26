@@ -88,8 +88,12 @@ class FakeAdb:
         nach_tap: bytes = b"fremd",
         nach_back: bytes = b"liste",
         nach_text: bytes = b"getippt",
+        paket: str = "com.alibaba.aliexpresshd",
     ) -> None:
         self.current = start
+        # Was `dumpsys window` als Vordergrund-App melden wuerde. Die Tests, die das Verlassen
+        # der App nachstellen, setzen hier etwas anderes ein.
+        self.paket = paket
         self.liste, self.nach_tap, self.nach_back = liste, nach_tap, nach_back
         # Was nach dem Eintippen auf dem Schirm steht -- daran prueft `_type_search` nach.
         self.nach_text = nach_text
@@ -125,6 +129,10 @@ class FakeAdb:
 
     def enter(self) -> None:
         self.calls.append("enter")
+
+    def current_package(self) -> str:
+        self.calls.append("current_package")
+        return self.paket
 
     def force_stop(self, package: str) -> None:
         self.calls.append("force_stop")
@@ -841,3 +849,148 @@ def test_summary_bleibt_lesbar(cfg) -> None:
     result.verdicts = [extras.judge(extras.Card("Super Rabatte anzeigen", 1, 1), cfg.extras_allow, cfg.extras_deny)]
     assert "1 Aufgaben gelesen" in result.summary()
     assert "+10 Muenzen" in result.summary()
+
+
+# -- Die Notbremse -------------------------------------------------------------------------------
+#
+# Gemeldet am 26.09.2026, 15:37: nach der ersten erledigten Aufgabe war die Liste weg, die App
+# geschlossen. Der Ausflug suchte trotzdem weiter -- und weil jede Suche mit Wischen beginnt,
+# blaetterte das Telefon minutenlang durch die Seiten des Startbildschirms. Gewischt und getippt
+# wird seither nur, solange die AliExpress-App vorne steht.
+
+FREMD = "com.sec.android.app.launcher"
+
+
+class Ausgestiegen(FakeAdb):
+    """Nach dem n-ten Screenshot ist die App weg: kein Bild mehr, das Karten hergibt."""
+
+    def __init__(self, nach: int = 3) -> None:
+        super().__init__()
+        self.nach = nach
+        self.bilder = 0
+
+    def screenshot(self) -> bytes:
+        self.calls.append("screenshot")
+        self.bilder += 1
+        if self.bilder > self.nach:
+            self.paket = FREMD
+            return b"startbildschirm"
+        return self.current
+
+
+def einfache_liste() -> S:
+    return S(words=[*karte(450, "Super Rabatte anzeigen"), *karte(750, "Gesponserte Artikel entdecken")])
+
+
+def test_ohne_app_wird_nicht_weitergewischt(cfg) -> None:
+    adb = Ausgestiegen(nach=3)
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert result.note == extras.LEFT
+    # Nach dem Ausstieg kein einziger Wisch mehr: der letzte Aufruf ist das Beenden der App.
+    letzter_wisch = len(adb.calls) - 1 - adb.calls[::-1].index("swipe") if "swipe" in adb.calls else -1
+    erster_check = adb.calls.index("current_package")
+    assert letzter_wisch < erster_check, adb.calls
+
+
+def test_ohne_app_wird_nicht_weiter_getippt(cfg) -> None:
+    adb = Ausgestiegen(nach=3)
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    erster_check = adb.calls.index("current_package")
+    assert "tap" not in adb.calls[erster_check:], adb.calls[erster_check:]
+
+
+def test_ohne_app_wird_die_app_trotzdem_beendet(cfg) -> None:
+    """Ein force-stop ist auch dann richtig: er laesst keinen Zweifel, wo wir landen."""
+    adb = Ausgestiegen(nach=3)
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert adb.calls[-1] == "force_stop"
+
+
+def test_ohne_app_bleibt_das_zurueck_aus(cfg) -> None:
+    """Ein Zurueck auf dem Startbildschirm ist der Griff, der alles schlimmer macht."""
+    adb = Ausgestiegen(nach=3)
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    erster_check = adb.calls.index("current_package")
+    assert "back" not in adb.calls[erster_check:]
+
+
+def test_beim_blaettern_wird_nicht_gefragt(cfg) -> None:
+    """Der Shell-Aufruf kostet Zeit. Stehen Karten da, sind wir offensichtlich in der Liste.
+
+    Gefragt wird in einem sauberen Durchgang genau einmal: vor dem Zurueck am Ende, denn ein
+    Zurueck auf dem falschen Bildschirm ist der Griff, der alles schlimmer macht.
+    """
+    adb = FakeAdb()
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=False)
+
+    assert adb.calls.count("current_package") == 1
+    assert adb.calls.index("current_package") > len(adb.calls) - 1 - adb.calls[::-1].index("swipe")
+
+
+def test_unbeantwortbare_frage_haelt_nichts_auf(cfg) -> None:
+    """Meldet das Geraet nichts, wird weitergemacht: eine Bremse, die immer zieht, ist keine."""
+    adb = FakeAdb(paket="")
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert result.note != extras.LEFT
+    assert result.runs and result.runs[0].ok
+
+
+def test_in_app_erkennt_die_fremde_app(cfg) -> None:
+    assert extras._in_app(FakeAdb(paket=cfg.app_package), cfg) is True
+    assert extras._in_app(FakeAdb(paket=FREMD), cfg) is False
+    assert extras._in_app(FakeAdb(paket=""), cfg) is True
+
+
+class AussteigerNachEiner(FakeAdb):
+    """Der gemeldete Verlauf: die erste Aufgabe klappt, danach ist die App weg."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.erledigt = 0
+
+    def back(self) -> None:
+        self.calls.append("back")
+        self.erledigt += 1
+        if self.erledigt == 1:
+            self.paket = FREMD
+            self.current = b"startbildschirm"
+        else:
+            self.current = self.nach_back
+
+
+def test_nach_der_ersten_aufgabe_ausgestiegen(cfg) -> None:
+    """Der Verlauf vom 26.09.2026, 15:37 -- eine Aufgabe erledigt, dann war die App zu."""
+    adb = AussteigerNachEiner()
+    eyes = FakeEyes(sheets={b"liste": einfache_liste()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert result.note == extras.LEFT
+    # Genau ein Zurueck: das aus der Aufgabenseite. Kein zweites auf dem Startbildschirm.
+    assert adb.calls.count("back") == 1
+    # Und die zweite Aufgabe wurde gar nicht erst gesucht.
+    assert len(result.runs) == 1 and not result.runs[0].ok
