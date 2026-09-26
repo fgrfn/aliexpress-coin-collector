@@ -42,6 +42,14 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
+- **Die Notbremse (0.19.3): nur mit Attrappen.** Der gemeldete Verlauf steht als Testfall in
+  `tests/test_extras.py` (eine Aufgabe erledigt, dann ist die App weg -- danach kein Wisch, kein
+  Tap, kein zweites Zurueck mehr). **Nicht gesehen** ist, ob `dumpsys window` auf dem
+  Produktivgeraet (Samsung SM-J330FN) die erwartete `mCurrentFocus`-Zeile liefert. Tut es das
+  nicht, gibt `current_package` "" zurueck und die Bremse zieht nie -- der Ausflug verhaelt sich
+  dann wie vor 0.19.3. Das laesst sich am Geraet mit einem Blick pruefen:
+  `adb shell "dumpsys window | grep mCurrentFocus"`.
+
 - **Der reparierte Suchweg (0.19.2): nur mit Attrappen.** Dass das Suchfeld vor dem Tippen
   angetippt und geleert wird und dass ohne nachgewiesene Eingabe nichts abgeschickt wird, ist durch
   Tests gedeckt (`tests/test_extras.py`, der gemeldete Fall als Testfall). **Nicht gesehen** ist, ob
@@ -281,6 +289,23 @@ gegenlaeufig -- der eine geht, wenn der andere nicht mehr geht.
 Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene Aufgabe mit ihrem Zustand
 -- erledigt, offen, fehlgeschlagen oder uebersprungen. Uebersprungene zaehlen fuer sich: sie sind kein
 Versaeumnis, sondern Absicht.
+
+- **Die Notbremse: nichts anfassen, wenn wir nicht mehr in der App sind** (0.19.3). Gemeldet am
+  26.09.2026 um 15:37, auf dem Geraet gesehen: die erste Aufgabe war erledigt, danach war die App
+  zu. Der Ausflug suchte trotzdem die naechste Karte, und weil jede Suche mit Wischen beginnt,
+  blaetterte das Telefon minutenlang durch die Seiten des **Startbildschirms**. Das Log zeigt die
+  Luecke genau: "Karte nicht mehr gefunden (2 Karten unterwegs gesehen)" -- gesucht wurde vierzig
+  Sekunden lang auf einem Bildschirm, der gar keine Liste mehr war.
+  Seither wird vor jedem weiteren Wisch, Tap und Zurueck gefragt, welche App vorne steht
+  (`adb.current_package`, eine Zeile aus `dumpsys window` -- kein Bild, keine Texterkennung).
+  Steht dort etwas anderes als `APP_PACKAGE`, ist sofort Schluss: `extras.LEFT`, ein force-stop,
+  fertig. Zwei Feinheiten:
+  - **Gefragt wird nur, wenn ohnehin keine Karte zu sehen ist.** Stehen Karten da, sind wir in der
+    Liste, und der Shell-Aufruf waere verschenkt. Ausnahme ist das Zurueck am Ende: davor wird
+    immer gefragt, denn ein Zurueck auf dem falschen Bildschirm ist der Griff, der alles
+    schlimmer macht.
+  - **Antwortet das Geraet nicht, wird weitergemacht.** Eine Notbremse, die bei jeder Unsicherheit
+    zieht, haelt nur den Ausflug auf und verhindert nichts.
 
 - **Das Werbefenster** (0.17.2). Beim Verlassen der Coin-Seite schiebt die App ein Fenster davor:
   "Nicht vergessen: morgen fuer weitere Muenzen einchecken! +40", mit den Knoepfen **Verlassen** und

@@ -10,6 +10,10 @@ log = logging.getLogger(__name__)
 
 PNG_MAGIC = b"\x89PNG"
 
+# Aus `dumpsys window` die Vordergrund-App herauslesen. Die Zeile sieht so aus:
+# "mCurrentFocus=Window{1a2b3c u0 com.alibaba.aliexpresshd/com.alibaba...MainActivity}"
+FOCUS_RE = re.compile(r"\bu\d+\s+([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)/")
+
 # Zahlen aus android.os.BatteryManager. Sie stehen so in der Ausgabe von 'dumpsys battery'.
 # Die Beschriftungen gehen in die Oberflaeche, in die Datenbank und nach Discord, nie an die
 # Shell -- darum hier mit Umlauten, anders als in den Log-Texten.
@@ -203,6 +207,24 @@ class Adb:
         Umlaute und Sonderzeichen gehen nicht sauber durch die Shell.
         """
         self.shell(f"input text {shlex.quote(value.replace(' ', '%s'))}")
+
+    def current_package(self) -> str:
+        """Welche App gerade vorn ist, oder "" wenn es sich nicht ermitteln laesst.
+
+        Gebraucht als Notbremse fuer die Zusatzaufgaben: verlieren wir die App, trifft jeder
+        weitere Wisch etwas Fremdes. Eine Frage an das Fenstersystem, kein Bild und keine
+        Texterkennung -- sie kostet einen Shell-Aufruf und irrt sich nicht.
+
+        Das `|| true` haelt den Rueckgabewert bei 0, auch wenn grep nichts findet: sonst waere
+        ein leeres Ergebnis ein Fehler, und das ist es nicht.
+        """
+        try:
+            out = self.shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true", timeout=15)
+        except AdbError as exc:
+            log.debug("Vordergrund-App nicht ermittelbar: %s", exc)
+            return ""
+        match = FOCUS_RE.search(out)
+        return match.group(1) if match else ""
 
     def clear_text(self, count: int = 48) -> None:
         """Ein Textfeld leeren: ans Ende springen, dann zeichenweise loeschen.

@@ -532,6 +532,31 @@ def _scroll(adb: Adb, sheet: Sheet, down: bool = True) -> None:
         adb.swipe(x, nah, x, weit)
 
 
+LEFT = "abgebrochen: wir waren nicht mehr in der App"
+
+
+def _in_app(adb: Adb, cfg: Config) -> bool:
+    """Sind wir noch in der AliExpress-App?
+
+    Die Notbremse. Verlieren wir die App -- sie stuerzt ab, ein Zurueck zu viel, ein Tap ins
+    Leere --, dann zeigt der Bildschirm irgendetwas, und jeder weitere Wisch trifft etwas
+    Fremdes. Am 26.09.2026 blaetterte das Telefon danach durch die Seiten des
+    Startbildschirms, waehrend der Ausflug seelenruhig die naechste Aufgabe suchte.
+
+    Gefragt wird nur, wenn ohnehin keine Karte zu sehen ist: stehen Karten da, sind wir in der
+    Liste, und der Shell-Aufruf waere verschenkt. Laesst sich die Frage nicht beantworten,
+    gilt sie als beantwortet mit ja -- eine Notbremse, die bei jeder Unsicherheit zieht,
+    haelt den ganzen Ausflug auf.
+    """
+    paket = adb.current_package()
+    if paket and paket != cfg.app_package:
+        log.warning(
+            "Zusatzaufgaben: vorne steht %r, nicht %r -- hier wird nichts mehr angetippt", paket, cfg.app_package
+        )
+        return False
+    return True
+
+
 def _look(adb: Adb, eyes: Eyes, cfg: Config, sleep: Callable[[float], None]) -> tuple[list[Card], Sheet, bytes]:
     """Nachsehen, was auf dem Schirm steht -- und ein Werbefenster vorher wegtippen.
 
@@ -625,6 +650,10 @@ def explore(
         log.debug("Zusatzaufgaben: Runde %d, %d Karten", runde + 1, len(neue))
         _save(shots, f"{runde + 1:02d}-liste.png", png, result.shots)
         gesehen.extend(neue)
+        if not neue and not _in_app(adb, cfg):
+            result.note = LEFT
+            _heimweg(adb, cfg)
+            return result
         if runde < cfg.extras_scrolls:
             _scroll(adb, blatt)
             sleep(SCROLL_SETTLE_S)
@@ -659,6 +688,12 @@ def explore(
         begriff = choose(list(cfg.extras_search_terms)) if verdict.search and cfg.extras_search_terms else None
         lauf = _work(adb, cfg, eyes, sleep, monotonic, verdict.card, shots, result, begriff)
         result.runs.append(lauf)
+        if lauf.note == LEFT:
+            # Nicht weitersuchen: der naechste Durchgang wuerde auf einem fremden Bildschirm
+            # wischen und tippen. Genau das ist am 26.09.2026 passiert.
+            result.note = LEFT
+            log.warning("Zusatzaufgaben: %s", result.note)
+            break
         if lauf.note == LOST:
             result.note = "abgebrochen: die Liste war nach dem Zurueck nicht wiederzufinden"
             log.warning("Zusatzaufgaben: %s", result.note)
@@ -685,7 +720,7 @@ def _abschluss(
     gelesen, und erst nach einem etwaigen Werbefenster.
     """
     cards, _blatt, _png = _look(adb, eyes, cfg, sleep)
-    if cards:
+    if cards and _in_app(adb, cfg):
         adb.back()
         sleep(SCROLL_SETTLE_S)
         if _dismiss(adb, cfg, eyes.sheet(adb.screenshot()), sleep):
@@ -788,7 +823,10 @@ def _work(
 
     # Von ganz oben suchen: nach einer erledigten Aufgabe steht die Liste irgendwo, und
     # geblaettert wird nur nach unten.
-    _cards, blatt, png = _look(adb, eyes, cfg, sleep)
+    cards, blatt, png = _look(adb, eyes, cfg, sleep)
+    if not cards and not _in_app(adb, cfg):
+        lauf.note = LEFT
+        return lauf
     if blatt is not None:
         _to_top(adb, blatt, sleep, cfg.extras_scrolls + 2)
 
@@ -808,6 +846,9 @@ def _work(
         )
         if stelle is not None:
             break
+        if not cards and not _in_app(adb, cfg):
+            lauf.note = LEFT
+            return lauf
         neue = {c.key for c in cards} - gesehen
         if versuch and not neue:
             # Nichts Neues mehr: wir sind unten angekommen, weiter zu blaettern bringt nichts.
@@ -845,6 +886,11 @@ def _work(
     _save(shots, f"task-{len(result.runs) + 1:02d}.png", png, result.shots)
 
     if not cards:
+        if not _in_app(adb, cfg):
+            # Kein zweites Zurueck auf einem fremden Bildschirm: dort schiebt es uns nur
+            # weiter weg. Hier ist Schluss, und zwar bevor etwas angefasst wird.
+            lauf.note = LEFT
+            return lauf
         # Genau ein zweites Zurueck. Danach keines mehr: ein drittes traegt uns aus der App.
         adb.back()
         cards, zurueck, _png = _await_cards(adb, eyes, cfg, sleep, monotonic, BACK_TIMEOUT_S)
