@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{# Reihenfolge der Seite, von oben nach unten: erst was klemmt, dann der Zustand auf einen
+   Blick, dann die Knoepfe -- was man anfassen will, soll nicht unter dem Diagramm liegen.
+   Danach das Ergebnis des Tages, der Verlauf als Einordnung und zuletzt die Historie. #}
+
 {% block head_actions %}
   <span class="stamp"><span class="dot dot-ok"></span>alle 5 s</span>
 {% endblock %}
@@ -26,16 +30,70 @@
 {# Statuskopf aktualisiert sich fuer sich allein, der Rest der Seite bleibt stehen. #}
 {% include "partials/tiles.html" with context %}
 
+{# --- Steuerung: ganz oben, weil man dafuer herkommt ------------------------------------- #}
 <section class="card">
   <div class="card-head">
-    <h2>Münzverlauf</h2>
-    {% if series|length > 1 %}
-      <span class="pill pill-ok">{{ series[0].coins }} → {{ series[-1].coins }}</span>
+    <h2>Jetzt sammeln</h2>
+    <a class="chip" href="/einstellungen#ablauf">Zeiten ändern</a>
+  </div>
+
+  <div class="btn-row">
+    <form method="post" action="/run"
+          onsubmit="return confirm('Wirklich einen Lauf anfordern? Das weckt das Gerät und tippt darauf.');">
+      <button class="btn" type="submit" {% if not button.enabled %}disabled{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 5.5v13l11-6.5-11-6.5"/>
+        </svg>
+        Täglichen Check-in starten
+      </button>
+    </form>
+    <form method="post" action="/extras"
+          onsubmit="return confirm('Wirklich die Zusatzaufgaben abarbeiten? Das weckt das Gerät und tippt darauf.');">
+      <button class="btn btn-ghost" type="submit" {% if not extras_button.enabled %}disabled{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 10.5h6M9 13.5h6"/>
+        </svg>
+        Extra-Münzen sammeln
+      </button>
+    </form>
+  </div>
+
+  {% if button.reason %}<p class="note">Check-in: {{ button.reason }}</p>{% endif %}
+  {% if extras_button.reason %}<p class="note">Zusatzaufgaben: {{ extras_button.reason }}</p>{% endif %}
+
+  {# Der Zeitplan gehoert hierher und nicht in eine eigene Karte: es ist dieselbe Frage --
+     wann laeuft etwas, und was kann ich jetzt anstossen. #}
+  <h3 class="group">Heute geplant</h3>
+  <div class="plan-row">
+    <div class="plan-slot">
+      <div class="label">Morgenlauf</div>
+      <div class="value">{{ plan.morning_at.strftime('%H:%M') }}</div>
+      <div class="sub">Fenster {{ cfg.morning_start.strftime('%H:%M') }}–{{ cfg.morning_end.strftime('%H:%M') }}</div>
+    </div>
+    {% if cfg.evening_enabled %}
+      <div class="plan-slot">
+        <div class="label">Abendlauf</div>
+        <div class="value">{{ plan.evening_at.strftime('%H:%M') }}</div>
+        <div class="sub">Fenster {{ cfg.evening_start.strftime('%H:%M') }}–{{ cfg.evening_end.strftime('%H:%M') }}</div>
+      </div>
     {% endif %}
   </div>
-  {{ chart }}
+
+  <p class="note">
+    Aufträge holt der Dienst binnen einer Sekunde ab; die Oberfläche fasst das Gerät nie selbst an.
+    Die Uhrzeit wird je Tag im Fenster gewürfelt und bleibt dann fest.
+    {% if cfg.evening_enabled %}
+      Der Abendlauf startet nur, wenn morgens nichts geklappt hat.
+    {% else %}
+      Der Abendlauf ist abgeschaltet — misslingt der Morgenlauf, fällt der Tag aus.
+    {% endif %}
+    {% if not cfg.extras_after_run %}Die Zusatzaufgaben laufen nur von Hand.{% endif %}
+  </p>
 </section>
 
+{# --- Was der Tag hergab ------------------------------------------------------------------ #}
 <section class="card">
   <div class="card-head">
     <h2>Heute gesammelt</h2>
@@ -68,74 +126,32 @@
   </p>
 </section>
 
-<section class="card">
-  <div class="card-head"><h2>Jetzt sammeln</h2></div>
-  <div class="btn-row">
-    <form method="post" action="/run"
-          onsubmit="return confirm('Wirklich einen Lauf anfordern? Das weckt das Gerät und tippt darauf.');">
-      <button class="btn" type="submit" {% if not button.enabled %}disabled{% endif %}>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M8 5.5v13l11-6.5-11-6.5"/>
-        </svg>
-        Täglichen Check-in starten
-      </button>
-    </form>
-    <form method="post" action="/extras"
-          onsubmit="return confirm('Wirklich die Zusatzaufgaben abarbeiten? Das weckt das Gerät und tippt darauf.');">
-      <button class="btn" type="submit" {% if not extras_button.enabled %}disabled{% endif %}>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 10.5h6M9 13.5h6"/>
-        </svg>
-        Extra-Münzen sammeln
-      </button>
-    </form>
-  </div>
-  {% if button.reason %}<p class="note">Check-in: {{ button.reason }}</p>{% endif %}
-  {% if extras_button.reason %}<p class="note">Zusatzaufgaben: {{ extras_button.reason }}</p>{% endif %}
-  <p class="note">
-    Beide Aufträge werden binnen einer Sekunde vom Dienst abgeholt; läuft gerade etwas,
-    wartet er, bis das Gerät frei ist. Die Oberfläche fasst das Gerät nicht selbst an.
-    {% if cfg.extras_after_run %}
-      Die Zusatzaufgaben nimmt der Dienst ohnehin nach jedem erfolgreichen Lauf mit.
-    {% else %}
-      Die Zusatzaufgaben laufen nur von Hand — der Dienst nimmt sie nicht mit.
-    {% endif %}
-  </p>
-</section>
-
+{# --- Einordnung: wohin es ueber die Tage laeuft ------------------------------------------- #}
 <section class="card">
   <div class="card-head">
-    <h2>Heute geplant</h2>
-    <a class="chip" href="/einstellungen#ablauf">Zeiten ändern</a>
-  </div>
-  <div class="plan-row">
-    <div class="plan-slot">
-      <div class="label">Morgenlauf</div>
-      <div class="value">{{ plan.morning_at.strftime('%H:%M') }}</div>
-      <div class="sub">Fenster {{ cfg.morning_start.strftime('%H:%M') }}–{{ cfg.morning_end.strftime('%H:%M') }}</div>
+    <h2>Münzverlauf</h2>
+    <div class="chips">
+      {% if series|length > 1 %}
+        <span class="pill pill-ok">{{ series[0].coins }} → {{ series[-1].coins }}</span>
+      {% endif %}
+      <a class="chip" href="/verlauf">Ganzer Verlauf</a>
     </div>
-    {% if cfg.evening_enabled %}
-      <div class="plan-slot">
-        <div class="label">Abendlauf</div>
-        <div class="value">{{ plan.evening_at.strftime('%H:%M') }}</div>
-        <div class="sub">Fenster {{ cfg.evening_start.strftime('%H:%M') }}–{{ cfg.evening_end.strftime('%H:%M') }}</div>
-      </div>
-    {% endif %}
   </div>
-  <p class="note">
-    Die Uhrzeit wird je Tag innerhalb des Fensters gewürfelt und bleibt dann fest.
-    {% if cfg.evening_enabled %}
-      Der Abendlauf startet nur, wenn morgens nichts geklappt hat.
-    {% else %}
-      Der Abendlauf ist abgeschaltet — misslingt der Morgenlauf, fällt der Tag aus.
-    {% endif %}
-  </p>
+  {{ chart }}
+  {% if series|length > 1 %}
+    <p class="note">
+      Ein Punkt je Tag. <strong>Gefüllt</strong> heißt: an dem Tag kamen Münzen dazu.
+      Die genaue Zahl steht am Punkt, wenn man mit der Maus darauf zeigt.
+    </p>
+  {% endif %}
 </section>
 
+{# --- Historie, zuletzt: Nachschlagewerk, kein Blickfang ----------------------------------- #}
 <section class="card">
-  <div class="card-head"><h2>Letzte Läufe</h2></div>
+  <div class="card-head">
+    <h2>Letzte Läufe</h2>
+    <a class="chip" href="/verlauf">Alle Läufe</a>
+  </div>
   {% if attempts %}
     <div class="table-wrap">
       <table class="table-cards">

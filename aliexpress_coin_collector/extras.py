@@ -542,6 +542,9 @@ def to_tasks(result: ExtrasResult, now: datetime) -> list[Task]:
                 done=bool(lauf and lauf.ok),
                 note=lauf.note if lauf else "",
                 gain=lauf.gain if lauf else None,
+                # Der Stand am Ende des Ausflugs, auf der Coin-Seite gelesen. Ohne ihn zeigte
+                # die Uebersicht nach einem Ausflug weiter den Stand vom Check-in davor.
+                coins=result.coins_after,
             )
         )
     return out

@@ -301,3 +301,89 @@ def test_ohne_checkin_wird_kein_extras_auftrag_angenommen(client, tmp_path, monk
 
     assert client.post("/extras").status_code == 303
     assert commands.pending(tmp_path) == []
+
+
+# -- Aufbau der Uebersicht -------------------------------------------------------------------
+#
+# Gewuenscht am 26.09.2026: "lauf start sichtbar oben, nicht unten". Die Reihenfolge der Seite
+# ist seither: was klemmt, der Zustand, die Knoepfe, das Ergebnis des Tages, der Verlauf, die
+# Historie. Die Tests halten die Reihenfolge fest, nicht das Aussehen.
+
+
+def positionen(body: str, *marken: str) -> list[int]:
+    stellen = [body.find(m) for m in marken]
+    assert all(s >= 0 for s in stellen), dict(zip(marken, stellen, strict=False))
+    return stellen
+
+
+def test_die_knoepfe_stehen_ueber_dem_diagramm(client, tmp_path):
+    seed(tmp_path, [run(2, after=10), run(1, after=20), run(0, hour=9, before=140, after=152)])
+
+    stellen = positionen(client.get("/").text, 'action="/run"', "Münzverlauf")
+
+    assert stellen[0] < stellen[1], "der Startknopf gehoert nach oben"
+
+
+def test_reihenfolge_der_abschnitte(client, tmp_path):
+    seed(tmp_path, [run(2, after=10), run(1, after=20), run(0, hour=9, before=140, after=152)])
+
+    stellen = positionen(client.get("/").text, "Jetzt sammeln", "Heute gesammelt", "Münzverlauf", "Letzte Läufe")
+
+    assert stellen == sorted(stellen), stellen
+
+
+def test_der_zeitplan_steht_in_der_steuerungskarte(client, tmp_path):
+    """Eine eigene Karte fuer zwei Uhrzeiten war eine Ueberschrift zu viel."""
+    body = client.get("/").text
+
+    stellen = positionen(body, "Jetzt sammeln", "Heute geplant", "Heute gesammelt")
+
+    assert stellen[0] < stellen[1] < stellen[2]
+
+
+def test_das_diagramm_ist_auf_der_uebersicht_flacher_als_im_verlauf(client, tmp_path):
+    from aliexpress_coin_collector.web.app import DASHBOARD_CHART_H
+
+    seed(tmp_path, [run(2, after=10), run(1, after=20), run(0, after=30)])
+
+    assert f'viewBox="0 0 950 {DASHBOARD_CHART_H}"' in client.get("/").text
+    assert 'viewBox="0 0 950 220"' in client.get("/verlauf").text
+
+
+def test_das_diagramm_zeigt_einen_punkt_je_tag(client, tmp_path):
+    seed(tmp_path, [run(2, before=0, after=10), run(1, before=10, after=20), run(0, before=20, after=30)])
+
+    # Nur im Diagramm zaehlen: die Seite traegt noch andere svg (Knopfsymbole, Sonne).
+    body = client.get("/").text
+    diagramm = body.split('<svg class="chart"', 1)[1].split("</svg>", 1)[0]
+
+    assert diagramm.count("<circle") == 3
+    assert diagramm.count("<title>") == 3, "jeder Punkt nennt Datum, Stand und Zuwachs"
+    assert "+10 an dem Tag" in diagramm
+
+
+def test_tage_ohne_zuwachs_bleiben_hohl(client, tmp_path):
+    """Die eigentliche Aussage: gefuellt heisst, an dem Tag kamen Muenzen dazu."""
+    seed(tmp_path, [run(2, before=0, after=10), run(1, before=10, after=10), run(0, before=10, after=30)])
+
+    diagramm = client.get("/").text.split('<svg class="chart"', 1)[1].split("</svg>", 1)[0]
+    kreise = diagramm.split("<circle")[1:]
+
+    assert 'fill="var(--brand)"' in kreise[0], "Tag mit Zuwachs: gefuellt"
+    assert 'fill="var(--surface)"' in kreise[1], "Tag ohne Zuwachs: hohl"
+
+
+def test_der_muenzstand_kommt_nach_einem_ausflug_vom_ausflug(client, tmp_path, monkeypatch):
+    """Der gemeldete Fall: nach den Zusatzaufgaben stand da weiter der alte Stand."""
+    from aliexpress_coin_collector import extras
+    from aliexpress_coin_collector.store import Task
+
+    seed(tmp_path, [run(0, hour=9, before=140, after=222)])
+    Store(tmp_path).add_tasks(
+        [Task(ts=heute(hour=18), text="Super Rabatte anzeigen", ruling=extras.TAKE, done=True, coins=237)]
+    )
+
+    body = client.get("/").text
+
+    assert ">237<" in body
+    assert ">222<" not in body.split("Letzte Läufe")[0], "der alte Stand steht nicht mehr in den Kacheln"
