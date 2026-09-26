@@ -134,14 +134,19 @@ class FakeEyes:
             height=voll.height,
         )
 
-    def bright(self, png: bytes) -> S:
-        """Der umgekehrte Durchgang: nur die weisse Schrift auf den orangen Knoepfen."""
+    def go_spots(self, png: bytes) -> list[W]:
+        """Die Knopfflaechen. Am Geraet kommen sie aus der Farbmaske, hier aus den Knopfwoertern."""
         voll = self.sheets.get(png, S(words=[]))
-        return S(
-            words=[w for w in voll.words if w.text.lower().strip(",.!") in self.GO_WORDS],
-            width=voll.width,
-            height=voll.height,
-        )
+        treffer = [w for w in voll.words if w.text.lower().strip(",.!") in self.GO_WORDS]
+        # Mehrere Woerter auf gleicher Hoehe sind ein Knopf, nicht zwei.
+        knoepfe: list[W] = []
+        for wort in sorted(treffer, key=lambda w: (w.cy, w.x)):
+            if knoepfe and abs(wort.cy - knoepfe[-1].cy) < 20:
+                letzter = knoepfe[-1]
+                knoepfe[-1] = W("und los", letzter.x, letzter.y, wort.x + wort.w - letzter.x, letzter.h)
+            else:
+                knoepfe.append(W("und los", wort.x, wort.y, wort.w, wort.h))
+        return knoepfe
 
     def more_button(self, png: bytes):
         return self.button
@@ -375,16 +380,16 @@ def test_hinsehen_tippt_nur_den_knopf(cfg) -> None:
     assert result.note == "nur hingesehen, nichts angetippt"
 
 
-def test_ohne_umgekehrten_durchgang_bleiben_die_karten_unsichtbar(cfg) -> None:
-    """Der Fehler vom 26.09.2026: die Knoepfe stehen weiss auf orange und wurden nicht gelesen.
+def test_ohne_knopfflaechen_bleiben_die_karten_unsichtbar(cfg) -> None:
+    """Der Fehler vom 26.09.2026: die Knoepfe wurden nicht gefunden.
 
     Ohne sie faellt die ganze Liste weg, denn an ihnen werden die Karten geschnitten -- im
     Betrieb kamen alle Kartentitel durch und trotzdem "0 Aufgaben gelesen".
     """
 
     class Blind(FakeEyes):
-        def bright(self, png: bytes) -> S:
-            return S(words=[])
+        def go_spots(self, png: bytes) -> list[W]:
+            return []
 
     liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
     adb = FakeAdb()

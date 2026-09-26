@@ -113,6 +113,55 @@ def find_button(
     return max(candidates, key=lambda w: w.conf) if candidates else None
 
 
+# Der orange Knopf in der Aufgabenliste, in HSV. Der Farbton ist eng gefasst: die Muenzsymbole
+# daneben sind goldgelb (Farbton um 30) und sollen nicht mitkommen, der Knopf "Mehr Muenzen
+# verdienen" ist blass (geringe Saettigung) und ebenso wenig.
+ORANGE_LOW = (5, 120, 120)
+ORANGE_HIGH = (25, 255, 255)
+# Wie ein Knopf aussieht, in Anteilen der Bildbreite bzw. -hoehe. Grosszuegig genug fuer andere
+# Aufloesungen, eng genug, um Werbeflaechen und Preisschilder draussen zu lassen.
+BUTTON_MIN_W, BUTTON_MAX_W = 0.10, 0.45
+BUTTON_MIN_H, BUTTON_MAX_H = 0.025, 0.10
+BUTTON_MIN_RATIO = 1.4
+# Die Knoepfe sitzen am rechten Rand der Karte.
+BUTTON_MIN_CX = 0.50
+
+
+def find_orange_buttons(img: np.ndarray) -> list[Word]:
+    """Die orangen Knopfflaechen im Bild, von oben nach unten.
+
+    Gibt sie als Word zurueck, damit sie sich wie erkannte Woerter weiterverarbeiten lassen --
+    der Text ist ein Platzhalter, gebraucht wird die Lage.
+    """
+    height, width = img.shape[:2]
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, np.array(ORANGE_LOW, np.uint8), np.array(ORANGE_HIGH, np.uint8))
+    # Schrift und Symbole im Knopf stanzen Loecher hinein; schliessen macht daraus eine Flaeche.
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 9))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    found: list[Word] = []
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if not (BUTTON_MIN_W * width <= w <= BUTTON_MAX_W * width):
+            continue
+        if not (BUTTON_MIN_H * height <= h <= BUTTON_MAX_H * height):
+            continue
+        if h == 0 or w / h < BUTTON_MIN_RATIO:
+            continue
+        if (x + w // 2) < BUTTON_MIN_CX * width:
+            continue
+        found.append(Word(text="und los", x=x, y=y, w=w, h=h, conf=100.0))
+    found.sort(key=lambda b: b.y)
+    return found
+
+
+def _looks_like_go(text: str, labels: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(term.split()[-1] in lowered for term in labels if term)
+
+
 @dataclass(frozen=True)
 class Sheet:
     """Ein Bildschirm, in Woerter zerlegt -- ohne Deutung.
@@ -149,6 +198,26 @@ class Sight:
         img = decode_png(png)
         words = read_words(img, self.cfg.ocr_lang)
         return find_button(img, words, self.cfg.extras_button_labels, self.cfg.ocr_lang)
+
+    def go_spots(self, png: bytes) -> list[Word]:
+        """Die Knoepfe "Und los" -- erst ueber die Farbe, dann ueber die Schrift.
+
+        Die Schrift ist der unzuverlaessige Weg: sie steht weiss auf Orange, und selbst mit
+        Umkehrung fand Tesseract am 26.09.2026 keinen einzigen von drei Knoepfen. Die Flaeche
+        dagegen ist eindeutig -- kraeftiges Orange, rechtsbuendig, immer dieselbe Groesse. Was
+        die Farbmaske findet, braucht gar nicht gelesen zu werden: dass dort ein Knopf ist,
+        genuegt.
+
+        Der Textweg bleibt als Rueckfall, falls die App die Farbe aendert.
+        """
+        img = decode_png(png)
+        spots = find_orange_buttons(img)
+        if spots:
+            log.debug("Knopfsuche: %d ueber die Farbe", len(spots))
+            return spots
+        words = [w for w in self.bright(png).words if _looks_like_go(w.text, self.cfg.extras_go)]
+        log.debug("Knopfsuche: keine Farbtreffer, %d ueber die Schrift", len(words))
+        return words
 
     def bright(self, png: bytes) -> Sheet:
         """Helle Schrift auf farbigem Grund -- die Knoepfe "Und los" in der Aufgabenliste.

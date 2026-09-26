@@ -81,7 +81,7 @@ class Eyes(Protocol):
 
     def sheet(self, png: bytes) -> Sheet: ...
 
-    def bright(self, png: bytes) -> Sheet: ...
+    def go_spots(self, png: bytes) -> Sequence[Spot]: ...
 
     def more_button(self, png: bytes) -> Spot | None: ...
 
@@ -427,10 +427,10 @@ def _look(adb: Adb, eyes: Eyes, cfg: Config, sleep: Callable[[float], None]) -> 
     Blick nach dem "Bleiben"-Knopf. Stehen Karten da, wird nichts angetippt.
     """
     png = adb.screenshot()
-    cards, blatt = _cards_now(eyes, png, cfg)
+    cards, blatt = cards_on(eyes, png, cfg)
     if not cards and _dismiss(adb, cfg, blatt, sleep):
         png = adb.screenshot()
-        cards, blatt = _cards_now(eyes, png, cfg)
+        cards, blatt = cards_on(eyes, png, cfg)
     return cards, blatt, png
 
 
@@ -589,11 +589,11 @@ def _dismiss(adb: Adb, cfg: Config, sheet: Sheet, sleep: Callable[[float], None]
     return False
 
 
-def _cards_now(eyes: Eyes, png: bytes, cfg: Config) -> tuple[list[Card], Sheet]:
-    """Was gerade auf dem Schirm steht: Kartentexte aus dem normalen Durchgang, die Knoepfe
-    aus dem umgekehrten."""
+def cards_on(eyes: Eyes, png: bytes, cfg: Config) -> tuple[list[Card], Sheet]:
+    """Was gerade auf dem Schirm steht: Kartentexte aus der Texterkennung, die Knoepfe als
+    Flaechen. Zwei Wege, weil zwei verschiedene Dinge gesucht werden -- Text und eine Farbe."""
     blatt = eyes.sheet(png)
-    knoepfe = go_lines(group_lines(eyes.bright(png).words), cfg.extras_go)
+    knoepfe = [Line(text=spot.text, cx=spot.cx, cy=spot.cy, x2=spot.x + spot.w) for spot in eyes.go_spots(png)]
     return find_cards(group_lines(blatt.words), knoepfe), blatt
 
 
