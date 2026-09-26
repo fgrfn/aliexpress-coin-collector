@@ -291,6 +291,16 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   `find_orange_buttons` sucht kraeftiges Orange (Farbton 5-25, hoch gesaettigt) in Knopfgroesse am rechten
   Rand. Was dort liegt, muss gar nicht gelesen werden -- dass ein Knopf da ist, genuegt. Die Schriftsuche
   bleibt als Rueckfall, falls die App die Farbe aendert.
+- **Eine Zusatzaufgabe am Geraet erledigt** (26.09.2026): "Gesponserte Artikel entdecken" wurde angetippt,
+  die Seite lief ihre 15 Sekunden ab, die Karte stand danach auf 2/2 mit gruenem Haken, und der Muenzstand
+  stieg von 140 ueber 146 auf 151. **Tap, Verweildauer und Gutschrift sind damit belegt.**
+
+  Zwei Fehler im Ablauf danach, in 0.18.4 behoben. Erstens galt die Liste nach dem Zurueck als verloren:
+  gewartet wurden zwei Sekunden, das Fenster brauchte laenger. Zweitens eskalierten die Zurueck-Tasten --
+  das erste schloss das Fenster, das zweite die Coin-Seite, das dritte trug aus der App; am Geraet stand
+  danach der Startbildschirm. Jetzt wird auf die Liste gewartet (`BACK_TIMEOUT_S`), es gibt hoechstens ein
+  zweites Zurueck, und beendet wird mit `force-stop` statt mit einem weiteren Zurueck.
+
 - **Die ganze Liste am Geraet gelesen** (26.09.2026): vier Runden, 13 Lesungen, daraus zehn verschiedene
   Aufgaben -- und alle zehn richtig einsortiert. Erlaubt: Artikel entdecken, Muenzeinsparungen, Super
   Rabatte, Gutscheine & Einkaufsguthaben, Suchen. Gesperrt: kuerzlich angesehene Artikel (ueber
@@ -554,6 +564,12 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
    `Outcome.LOGIN_REQUIRED`). **Die Marker sind an keinem echten abgemeldeten Screenshot geprüft** —
    sie sind begründete Vorgaben. Nachprüfbar ohne Wartezeit über das Werkzeug auf der Diagnose-Seite.
 5. **Popups wegtippen** (Bewertungsaufforderung, Update-Hinweis) statt daran zu scheitern.
+6a. **Zusatzaufgaben: was noch fehlt.** Der Muenzstand aus einem `extras`-Lauf landet **nirgends** --
+   der Befehl schreibt nichts in die Datenbank, also zeigt die Oberflaeche weiter den Stand des letzten
+   Check-ins. Zu klaeren ist, wohin er gehoert: eine eigene Zeile in `runs` (Art `extras`) waere die
+   kleinste Loesung, verwaessert aber die Erfolgsquote des Check-ins. Ausserdem lassen sich manche Aufgaben
+   **mehrfach** erledigen -- die Karten tragen einen Zaehler ("1/2", "0/3"), der bisher ignoriert wird.
+
 6. **Zusatzaufgaben** der Coin-Seite. Angefangen in 0.17.0 (`extras.py`, Befehl `extras`), noch von Hand
    auszuloesen und **nicht** in den taeglichen Lauf eingebaut -- das kommt erst, wenn die Erkennung am Geraet
    belegt ist. Offen bleibt ausserdem: "Suchen, was Sie lieben" verlangt ein eingetipptes Suchwort und steht
