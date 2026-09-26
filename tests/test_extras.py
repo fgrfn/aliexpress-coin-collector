@@ -70,6 +70,7 @@ class FakeAdb:
         self.liste, self.nach_tap, self.nach_back = liste, nach_tap, nach_back
         self.calls: list[str] = []
         self.taps: list[tuple[int, int]] = []
+        self.getippt: list[str] = []
 
     def screenshot(self) -> bytes:
         self.calls.append("screenshot")
@@ -86,6 +87,13 @@ class FakeAdb:
     def back(self) -> None:
         self.calls.append("back")
         self.current = self.nach_back
+
+    def text(self, value: str) -> None:
+        self.getippt.append(value)
+        self.calls.append("text")
+
+    def enter(self) -> None:
+        self.calls.append("enter")
 
 
 @dataclass
@@ -145,7 +153,7 @@ ECHTE_KARTEN = [
     ),
     ("Übersicht über Ihre Münzeinsparungen anzeigen", "", TAKE),
     ("Super Rabatte anzeigen", "Surfen Sie 15 Sek. auf dieser Seite, um 5 Münzen zu verdienen", TAKE),
-    ("Suchen, was Sie lieben", "Verdienen Sie durch die Nutzung von Schlüsselwörtern", UNKNOWN),
+    ("Suchen, was Sie lieben", "Verdienen Sie durch die Nutzung von Schlüsselwörtern", TAKE),
     ("Gutscheine & Einkaufsguthaben für Sie!", "Stöbern Sie auf dieser Seite 15 Sekunden lang", TAKE),
     ("Artikel ab $0.10", "1 x Wasser bei Preisland hinzufügen", BLOCKED),
     ("Schließen Sie 1 Merge-Boss-Spielrunde ab", "Weitere Angebote und noch mehr Spaß!", BLOCKED),
@@ -156,7 +164,30 @@ ECHTE_KARTEN = [
 @pytest.mark.parametrize(("titel", "beschreibung", "erwartet"), ECHTE_KARTEN)
 def test_echte_karten_werden_richtig_beurteilt(cfg, titel, beschreibung, erwartet) -> None:
     card = extras.Card(text=f"{titel} {beschreibung}".strip(), go_x=600, go_y=500)
-    assert extras.judge(card, cfg.extras_allow, cfg.extras_deny).ruling == erwartet
+    urteil = extras.judge(
+        card, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, bool(cfg.extras_search_terms)
+    )
+    assert urteil.ruling == erwartet
+
+
+def test_suchaufgabe_bleibt_liegen_ohne_hinterlegten_begriff(cfg) -> None:
+    card = extras.Card("Suchen, was Sie lieben Verdienen Sie durch die Nutzung von Schlüsselwörtern", 600, 500)
+    urteil = extras.judge(card, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, has_terms=False)
+    assert urteil.ruling == UNKNOWN
+    assert "kein Suchbegriff" in urteil.reason
+
+
+def test_suchaufgabe_wird_als_solche_erkannt(cfg) -> None:
+    card = extras.Card("Suchen, was Sie lieben Verdienen Sie durch die Nutzung von Schlüsselwörtern", 600, 500)
+    urteil = extras.judge(card, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, has_terms=True)
+    assert urteil.wanted and urteil.search
+
+
+def test_gesperrte_suchaufgabe_bleibt_gesperrt(cfg) -> None:
+    """Die Sperrliste gewinnt auch gegen eine Suchaufgabe."""
+    card = extras.Card("Suchen Sie im Merge-Boss-Spiel nach Belohnungen", 600, 500)
+    urteil = extras.judge(card, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, has_terms=True)
+    assert urteil.ruling == BLOCKED
 
 
 def test_einkaufsguthaben_bleibt_erlaubt(cfg) -> None:
@@ -243,6 +274,35 @@ def test_abarbeiten_tippt_den_knopf_der_karte_und_zaehlt_nach(cfg) -> None:
     # Getippt wird auf den Knopf rechts (x um 560), nicht auf den Titel links.
     knopf_taps = [t for t in adb.taps[1:]]
     assert knopf_taps and all(x > 500 for x, _ in knopf_taps)
+
+
+def test_suchaufgabe_tippt_den_begriff_und_schickt_ab(cfg) -> None:
+    from dataclasses import replace
+
+    cfg = replace(cfg, extras_search_terms=("Jayo PETG 1.1KG",))
+    liste = S(words=karte(450, "Suchen, was Sie lieben", "Nutzung von Schlüsselwörtern"))
+    adb = FakeAdb()
+    eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, choose=lambda terms: terms[0], act=True)
+
+    assert adb.getippt == ["Jayo PETG 1.1KG"]
+    assert adb.calls.count("enter") == 1
+    assert "Jayo PETG 1.1KG" in result.runs[0].note
+
+
+def test_ohne_suchbegriff_wird_nichts_getippt(cfg) -> None:
+    from dataclasses import replace
+
+    cfg = replace(cfg, extras_search_terms=())
+    liste = S(words=karte(450, "Suchen, was Sie lieben", "Nutzung von Schlüsselwörtern"))
+    adb = FakeAdb()
+    eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    result = extras.explore(adb, cfg, eyes, sleep=lambda s: None, act=True)
+
+    assert adb.getippt == []
+    assert result.runs == []  # die Karte gilt als unbekannt und wird nicht angefasst
 
 
 def test_abbruch_wenn_die_liste_nach_dem_zurueck_fehlt(cfg) -> None:

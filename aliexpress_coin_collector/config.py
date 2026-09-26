@@ -65,6 +65,14 @@ def _int(name: str, default: int) -> int:
         raise ConfigError(f"{name} muss eine ganze Zahl sein, nicht {raw!r}") from exc
 
 
+def _list_raw(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Kommaliste, Gross- und Kleinschreibung bleibt -- fuer Werte, die eingetippt werden."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 def _list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     """Kommaliste lesen: nicht gesetzt = Vorgabe, leer gesetzt = leere Liste.
 
@@ -131,6 +139,14 @@ DEFAULT_EXTRAS_DENY = (
 # Die Knoepfe in der Liste. Auf ihnen wird getippt, nicht auf dem Titel -- und sie zeigen
 # zugleich an, dass wir ueberhaupt in der Liste sind.
 DEFAULT_EXTRAS_GO = ("und los", "los geht", "go")
+# Aufgaben, bei denen ein Suchbegriff eingetippt werden muss ("Suchen, was Sie lieben --
+# Verdienen Sie durch die Nutzung von Schluesselwoertern"). Sie werden nur angefasst, wenn
+# EXTRAS_SEARCH_TERMS etwas hergibt.
+DEFAULT_EXTRAS_SEARCH_MARKERS = ("suchen", "schlusselwort", "search", "keyword")
+# Was gesucht wird. Landet im Suchverlauf des Kontos -- darum nur, was hier ausdruecklich steht.
+DEFAULT_EXTRAS_SEARCH_TERMS = ("Jayo PETG 1.1KG",)
+# Ohne Umlaute und Sonderzeichen: der Begriff geht durch Shell und `input text`.
+_SEARCH_TERM_RE = re.compile(r"[A-Za-z0-9 .,+-]{2,40}")
 
 
 def _check_min(name: str, value: int, minimum: int) -> None:
@@ -230,6 +246,8 @@ class Config:
     extras_allow: tuple[str, ...]
     extras_deny: tuple[str, ...]
     extras_go: tuple[str, ...]
+    extras_search_markers: tuple[str, ...]
+    extras_search_terms: tuple[str, ...]
     extras_dwell_s: int
     extras_max: int
     extras_scrolls: int
@@ -302,9 +320,11 @@ class Config:
             "extras_allow": _list("EXTRAS_ALLOW", DEFAULT_EXTRAS_ALLOW),
             "extras_deny": _list("EXTRAS_DENY", DEFAULT_EXTRAS_DENY),
             "extras_go": _list("EXTRAS_GO", DEFAULT_EXTRAS_GO),
-            # Die meisten Aufgaben zaehlen ab etwa 15 Sekunden Verweildauer. Etwas Luft dazu,
-            # weil das Geraet langsam ist und die Seite erst laden muss.
-            "extras_dwell_s": _int("EXTRAS_DWELL_S", 20),
+            "extras_search_markers": _list("EXTRAS_SEARCH_MARKERS", DEFAULT_EXTRAS_SEARCH_MARKERS),
+            "extras_search_terms": _list_raw("EXTRAS_SEARCH_TERMS", DEFAULT_EXTRAS_SEARCH_TERMS),
+            # Die App zaehlt 15 Sekunden -- aber erst, wenn die Seite steht. Auf dem langsamen
+            # Geraet gehen dafuer die ersten Sekunden drauf, darum reichlich Luft.
+            "extras_dwell_s": _int("EXTRAS_DWELL_S", 25),
             "extras_max": _int("EXTRAS_MAX", 6),
             "extras_scrolls": _int("EXTRAS_SCROLLS", 3),
             "extras_budget_s": _int("EXTRAS_BUDGET_S", 300),
@@ -373,6 +393,13 @@ class Config:
         _check_min("EXTRAS_MAX", self.extras_max, 0)
         _check_min("EXTRAS_SCROLLS", self.extras_scrolls, 0)
         _check_min("EXTRAS_BUDGET_S", self.extras_budget_s, 30)
+        for term in self.extras_search_terms:
+            if not _SEARCH_TERM_RE.fullmatch(term):
+                raise ConfigError(
+                    f"EXTRAS_SEARCH_TERMS enthaelt einen unbrauchbaren Begriff: {term!r}. "
+                    "Erlaubt sind 2 bis 40 Buchstaben, Ziffern, Leerzeichen und . , + - "
+                    "(keine Umlaute: der Begriff geht durch Shell und ADB)"
+                )
         if not self.extras_go:
             raise ConfigError("EXTRAS_GO darf nicht leer sein (weglassen setzt die Vorgabe)")
         if not self.extras_button_labels:

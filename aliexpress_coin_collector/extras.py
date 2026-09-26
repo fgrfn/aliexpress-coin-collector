@@ -31,6 +31,7 @@ abgebrochen statt blind weiterzutippen.
 from __future__ import annotations
 
 import logging
+import random
 import re
 import time
 import unicodedata
@@ -241,25 +242,48 @@ class Verdict:
     card: Card
     ruling: str
     reason: str
+    search: bool = False  # verlangt einen eingetippten Suchbegriff
 
     @property
     def wanted(self) -> bool:
         return self.ruling == TAKE
 
 
-def judge(card: Card, allow: Sequence[str], deny: Sequence[str]) -> Verdict:
-    """Ueber eine Karte entscheiden. Die Sperrliste gewinnt immer."""
+def judge(
+    card: Card,
+    allow: Sequence[str],
+    deny: Sequence[str],
+    search_markers: Sequence[str] = (),
+    has_terms: bool = False,
+) -> Verdict:
+    """Ueber eine Karte entscheiden. Die Sperrliste gewinnt immer.
+
+    Suchaufgaben sind der Sonderfall: sie verlangen nicht nur Verweildauer, sondern ein
+    eingetipptes Wort, das im Suchverlauf des Kontos stehen bleibt. Sie werden nur angefasst,
+    wenn dafuer ausdruecklich ein Begriff hinterlegt ist.
+    """
     key = card.key
     gesperrt = hits(key, deny)
     if gesperrt:
         return Verdict(card, BLOCKED, f"gesperrt durch {gesperrt!r}")
+    gesucht = hits(key, search_markers)
+    if gesucht:
+        if has_terms:
+            return Verdict(card, TAKE, f"Suchaufgabe ({gesucht!r}), Begriff hinterlegt", search=True)
+        return Verdict(card, UNKNOWN, f"Suchaufgabe ({gesucht!r}), aber kein Suchbegriff hinterlegt")
     erlaubt = hits(key, allow)
     if erlaubt:
         return Verdict(card, TAKE, f"erlaubt durch {erlaubt!r}")
     return Verdict(card, UNKNOWN, "steht auf keiner Liste")
 
 
-def sift(cards: Sequence[Card], allow: Sequence[str], deny: Sequence[str]) -> list[Verdict]:
+def sift(
+    cards: Sequence[Card],
+    allow: Sequence[str],
+    deny: Sequence[str],
+    search_markers: Sequence[str] = (),
+    has_terms: bool = False,
+) -> list[Verdict]:
     """Alle Karten beurteilen, jede nur einmal -- beim Blaettern sieht man sie mehrfach."""
     out: list[Verdict] = []
     seen: set[str] = set()
@@ -267,7 +291,7 @@ def sift(cards: Sequence[Card], allow: Sequence[str], deny: Sequence[str]) -> li
         if card.key in seen:
             continue
         seen.add(card.key)
-        out.append(judge(card, allow, deny))
+        out.append(judge(card, allow, deny, search_markers, has_terms))
     return out
 
 
@@ -346,6 +370,7 @@ def explore(
     eyes: Eyes,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
+    choose: Callable[[list[str]], str] = random.choice,
     *,
     act: bool = False,
     shots: Path | None = None,
@@ -389,7 +414,13 @@ def explore(
             _scroll(adb, blatt)
             sleep(ruhe)
 
-    result.verdicts = sift(gesehen, cfg.extras_allow, cfg.extras_deny)
+    result.verdicts = sift(
+        gesehen,
+        cfg.extras_allow,
+        cfg.extras_deny,
+        cfg.extras_search_markers,
+        bool(cfg.extras_search_terms),
+    )
     log.info("Zusatzaufgaben: %s", result.summary())
     for v in result.verdicts:
         log.debug("  [%s] %s (%s)", v.ruling, v.card.short, v.reason)
@@ -410,7 +441,8 @@ def explore(
             result.note = "Zeitbudget aufgebraucht, der Rest bleibt liegen"
             log.info("Zusatzaufgaben: %s", result.note)
             break
-        lauf = _work(adb, cfg, eyes, sleep, verdict.card, shots, result)
+        begriff = choose(list(cfg.extras_search_terms)) if verdict.search and cfg.extras_search_terms else None
+        lauf = _work(adb, cfg, eyes, sleep, verdict.card, shots, result, begriff)
         result.runs.append(lauf)
         if lauf.note == LOST:
             result.note = "abgebrochen: die Liste war nach dem Zurueck nicht wiederzufinden"
@@ -451,8 +483,13 @@ def _work(
     wanted: Card,
     shots: Path | None,
     result: ExtrasResult,
+    search_term: str | None = None,
 ) -> TaskRun:
-    """Eine einzelne Aufgabe: finden, antippen, dableiben, zurueck, nachzaehlen."""
+    """Eine einzelne Aufgabe: finden, antippen, dableiben, zurueck, nachzaehlen.
+
+    Bei einer Suchaufgabe wird nach dem Antippen der Begriff eingetippt und abgeschickt --
+    erst danach laeuft die Verweildauer, denn gezaehlt wird die Zeit auf der Ergebnisseite.
+    """
     lauf = TaskRun(text=wanted.short)
 
     # Die Karte kann seit dem Hinsehen verrutscht sein -- also frisch nachsehen, notfalls blaettern.
@@ -475,6 +512,12 @@ def _work(
     lauf.coins_before = eyes.coins(blatt)
     log.info("Zusatzaufgabe %r: antippen", lauf.text)
     adb.tap(stelle.go_x, stelle.go_y)
+    if search_term:
+        sleep(max(2, cfg.page_timeout_s // 3))
+        log.info("Zusatzaufgabe %r: suche nach %r", lauf.text, search_term)
+        adb.text(search_term)
+        adb.enter()
+        lauf.note = f"gesucht nach {search_term!r}"
     sleep(cfg.extras_dwell_s)
 
     adb.back()
@@ -495,6 +538,7 @@ def _work(
     lauf.coins_after = eyes.coins(zurueck)
     gewinn = lauf.gain
     lauf.ok = True
-    lauf.note = "erledigt" if gewinn is None else f"erledigt, {gewinn:+d} Muenzen"
+    fertig = "erledigt" if gewinn is None else f"erledigt, {gewinn:+d} Muenzen"
+    lauf.note = f"{fertig} ({lauf.note})" if lauf.note else fertig
     log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
     return lauf

@@ -255,9 +255,17 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   der teuerste Fehler. Der Check-in ist zu diesem Zeitpunkt ohnehin schon verbucht.
 - **Gezaehlt wird, was ankommt.** Vor und nach jeder Aufgabe wird der Muenzstand gelesen. Damit steht
   hinterher da, was eine Aufgabe wirklich gebracht hat, statt was sie verspricht.
-- Bewusst **nicht** auf der Positivliste: "Suchen, was Sie lieben" (verlangt ein eingetipptes Suchwort) und
-  "Taegliche Anmeldung" (ist der Check-in selbst). Bewusst gesperrt: Merge Boss, Tagesquiz, "1 x Wasser bei
+- **Suchaufgaben** ("Suchen, was Sie lieben") verlangen mehr als Verweildauer: ein eingetipptes Wort, das im
+  Suchverlauf des Kontos stehen bleibt. Sie werden nur angefasst, wenn in `EXTRAS_SEARCH_TERMS` ausdruecklich
+  ein Begriff steht; sonst gelten sie als unbekannt und bleiben liegen. Der Begriff geht durch Shell und
+  `input text` und ist darum auf Buchstaben, Ziffern, Leerzeichen und `. , + -` begrenzt -- Umlaute kommen
+  dort nicht sauber an. Die Sperrliste gewinnt auch gegen eine Suchaufgabe.
+- Bewusst gesperrt: "Taegliche Anmeldung" (ist der Check-in selbst), Merge Boss, Tagesquiz und "1 x Wasser bei
   Preisland hinzufuegen" -- Letzteres legt etwas in den Warenkorb.
+- **Die Verweildauer ist geraten, nicht gemessen.** Die App zaehlt 15 Sekunden, aber erst ab geladener Seite,
+  und rechts am Rand laeuft dabei ein Zaehler, der am Ende einen gruenen Haken zeigt. Gewartet wird bisher
+  stur `EXTRAS_DWELL_S` (25 s). Den Zaehler wirklich abzulesen -- und damit zu wissen, ob eine Aufgabe zaehlte,
+  statt es zu hoffen -- geht erst, wenn ein Screenshot einer laufenden Aufgabenseite vorliegt.
 - Eine Aufgabe faellt derzeit **zu Unrecht** durch: "In kuerzlich angesehenen Artikeln stoebern" traegt
   "Warenkorb" in der Beschreibung und wird davon gesperrt. Wer sie will, nimmt `warenkorb` aus
   `EXTRAS_DENY` -- der eigentliche Schutz vor dem Warenkorb ist `hinzufug`.
