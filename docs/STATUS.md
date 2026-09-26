@@ -51,6 +51,13 @@ Die Unterscheidung ist wichtig: einiges ist auf echten Geräten belegt, anderes 
   zur Beobachtung "ab etwa 8 oder 9 Uhr".
 
 
+- **Erledigte Karten als Anker (0.19.6): halb belegt.** Die Farben sind am Geraet gemessen
+  (Tabelle in Abschnitt 3c), die Erkennung selbst ist an gemalten Bildern mit genau diesen
+  Werten geprueft (`tests/test_button_color.py`) und der Kartenschnitt an Attrappen
+  (`tests/test_extras.py`, die Lage aus 02-liste.png). **Nicht gesehen** ist ein Lauf am
+  Geraet: ob die Farbmaske auf dem echten Screenshot alle Felder findet, sagt erst
+  `acc ocr 02-liste.png --extras`.
+
 - **"Ohne Liste wird nicht gewischt" (0.19.4): nur mit Attrappen.** Der gemeldete Verlauf steht
   als Testfall (`tests/test_extras.py`: Knopf getippt, nie eine Liste -- kein Wisch, kein
   zweiter Tap, kein Zurueck). **Ungeklaert bleibt die Ursache:** warum die Liste nach dem Knopf
@@ -304,8 +311,8 @@ Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene 
 -- erledigt, offen, fehlgeschlagen oder uebersprungen. Uebersprungene zaehlen fuer sich: sie sind kein
 Versaeumnis, sondern Absicht.
 
-- **Erledigte Aufgaben tragen keinen Knopf -- und ihr Text faellt in die Karte darunter**
-  (26.09.2026, an Screenshots des Nutzers gesehen, **noch nicht behoben**). Das ist der
+- **Erledigte Aufgaben tragen keinen Knopf** (26.09.2026, an Screenshots des Nutzers gesehen,
+  **behoben in 0.19.6**). Das ist der
   eigentliche Grund fuer die falschen Kartennamen im Log, und er raeumt eine falsche Annahme
   ab, auf der `find_cards` seit 0.17.0 steht:
   - Eine **offene** Aufgabe hat rechts den orangen Knopf "Und los".
@@ -322,12 +329,27 @@ Versaeumnis, sondern Absicht.
     tragen ihn aber nicht alle Karten: "Super Rabatte anzeigen" hatte `1/3` **und** einen
     Knopf, "Uebersicht ueber Ihre Muenzeinsparungen" gar kein Abzeichen und war erledigt. Der
     **Haken** ist das Merkmal, nicht die Zahl. `extras.progress` liest den Zaehler darum zwar
-    und zeigt ihn an, **entscheidet aber nichts**: solange erledigte Karten in ihre Nachbarn
-    fallen, wuerde ein "2/2" die falsche Aufgabe ueberspringen.
-  - Zu tun: das blassgruene Feld als zweiten Anker erkennen, damit jede Karte einen hat. Die
-    Farbe dafuer ist **gemessen, nicht geraten** -- siehe `ocr.colour_profile` und
-    `acc ocr bild.png --farben`. Das blasse Feld hat kaum Saettigung und ist von Weiss nur
-    knapp zu unterscheiden; die Knopfsuche ueber den Farbton findet es darum nicht.
+    und zeigt ihn an, entscheidet aber nichts.
+  - **Behoben in 0.19.6:** `find_cards` kennt jetzt zwei Sorten Anker. Jede Karte hat wieder
+    genau einen, die Grenzen stimmen, und eine erledigte Karte bekommt das Urteil
+    `extras.ALREADY` statt in ihren Nachbarn zu fallen. In der Tagesliste steht sie bei den
+    erledigten, nicht bei den uebersprungenen -- in der App traegt sie einen Haken.
+
+  **Die Farbe ist gemessen, nicht geraten.** `acc ocr 02-liste.png --farben` am 26.09.2026 auf
+  dem Produktivgeraet, Knopfspalte bei x=604 von 720:
+
+  | Flaeche | H | S | V |
+  |---|---|---|---|
+  | oranger Knopf "Und los" | 12 | 227 | 247 |
+  | blassgruenes Feld | 78..79 | 13..71 | 225..249 |
+  | Weiss daneben | 0 | 0 | 255 |
+
+  **Saettigung 13.** Vom Weiss daneben trennt das Feld fast nichts ausser dem Farbton -- darum
+  hat die Knopfsuche es nie gesehen, und darum waere ein geschaetzter Schwellwert wieder
+  danebengegangen. `DONE_LOW`/`DONE_HIGH` liegen eng um den gemessenen Farbton und lassen bei
+  Saettigung und Helligkeit Luft. Die Groessenpruefung (`find_anchors`) laeuft ueber **beide**
+  Sorten zusammen: getrennt haette keine genug Kandidaten, und die Muenzgrafik im Fensterkopf
+  bliebe stehen.
 
 - **Ohne Liste wird nicht gewischt** (0.19.4). Gemeldet am 26.09.2026: "klick auf mehr coins
   verdienen, dann lange nichts, app schliesst und es wird zwischen dem homescreen hin und her
@@ -738,11 +760,10 @@ Nichts davon ist beschlossen, die Reihenfolge ist ein Vorschlag.
      `tasks.gain` und in der Tagesliste, aber der Stand, den die Oberflaeche gross anzeigt, kommt weiter
      vom letzten Check-in. Eine eigene Zeile in `runs` (Art `extras`) waere die kleinste Loesung,
      verwaessert aber die Erfolgsquote des Check-ins.
-    - **Erledigte Karten als Anker erkennen** (das blassgruene Feld mit Haken). Siehe
-     Abschnitt 3c: solange sie keinen Anker haben, faellt ihr Text in die Karte darunter. Das
-     ist der naechste Schritt, und er macht erst den Zaehler brauchbar.
-   - **Mehrfach erledigbare Aufgaben.** Die Karten tragen einen Zaehler ("1/2", "0/3"). Er wird
-     seit 0.19.5 gelesen und angezeigt, entscheidet aber noch nichts.
+    - **Mehrfach erledigbare Aufgaben.** Die Karten tragen einen Zaehler ("1/2", "0/3"). Er wird
+     seit 0.19.5 gelesen und angezeigt, entscheidet aber noch nichts. Jetzt, wo die
+     Kartengrenzen stimmen, waere er brauchbar -- zu klaeren bleibt, ob eine Aufgabe mit "1/3"
+     im selben Ausflug noch zweimal geht oder erst am naechsten Tag wieder.
    - **Der Zaehler am Rand wird nicht abgelesen.** Waehrend der Verweildauer laeuft rechts eine Uhr und
      zeigt am Ende einen gruenen Haken. Gewartet wird stur `EXTRAS_DWELL_S`; ob eine Aufgabe wirklich
      zaehlte, wird aus dem Muenzstand geschlossen, nicht abgelesen.

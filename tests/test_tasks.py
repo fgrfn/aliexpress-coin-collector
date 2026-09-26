@@ -247,3 +247,34 @@ def test_extras_knopf_und_laufknopf_schliessen_einander_aus() -> None:
         lauf = data.button_state(attempts, JETZT.date(), alive=True, request_pending=False)
         extra = data.extras_button_state(attempts, JETZT.date(), alive=True, request_pending=False)
         assert lauf.enabled != extra.enabled
+
+
+# -- Schon abgeholte Aufgaben ---------------------------------------------------------------------
+#
+# Seit 0.19.6 erkennt die Auswertung am Haken, dass eine Aufgabe schon abgeholt ist. In der
+# Tagesliste gehoert sie zu den erledigten, nicht zu den uebersprungenen: uebersprungen klingt
+# nach Versaeumnis, und in der App traegt sie einen Haken.
+
+
+def test_schon_abgeholte_aufgabe_zaehlt_als_erledigt() -> None:
+    aufgaben = [
+        Task(ts=JETZT, text="Gesponserte Artikel entdecken", ruling=extras.ALREADY, reason="schon abgeholt (2/2)")
+    ]
+
+    items = data.checklist([erfolg()], aufgaben)
+
+    assert items[1].state == data.DONE
+    assert items[1].detail == "schon abgeholt (2/2)"
+
+
+def test_schon_abgeholte_zaehlen_in_der_zusammenfassung_mit() -> None:
+    aufgaben = [
+        Task(ts=JETZT, text="A", ruling=extras.ALREADY, reason="schon abgeholt"),
+        Task(ts=JETZT, text="B", ruling=extras.TAKE, done=True),
+        Task(ts=JETZT, text="C", ruling=extras.TAKE),
+        Task(ts=JETZT, text="D", ruling=extras.BLOCKED, reason="gesperrt durch 'quiz'"),
+    ]
+
+    summe = data.checklist_summary(data.checklist([erfolg()], aufgaben))
+
+    assert (summe.done, summe.open, summe.skipped) == (3, 1, 1)

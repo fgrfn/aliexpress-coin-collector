@@ -118,6 +118,13 @@ def find_button(
 # verdienen" ist blass (geringe Saettigung) und ebenso wenig.
 ORANGE_LOW = (5, 120, 120)
 ORANGE_HIGH = (25, 255, 255)
+# Das blassgruene Feld mit Haken, das eine erledigte Aufgabe statt des Knopfes traegt.
+# **Gemessen**, nicht geschaetzt: `acc ocr 02-liste.png --farben` am 26.09.2026 auf dem
+# Produktivgeraet ergab H 78..79, S 13..71, V 225..249. Die Saettigung von 13 ist der Grund,
+# warum die Knopfsuche es nie sah -- von Weiss (S=0) trennt es fast nichts ausser dem Farbton.
+# Der Rahmen ist darum eng um den gemessenen Farbton gelegt und laesst bei S und V Luft.
+DONE_LOW = (70, 8, 190)
+DONE_HIGH = (95, 140, 255)
 # Wie ein Knopf aussieht, in Anteilen der Bildbreite bzw. -hoehe. Grosszuegig genug fuer andere
 # Aufloesungen, eng genug, um Werbeflaechen und Preisschilder draussen zu lassen.
 BUTTON_MIN_W, BUTTON_MAX_W = 0.10, 0.45
@@ -184,9 +191,35 @@ def find_orange_buttons(img: np.ndarray) -> list[Word]:
     Gibt sie als Word zurueck, damit sie sich wie erkannte Woerter weiterverarbeiten lassen --
     der Text ist ein Platzhalter, gebraucht wird die Lage.
     """
+    return _same_size(_blobs(img, ORANGE_LOW, ORANGE_HIGH, "und los"))
+
+
+def find_done_pills(img: np.ndarray) -> list[Word]:
+    """Die blassgruenen Felder mit Haken -- eine erledigte Aufgabe traegt sie statt des Knopfes."""
+    return _same_size(_blobs(img, DONE_LOW, DONE_HIGH, "erledigt"))
+
+
+def find_anchors(img: np.ndarray) -> tuple[list[Word], list[Word]]:
+    """Alle Anker einer Aufgabenliste: (offene Knoepfe, erledigte Felder).
+
+    Beide zusammen, weil jede Karte genau einen traegt -- und weil die Groessenpruefung ueber
+    beide zusammen laufen muss. Getrennt haette keine der beiden Listen genug Kandidaten, damit
+    die uebliche Groesse etwas aussagt, und die Muenzgrafik im Fensterkopf bliebe stehen.
+    """
+    knoepfe = _blobs(img, ORANGE_LOW, ORANGE_HIGH, "und los")
+    felder = _blobs(img, DONE_LOW, DONE_HIGH, "erledigt")
+    behalten = {(b.x, b.y, b.w, b.h) for b in _same_size(sorted(knoepfe + felder, key=lambda b: b.y))}
+    return (
+        [b for b in knoepfe if (b.x, b.y, b.w, b.h) in behalten],
+        [b for b in felder if (b.x, b.y, b.w, b.h) in behalten],
+    )
+
+
+def _blobs(img: np.ndarray, low: tuple[int, int, int], high: tuple[int, int, int], text: str) -> list[Word]:
+    """Flaechen einer Farbe, nach Groesse, Seitenverhaeltnis und Lage gefiltert."""
     height, width = img.shape[:2]
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(ORANGE_LOW, np.uint8), np.array(ORANGE_HIGH, np.uint8))
+    mask = cv2.inRange(hsv, np.array(low, np.uint8), np.array(high, np.uint8))
     # Schrift und Symbole im Knopf stanzen Loecher hinein; schliessen macht daraus eine Flaeche.
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 9))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -203,9 +236,9 @@ def find_orange_buttons(img: np.ndarray) -> list[Word]:
             continue
         if (x + w // 2) < BUTTON_MIN_CX * width:
             continue
-        found.append(Word(text="und los", x=x, y=y, w=w, h=h, conf=100.0))
+        found.append(Word(text=text, x=x, y=y, w=w, h=h, conf=100.0))
     found.sort(key=lambda b: b.y)
-    return _same_size(found)
+    return found
 
 
 # Wie weit ein Knopf von der ueblichen Groesse abweichen darf.
@@ -293,14 +326,26 @@ class Sight:
 
         Der Textweg bleibt als Rueckfall, falls die App die Farbe aendert.
         """
-        img = decode_png(png)
-        spots = find_orange_buttons(img)
-        if spots:
-            log.debug("Knopfsuche: %d ueber die Farbe", len(spots))
-            return spots
+        knoepfe, _erledigt = find_anchors(decode_png(png))
+        if knoepfe:
+            log.debug("Knopfsuche: %d ueber die Farbe", len(knoepfe))
+            return knoepfe
         words = [w for w in self.bright(png).words if _looks_like_go(w.text, self.cfg.extras_go)]
         log.debug("Knopfsuche: keine Farbtreffer, %d ueber die Schrift", len(words))
         return words
+
+    def done_spots(self, png: bytes) -> list[Word]:
+        """Die Felder erledigter Aufgaben.
+
+        Ohne sie hat eine erledigte Karte keinen Anker, und ihr Text faellt in die Karte
+        darunter -- so kam am 26.09.2026 der Name "Gesponserte Artikel entdecken" auf eine
+        Karte, die in Wahrheit "In kuerzlich angesehenen Artikeln stoebern" war.
+
+        Keinen Rueckfall ueber die Schrift: in dem Feld steht kein Wort, nur ein Haken.
+        """
+        _knoepfe, erledigt = find_anchors(decode_png(png))
+        log.debug("Erledigt-Felder: %d gefunden", len(erledigt))
+        return erledigt
 
     def bright(self, png: bytes) -> Sheet:
         """Helle Schrift auf farbigem Grund -- die Knoepfe "Und los" in der Aufgabenliste.

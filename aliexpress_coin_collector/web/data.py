@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
-from ..extras import BLOCKED, TAKE, normalize, same_card
+from ..extras import ALREADY, BLOCKED, TAKE, normalize, same_card
 from ..runner import Outcome
 from ..stats import (
     SUCCESS_VALUES,
@@ -213,6 +213,10 @@ def _checkin_item(attempts: list[Attempt]) -> CheckItem:
 
 
 def _task_item(task: Task) -> CheckItem:
+    if task.ruling == ALREADY:
+        # Abgeholt ist abgeholt -- ob von uns oder von Hand, sieht man der Karte nicht an.
+        # Als "uebersprungen" zu zeigen, was in der App einen Haken traegt, waere irrefuehrend.
+        return CheckItem(task.text, DONE, task.reason or "schon abgeholt", task.ts)
     if task.ruling != TAKE:
         wort = "gesperrt" if task.ruling == BLOCKED else "unklar"
         return CheckItem(task.text, SKIPPED, task.reason or wort, task.ts)

@@ -46,6 +46,11 @@ class S:
     text: str = ""
 
 
+def erledigte_karte(y: int, *zeilen: str) -> list[W]:
+    """Eine Karte, die statt des Knopfes das blassgruene Feld mit Haken traegt."""
+    return karte(y, *zeilen, go="Haken")
+
+
 def karte(y: int, *zeilen: str, go: str = "Und los") -> list[W]:
     """Eine Aufgabenkarte: Textzeilen links, der Knopf rechts auf halber Hoehe."""
     out: list[W] = []
@@ -149,27 +154,45 @@ class FakeEyes:
     fallback_coins: int | None = None
 
     GO_WORDS = {"und", "los", "go", "geht"}
+    # Das blassgruene Feld einer erledigten Aufgabe. In den Attrappen steht dafuer ein Wort,
+    # am Geraet ist es eine Flaeche -- beides ist fuer `find_cards` nur eine Stelle am Rand.
+    DONE_WORDS = {"haken"}
+
+    def _anker(self, w) -> bool:
+        return w.text.lower().strip(",.!") in self.GO_WORDS | self.DONE_WORDS
 
     def sheet(self, png: bytes) -> S:
-        """Der normale Durchgang: dunkler Text auf Weiss -- ohne die Knopfbeschriftung."""
+        """Der normale Durchgang: dunkler Text auf Weiss -- ohne die Anker am rechten Rand."""
         voll = self.sheets.get(png, S(words=[]))
-        words = [w for w in voll.words if w.text.lower().strip(",.!") not in self.GO_WORDS]
+        words = [w for w in voll.words if not self._anker(w)]
         # Wie ocr.read_sheet: der Volltext ist die Aneinanderreihung der Woerter.
         return S(words=words, width=voll.width, height=voll.height, text=" ".join(w.text for w in words))
 
     def go_spots(self, png: bytes) -> list[W]:
         """Die Knopfflaechen. Am Geraet kommen sie aus der Farbmaske, hier aus den Knopfwoertern."""
+        return self._spots(png, self.GO_WORDS, "und los")
+
+    def done_spots(self, png: bytes) -> list[W]:
+        """Die Felder erledigter Aufgaben -- am Geraet blassgruen mit Haken."""
+        return self._spots(png, self.DONE_WORDS, "erledigt")
+
+    # Anker sitzen rechts. Am Geraet sorgt dafuer BUTTON_MIN_CX; hier braucht es dieselbe
+    # Einschraenkung, sonst haelt die Attrappe das "und" in "Stoebern, shoppen und sparen"
+    # fuer einen Knopf -- genau darauf ist sie beim ersten Versuch hereingefallen.
+    ANKER_AB_X = 500
+
+    def _spots(self, png: bytes, woerter: set, name: str) -> list[W]:
         voll = self.sheets.get(png, S(words=[]))
-        treffer = [w for w in voll.words if w.text.lower().strip(",.!") in self.GO_WORDS]
-        # Mehrere Woerter auf gleicher Hoehe sind ein Knopf, nicht zwei.
-        knoepfe: list[W] = []
+        treffer = [w for w in voll.words if w.text.lower().strip(",.!") in woerter and w.x >= self.ANKER_AB_X]
+        # Mehrere Woerter auf gleicher Hoehe sind ein Anker, nicht zwei.
+        anker: list[W] = []
         for wort in sorted(treffer, key=lambda w: (w.cy, w.x)):
-            if knoepfe and abs(wort.cy - knoepfe[-1].cy) < 20:
-                letzter = knoepfe[-1]
-                knoepfe[-1] = W("und los", letzter.x, letzter.y, wort.x + wort.w - letzter.x, letzter.h)
+            if anker and abs(wort.cy - anker[-1].cy) < 20:
+                letzter = anker[-1]
+                anker[-1] = W(name, letzter.x, letzter.y, wort.x + wort.w - letzter.x, letzter.h)
             else:
-                knoepfe.append(W("und los", wort.x, wort.y, wort.w, wort.h))
-        return knoepfe
+                anker.append(W(name, wort.x, wort.y, wort.w, wort.h))
+        return anker
 
     def more_button(self, png: bytes):
         return self.button
@@ -522,6 +545,9 @@ def test_ohne_knopfflaechen_bleiben_die_karten_unsichtbar(cfg) -> None:
 
     class Blind(FakeEyes):
         def go_spots(self, png: bytes) -> list[W]:
+            return []
+
+        def done_spots(self, png: bytes) -> list[W]:
             return []
 
     liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
@@ -1073,3 +1099,138 @@ def test_ohne_liste_wird_nicht_nach_oben_gewischt(cfg) -> None:
     assert result.runs and result.runs[0].note == extras.NO_LIST
     # Genau die Wische der Leseschleife: drei nach unten, drei wieder nach oben. Keiner mehr.
     assert adb.calls.count("swipe") == 2 * cfg.extras_scrolls
+
+
+# -- Erledigte Aufgaben tragen keinen Knopf ------------------------------------------------------
+#
+# Der Kern dessen, was die Screenshots vom 26.09.2026 zeigen. Eine offene Aufgabe hat rechts den
+# orangen Knopf "Und los", eine erledigte ein blassgruenes Feld mit Haken. Bis 0.19.5 zaehlten
+# nur die Knoepfe -- eine erledigte Karte hatte damit keinen Anker, und ihr Text fiel in die
+# Karte darunter. Genau so kam der Name "Gesponserte Artikel entdecken" auf eine Karte, die in
+# Wahrheit "In kuerzlich angesehenen Artikeln stoebern" war.
+
+
+def echter_bildschirm() -> S:
+    """Die drei Karten aus 02-liste.png, in ihrer Reihenfolge und mit ihrem Zustand."""
+    return S(
+        words=[
+            *erledigte_karte(450, "Gesponserte Artikel entdecken", "Stöbern, shoppen und sparen 2/2"),
+            *karte(750, "In kürzlich angesehenen Artikeln stöbern", "Münzangebot für zuletzt angesehene Artikel"),
+            *erledigte_karte(1050, "Übersicht über Ihre Münzeinsparungen anzeigen", "15s stöbern"),
+        ]
+    )
+
+
+def karten_von(blatt: S, cfg) -> list:
+    eyes = FakeEyes(sheets={b"x": blatt})
+    cards, _ = extras.cards_on(eyes, b"x", cfg)
+    return cards
+
+
+def test_erledigte_karte_bekommt_einen_eigenen_anker(cfg) -> None:
+    cards = karten_von(echter_bildschirm(), cfg)
+
+    assert len(cards) == 3
+    assert [c.done for c in cards] == [True, False, True]
+
+
+def test_der_text_faellt_nicht_mehr_in_die_karte_darunter(cfg) -> None:
+    """Der gemeldete Fehler: die mittlere Karte hiess nach der erledigten darueber."""
+    mitte = karten_von(echter_bildschirm(), cfg)[1]
+
+    assert "kürzlich angesehenen" in mitte.text
+    assert "Gesponserte" not in mitte.text, mitte.text
+
+
+def test_ohne_erledigt_anker_faellt_der_text_sehr_wohl_hinueber(cfg) -> None:
+    """Die Gegenprobe zum Mechanismus: so verhielt es sich bis 0.19.5.
+
+    Eine erledigte Karte zwischen zwei offenen. Zaehlen nur die Knoepfe, ist der Abstand
+    zwischen ihnen doppelt so gross wie eine Karte -- und der halbe Abstand, der die Grenze
+    zieht, reicht mitten in die erledigte Karte hinein. Ihr Text landet beim Nachbarn.
+    """
+    blatt = S(
+        words=[
+            *karte(450, "Super Rabatte anzeigen"),
+            *erledigte_karte(750, "Gesponserte Artikel entdecken"),
+            *karte(1050, "Suchen, was Sie lieben"),
+        ]
+    )
+    eyes = FakeEyes(sheets={b"x": blatt})
+    zeilen = extras.group_lines(eyes.sheet(b"x").words)
+
+    def linien(spots):
+        return [extras.Line(text=s.text, cx=s.cx, cy=s.cy, x2=s.x + s.w) for s in spots]
+
+    frueher = extras.find_cards(zeilen, linien(eyes.go_spots(b"x")))
+    heute = extras.find_cards(zeilen, linien(eyes.go_spots(b"x")), linien(eyes.done_spots(b"x")))
+
+    assert len(frueher) == 2
+    assert any("Gesponserte" in c.text for c in frueher), [c.text for c in frueher]
+
+    assert len(heute) == 3
+    assert [c.text for c in heute] == [
+        "Super Rabatte anzeigen",
+        "Gesponserte Artikel entdecken",
+        "Suchen, was Sie lieben",
+    ]
+
+
+def test_erledigte_karte_wird_nicht_angefasst(cfg) -> None:
+    cards = karten_von(echter_bildschirm(), cfg)
+    urteile = extras.sift(
+        cards, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, bool(cfg.extras_search_terms)
+    )
+
+    assert [u.ruling for u in urteile] == [extras.ALREADY, extras.TAKE, extras.ALREADY]
+    assert urteile[0].reason == "schon abgeholt (2/2)"
+    assert not urteile[0].wanted
+
+
+def test_der_haken_entscheidet_nicht_der_zaehler(cfg) -> None:
+    """ "Super Rabatte" trug 1/3 und war offen, "Uebersicht" gar keine Zahl und war erledigt."""
+    blatt = S(
+        words=[
+            *karte(450, "Super Rabatte anzeigen", "Surfen Sie 15 Sek. auf dieser Seite 1/3"),
+            *erledigte_karte(750, "Übersicht über Ihre Münzeinsparungen anzeigen"),
+        ]
+    )
+    urteile = extras.sift(karten_von(blatt, cfg), cfg.extras_allow, cfg.extras_deny)
+
+    assert urteile[0].ruling == extras.TAKE and "(1/3)" in urteile[0].reason
+    assert urteile[1].ruling == extras.ALREADY
+
+
+def test_gesperrt_gewinnt_auch_gegen_den_haken(cfg) -> None:
+    """Die Sperrliste bleibt das aeussere Netz -- auch wenn die Karte erledigt aussieht."""
+    blatt = S(words=erledigte_karte(450, "Schließen Sie 1 Merge-Boss-Spielrunde ab"))
+
+    assert karten_von(blatt, cfg)[0].done
+    assert extras.sift(karten_von(blatt, cfg), cfg.extras_allow, cfg.extras_deny)[0].ruling == extras.BLOCKED
+
+
+def test_eine_liste_ganz_ohne_offene_aufgabe(cfg) -> None:
+    """Alles abgeholt: gelesen wird trotzdem, angetippt nichts."""
+    blatt = S(
+        words=[
+            *erledigte_karte(450, "Gesponserte Artikel entdecken"),
+            *erledigte_karte(750, "Super Rabatte anzeigen"),
+        ]
+    )
+    urteile = extras.sift(karten_von(blatt, cfg), cfg.extras_allow, cfg.extras_deny)
+
+    assert len(urteile) == 2
+    assert not any(u.wanted for u in urteile)
+
+
+def test_erledigte_karten_werden_nicht_abgearbeitet(cfg) -> None:
+    """Der ganze Ablauf: von drei Karten wird genau die offene angetippt."""
+    adb = FakeAdb()
+    eyes = FakeEyes(sheets={b"liste": echter_bildschirm()}, button=W("verdienen", 200, 560), fallback_coins=140)
+
+    uhr = Uhr()
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert [v.ruling for v in result.verdicts] == [extras.ALREADY, extras.TAKE, extras.ALREADY]
+    assert len(result.runs) == 1
+    assert "kürzlich angesehenen" in result.runs[0].text
