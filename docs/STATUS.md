@@ -297,6 +297,14 @@ sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
   `find_orange_buttons` sucht kraeftiges Orange (Farbton 5-25, hoch gesaettigt) in Knopfgroesse am rechten
   Rand. Was dort liegt, muss gar nicht gelesen werden -- dass ein Knopf da ist, genuegt. Die Schriftsuche
   bleibt als Rueckfall, falls die App die Farbe aendert.
+- **Mehrere Zusatzaufgaben am Geraet erledigt** (26.09.2026, 0.18.4): zwei von fuenf liefen sauber durch --
+  antippen, Verweildauer, zurueck in die Liste, naechste. Drei wurden "nicht mehr gefunden", obwohl sie in
+  der Liste standen: gesucht wurde von der Stelle aus, an der die vorige Aufgabe die Liste hinterlassen
+  hatte, und geblaettert wird nur nach unten. Alles darueber war unerreichbar. Seit 0.19.1 beginnt jede
+  Suche oben (`_to_top`) und reicht bis `FIND_SCROLLS` Wischer weit, bricht aber ab, sobald keine neuen
+  Karten mehr auftauchen -- dann ist das Ende der Liste erreicht. Wird eine Karte nicht gefunden, liegt das
+  Bild dazu in `data/extras/`.
+
 - **Eine Zusatzaufgabe am Geraet erledigt** (26.09.2026): "Gesponserte Artikel entdecken" wurde angetippt,
   die Seite lief ihre 15 Sekunden ab, die Karte stand danach auf 2/2 mit gruenem Haken, und der Muenzstand
   stieg von 140 ueber 146 auf 151. **Tap, Verweildauer und Gutschrift sind damit belegt.**
