@@ -720,6 +720,23 @@ def report_status(
     return state
 
 
+def _beating_sleep(cfg: Config) -> Callable[[float], None]:
+    """Ein `sleep`, das nebenbei das Lebenszeichen auffrischt.
+
+    Ein Ausflug darf bis `EXTRAS_BUDGET_S` dauern, also fuenf Minuten -- genau die Frist, nach
+    der die Oberflaeche den Dienst fuer tot haelt. Geschrieben wird das Lebenszeichen sonst nur
+    einmal je Takt, ganz am Anfang; mitten im Morgenlauf stuende auf der Seite darum "Der Dienst
+    laeuft nicht", und der Knopf waere gesperrt. `explore` schlaeft staendig, also ist das der
+    Ort, an dem es nichts kostet.
+    """
+
+    def schlafen(seconds: float) -> None:
+        time.sleep(seconds)
+        touch_heartbeat(cfg)
+
+    return schlafen
+
+
 def collect_extras(
     cfg: Config,
     adb: Adb,
@@ -748,7 +765,7 @@ def collect_extras(
             time.sleep(2)
         adb.force_stop(cfg.app_package)
         adb.start_url(cfg.coin_url, cfg.app_package)
-        result = extras.explore(adb, cfg, ocr.Sight(cfg), act=act, shots=shots)
+        result = extras.explore(adb, cfg, ocr.Sight(cfg), sleep=_beating_sleep(cfg), act=act, shots=shots)
     except AdbError as exc:
         result.note = f"ADB-Fehler: {exc}"
         log.warning("Zusatzaufgaben: %s", result.note)
@@ -772,7 +789,14 @@ def run_command(cfg: Config, adb: Adb, store: Store, cmd: commands.Command) -> t
         if cmd.name == commands.RUN:
             result = run_once(cfg, adb, force=True)
             handle_result(cfg, store, "manual", result)
-            return result.ok, describe("manual", result)
+            text = describe("manual", result)
+            # Dieselbe Reihenfolge wie beim geplanten Lauf: erst der Check-in, dann die Extras.
+            # Den Knopf "Mehr Muenzen verdienen" zeigt die Seite vorher gar nicht -- und
+            # `EXTRAS_AFTER_RUN` sagt "nach jedem erfolgreichen Lauf", nicht "nach den geplanten".
+            if cfg.extras_after_run and result.ok:
+                log.info("Zusatzaufgaben: Ausflug nach dem Lauf von Hand")
+                text = f"{text} Zusatzaufgaben: {collect_extras(cfg, adb, store).summary()}"
+            return result.ok, text
 
         if cmd.name == commands.EXTRAS:
             result = collect_extras(cfg, adb, store, act=True)

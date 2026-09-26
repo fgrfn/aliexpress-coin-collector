@@ -292,6 +292,28 @@ COUNT_MAX = 20
 SIGNS = {TAKE: "+", BLOCKED: "-", UNKNOWN: "?", ALREADY: "="}
 
 
+# Der Muenzwert auf der Karte, "+5". Eine Spanne ("+1~5" beim Tagesquiz) zaehlt nicht: was
+# dabei herauskommt, steht nicht fest.
+_REWARD_RE = re.compile(r"\+\s*(\d{1,3})(?![\d\s]*[~\u301c\uff5e-])")
+# Mehr als so viele Muenzen gibt keine dieser Aufgaben her -- was groesser ist, ist etwas anderes.
+REWARD_MAX = 99
+
+
+def reward(text: str) -> int | None:
+    """Was die Karte an Muenzen verspricht, oder None.
+
+    **Versprochen, nicht gemessen.** Gemessen waere schoener, geht aber nicht: der Muenzstand
+    steht in der Kopfzeile, und die liegt unter dem Aufgabenfenster. Am 26.09.2026 gab
+    `acc ocr 02-liste.png` dort `Muenzstand: None` -- jeder Versuch, den Zuwachs je Aufgabe aus
+    der Liste zu lesen, ergibt darum nichts. Der Wert auf der Karte dagegen ist gut lesbar.
+    """
+    for treffer in _REWARD_RE.finditer(text):
+        wert = int(treffer.group(1))
+        if 1 <= wert <= REWARD_MAX:
+            return wert
+    return None
+
+
 def progress(text: str) -> tuple[int, int] | None:
     """Der Zaehler der Karte als (gemacht, moeglich), oder None.
 
@@ -340,7 +362,9 @@ def judge(
     """
     key = card.key
     zaehler = progress(card.text)
-    stand = f" ({zaehler[0]}/{zaehler[1]})" if zaehler else ""
+    wert = reward(card.text)
+    teile = [f"{zaehler[0]}/{zaehler[1]}" if zaehler else "", f"+{wert}" if wert else ""]
+    stand = " (" + ", ".join(t for t in teile if t) + ")" if any(teile) else ""
 
     gesperrt = hits(key, deny)
     if gesperrt:
@@ -454,6 +478,8 @@ class TaskRun:
     coins_after: int | None = None
     ok: bool = False
     note: str = ""
+    # Wie oft die Aufgabe in diesem Ausflug abgearbeitet wurde. Manche gehen mehrfach.
+    times: int = 0
 
     @property
     def gain(self) -> int | None:
@@ -499,13 +525,14 @@ def to_tasks(result: ExtrasResult, now: datetime) -> list[Task]:
     nicht nur was geklappt hat: sonst sieht ein Tag mit zwei Aufgaben genauso aus wie einer,
     an dem acht dastanden und sechs davon nichts fuer uns waren.
 
-    Zugeordnet wird ueber die Reihenfolge, nicht ueber den Text: `explore` arbeitet die
-    brauchbaren Urteile der Reihe nach ab, und `TaskRun.text` ist gekuerzt.
+    Zugeordnet wird ueber `Card.short`, nicht ueber die Reihenfolge: seit es Wiederholungen
+    gibt, bleibt zwar eine Zeile je Aufgabe, aber eine Aufgabe kann ganz ohne Lauf dastehen
+    (Zeitbudget alle) -- dann verschoebe sich alles Folgende um eins.
     """
     out: list[Task] = []
-    offen = list(result.runs)
+    nach_text = {lauf.text: lauf for lauf in result.runs}
     for v in result.verdicts:
-        lauf = offen.pop(0) if v.wanted and offen else None
+        lauf = nach_text.get(v.card.short)
         out.append(
             Task(
                 ts=now,
@@ -744,24 +771,51 @@ def explore(
             _scroll(adb, blatt, down=False)
             sleep(SCROLL_SETTLE_S)
 
-    for verdict in [v for v in result.verdicts if v.wanted][: cfg.extras_max]:
-        if monotonic() >= frist:
-            result.note = "Zeitbudget aufgebraucht, der Rest bleibt liegen"
-            log.info("Zusatzaufgaben: %s", result.note)
+    # **Erst jede Aufgabe einmal, dann die Wiederholungen.** Manche Aufgaben lassen sich
+    # mehrfach abholen -- "Super Rabatte anzeigen" stand am 26.09.2026 nach einem Durchgang auf
+    # 2/3, zwei Muenzen blieben liegen. Andersherum herum fraesse eine dreifache Aufgabe das
+    # Zeitbudget der anderen auf, bevor die auch nur einmal drankaemen.
+    #
+    # Schluss ist, sobald die Karte den Haken traegt, nicht bei einer geratenen Zahl: auf den
+    # Zaehler ist am Geraet kein Verlass ("1/3" wurde als "B2 I" gelesen). `EXTRAS_REPEATS` ist
+    # nur die Reissleine, falls eine Karte den Haken nie bekommt.
+    gewollt = [v for v in result.verdicts if v.wanted][: cfg.extras_max]
+    laeufe: dict[str, list[TaskRun]] = {v.card.short: [] for v in gewollt}
+    offen, abbruch = list(gewollt), ""
+    for runde in range(max(1, cfg.extras_repeats)):
+        if runde:
+            log.info("Zusatzaufgaben: Wiederholungsrunde %d fuer %d Aufgaben", runde + 1, len(offen))
+        weiter: list[Verdict] = []
+        for verdict in offen:
+            if monotonic() >= frist:
+                abbruch = "Zeitbudget aufgebraucht, der Rest bleibt liegen"
+                break
+            begriff = choose(list(cfg.extras_search_terms)) if verdict.search and cfg.extras_search_terms else None
+            lauf = _work(adb, cfg, eyes, sleep, monotonic, verdict.card, shots, result, begriff)
+            if lauf.note == FINISHED:
+                continue  # abgehakt, kein Lauf zu verbuchen
+            laeufe[verdict.card.short].append(lauf)
+            if lauf.note in (LEFT, NO_LIST):
+                # Nicht weitersuchen: der naechste Durchgang wuerde auf einem Bildschirm
+                # wischen und tippen, den wir nicht erkannt haben.
+                abbruch = lauf.note
+                break
+            if lauf.note == LOST:
+                abbruch = "abgebrochen: die Liste war nach dem Zurueck nicht wiederzufinden"
+                break
+            if lauf.ok:
+                weiter.append(verdict)
+        offen = weiter
+        if abbruch or not offen:
             break
-        begriff = choose(list(cfg.extras_search_terms)) if verdict.search and cfg.extras_search_terms else None
-        lauf = _work(adb, cfg, eyes, sleep, monotonic, verdict.card, shots, result, begriff)
-        result.runs.append(lauf)
-        if lauf.note in (LEFT, NO_LIST):
-            # Nicht weitersuchen: der naechste Durchgang wuerde auf einem Bildschirm wischen
-            # und tippen, den wir nicht erkannt haben. Genau das ist am 26.09.2026 passiert.
-            result.note = lauf.note
-            log.warning("Zusatzaufgaben: %s", result.note)
-            break
-        if lauf.note == LOST:
-            result.note = "abgebrochen: die Liste war nach dem Zurueck nicht wiederzufinden"
-            log.warning("Zusatzaufgaben: %s", result.note)
-            break
+
+    for verdict in gewollt:
+        durchgaenge = laeufe[verdict.card.short]
+        if durchgaenge:
+            result.runs.append(_merge(durchgaenge, reward(verdict.card.text)))
+    if abbruch:
+        result.note = abbruch
+        log.warning("Zusatzaufgaben: %s", abbruch)
 
     _abschluss(adb, eyes, cfg, sleep, shots, result)
     log.info("Zusatzaufgaben fertig: %s", result.summary())
@@ -796,6 +850,32 @@ def _abschluss(
 
 
 LOST = "Liste nicht wiedergefunden"
+# Die Karte traegt jetzt den Haken. Kein Fehler, sondern das Ende der Wiederholungen.
+FINISHED = "abgehakt"
+
+
+def _merge(laeufe: list[TaskRun], wert: int | None) -> TaskRun:
+    """Mehrere Durchgaenge derselben Aufgabe zu einer Zeile zusammenfassen.
+
+    In der Tagesliste gehoert eine Aufgabe in eine Zeile mit einem Zaehler, nicht in drei fast
+    gleiche. Der Muenzstand kommt vom ersten Anfang und vom letzten Ende -- dazwischen liegt
+    alles, was diese Aufgabe eingebracht hat.
+    """
+    erster, letzter = laeufe[0], laeufe[-1]
+    male = sum(1 for lauf in laeufe if lauf.ok)
+    note = letzter.note
+    if male > 1:
+        note = f"{male}x erledigt"
+        if wert:
+            note += f", +{male * wert} Muenzen laut Karte"
+    return TaskRun(
+        text=erster.text,
+        coins_before=erster.coins_before,
+        coins_after=letzter.coins_after,
+        ok=any(lauf.ok for lauf in laeufe),
+        note=note,
+        times=male,
+    )
 
 
 def _heimweg(adb: Adb, cfg: Config) -> None:
@@ -929,6 +1009,12 @@ def _work(
         if versuch < FIND_SCROLLS:
             _scroll(adb, blatt)
             sleep(SCROLL_SETTLE_S)
+    if stelle is not None and stelle.done:
+        # Zwischen zwei Durchgaengen abgehakt: die Aufgabe gibt nichts mehr her. Das ist das
+        # Ende der Wiederholungen, kein Fehler -- und hier wird nichts mehr angetippt.
+        lauf.note = FINISHED
+        log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
+        return lauf
     if stelle is None or blatt is None:
         lauf.note = "Karte nicht mehr gefunden"
         # Das Bild dazu ablegen: ohne es laesst sich nicht sagen, ob die Karte fehlte oder nur
@@ -975,7 +1061,15 @@ def _work(
     if not getippt:
         log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
         return lauf
-    fertig = "erledigt" if gewinn is None else f"erledigt, {gewinn:+d} Muenzen"
+    wert = reward(wanted.text)
+    if gewinn is not None:
+        fertig = f"erledigt, {gewinn:+d} Muenzen"
+    elif wert:
+        # Gemessen geht nicht: in der Liste liegt das Fenster ueber der Kopfzeile, und der
+        # Muenzstand ist dort nicht zu lesen. Was die Karte verspricht, steht aber da.
+        fertig = f"erledigt, +{wert} Muenzen laut Karte"
+    else:
+        fertig = "erledigt"
     lauf.note = f"{fertig} ({lauf.note})" if lauf.note else fertig
     log.info("Zusatzaufgabe %r: %s", lauf.text, lauf.note)
     return lauf
