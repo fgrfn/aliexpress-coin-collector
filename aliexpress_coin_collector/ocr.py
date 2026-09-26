@@ -147,6 +147,33 @@ class Sight:
         words = read_words(img, self.cfg.ocr_lang)
         return find_button(img, words, self.cfg.extras_button_labels, self.cfg.ocr_lang)
 
+    def bright(self, png: bytes) -> Sheet:
+        """Helle Schrift auf farbigem Grund -- die Knoepfe "Und los" in der Aufgabenliste.
+
+        Weisse Schrift auf Orange liest Tesseract im Originalbild nicht: am 26.09.2026 stand im
+        erkannten Text der ganzen Liste kein einziges "Und los", waehrend alle Kartentitel
+        (dunkel auf weiss) sauber durchkamen. Dieselbe Umkehrung, die schon den Sammeln-Knopf
+        findet, macht sie lesbar.
+
+        Genommen wird der erste Durchgang, in dem eine Knopfbeschriftung auftaucht -- sonst der
+        wortreichste. Jeder Durchgang kostet eine volle Texterkennung, darum nicht alle drei,
+        wenn der erste schon traegt.
+        """
+        img = decode_png(png)
+        height, width = img.shape[:2]
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        best: list[Word] = []
+        for threshold in THRESHOLDS:
+            _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+            words = read_words(binary, self.cfg.ocr_lang)
+            if len(words) > len(best):
+                best = words
+            joined = " ".join(w.text for w in words).lower()
+            if any(term in joined for term in self.cfg.extras_go):
+                best = words
+                break
+        return Sheet(words=best, width=width, height=height, text=" ".join(w.text for w in best))
+
     def coins(self, sheet: Sheet) -> int | None:
         return read_coin_balance(sheet.words, sheet.width, sheet.height)
 
