@@ -655,3 +655,127 @@ def test_ohne_erfolgreichen_lauf_kein_ausflug(cfg, monkeypatch):
     scheduler.tick(cfg, ExtrasAdb(), Store(cfg.data_dir), scheduler.Reconnect(), "0.9.0", now=plan.morning_at)
 
     assert ausfluege == []
+
+
+# -- Reihenfolge: erst der Check-in, dann die Extras ---------------------------------------------
+#
+# Gefragt am 26.09.2026: "werden die extra coins jetzt auch nach dem normalen daily sammeln
+# ausgefuehrt? wichtig ist danach, weil sonst der button nicht passt". Genau so -- den Knopf
+# "Mehr Muenzen verdienen" zeigt die Coin-Seite erst, wenn der Check-in verbucht ist.
+
+
+def lauf_und_extras(cfg, monkeypatch, outcome=None, after_run=True, ueber="plan"):
+    """Einen Lauf ausloesen und festhalten, in welcher Reihenfolge was passiert ist.
+
+    `ueber="plan"` nimmt den geplanten Lauf, `ueber="knopf"` den Auftrag der Oberflaeche.
+    """
+    from dataclasses import replace
+
+    from aliexpress_coin_collector.runner import Outcome, RunResult
+
+    outcome = outcome or Outcome.CLAIMED
+    reihenfolge: list[str] = []
+    monkeypatch.setattr(scheduler.notify, "send", lambda *a, **k: None)
+
+    def fake_run_once(config, adb, force=False):
+        reihenfolge.append("checkin")
+        return RunResult(outcome=outcome, message="ok", coins_before=10, coins_after=17)
+
+    def fake_extras(config, adb, store, **kw):
+        reihenfolge.append("extras")
+        from aliexpress_coin_collector import extras
+
+        return extras.ExtrasResult(entered=True)
+
+    monkeypatch.setattr(scheduler, "run_once", fake_run_once)
+    monkeypatch.setattr(scheduler, "collect_extras", fake_extras)
+
+    cfg = replace(cfg, extras_after_run=after_run)
+    store = Store(cfg.data_dir)
+    if ueber == "knopf":
+        commands.submit(cfg.data_dir, commands.RUN, NOW)
+        scheduler.process_commands(cfg, ExtrasAdb(), store)
+    else:
+        plan = scheduler.plan_for(NOW.date(), cfg)
+        scheduler.tick(cfg, ExtrasAdb(), store, scheduler.Reconnect(), "0.9.0", now=plan.morning_at)
+    return reihenfolge
+
+
+def test_geplanter_lauf_erst_checkin_dann_extras(cfg, monkeypatch):
+    assert lauf_und_extras(cfg, monkeypatch) == ["checkin", "extras"]
+
+
+def test_lauf_von_hand_erst_checkin_dann_extras(cfg, monkeypatch):
+    """Der Knopf "Taeglichen Check-in starten" nahm die Extras bis 0.19.8 nicht mit."""
+    assert lauf_und_extras(cfg, monkeypatch, ueber="knopf") == ["checkin", "extras"]
+
+
+def test_ohne_erfolg_keine_extras_auch_von_hand(cfg, monkeypatch):
+    from aliexpress_coin_collector.runner import Outcome
+
+    assert lauf_und_extras(cfg, monkeypatch, outcome=Outcome.UNREACHABLE, ueber="knopf") == ["checkin"]
+
+
+def test_schon_erledigter_checkin_zaehlt_auch(cfg, monkeypatch):
+    """Den Knopf fuer die Extras gibt es auch, wenn der Check-in vorher schon lief."""
+    from aliexpress_coin_collector.runner import Outcome
+
+    assert lauf_und_extras(cfg, monkeypatch, outcome=Outcome.ALREADY_DONE, ueber="knopf") == ["checkin", "extras"]
+
+
+def test_abgeschaltet_bleibt_abgeschaltet(cfg, monkeypatch):
+    assert lauf_und_extras(cfg, monkeypatch, after_run=False, ueber="knopf") == ["checkin"]
+
+
+def test_die_meldung_nennt_beides(cfg, monkeypatch):
+    from dataclasses import replace
+
+    from aliexpress_coin_collector import extras
+    from aliexpress_coin_collector.runner import Outcome, RunResult
+
+    monkeypatch.setattr(scheduler.notify, "send", lambda *a, **k: None)
+    monkeypatch.setattr(
+        scheduler,
+        "run_once",
+        lambda config, adb, force=False: RunResult(
+            outcome=Outcome.CLAIMED, message="ok", coins_before=10, coins_after=17
+        ),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "collect_extras",
+        lambda *a, **k: extras.ExtrasResult(entered=True, verdicts=[], runs=[]),
+    )
+
+    cfg = replace(cfg, extras_after_run=True)
+    commands.submit(cfg.data_dir, commands.RUN, NOW)
+    scheduler.process_commands(cfg, ExtrasAdb(), Store(cfg.data_dir))
+
+    erledigt = [c for c in commands.recent(cfg.data_dir) if c.name == commands.RUN]
+    assert erledigt and "Zusatzaufgaben:" in erledigt[0].message
+
+
+# -- Das Lebenszeichen waehrend eines langen Ausflugs --------------------------------------------
+
+
+def test_der_ausflug_frischt_das_lebenszeichen_auf(cfg, monkeypatch):
+    """Ein Ausflug darf fuenf Minuten dauern -- genau die Frist, nach der die Oberflaeche den
+    Dienst fuer tot haelt. Ohne das stuende dort mitten im Morgenlauf "laeuft nicht"."""
+    geschlafen: list[float] = []
+    monkeypatch.setattr(scheduler.time, "sleep", geschlafen.append)
+    monkeypatch.setattr(scheduler.ocr, "Sight", lambda config: object())
+
+    def explore_das_schlaeft(adb, config, eyes, sleep=None, **kw):
+        from aliexpress_coin_collector import extras
+
+        sleep(30)  # so wie explore es staendig tut
+        return extras.ExtrasResult(entered=True)
+
+    monkeypatch.setattr(scheduler.extras, "explore", explore_das_schlaeft)
+    beat = cfg.data_dir / scheduler.HEARTBEAT_FILE
+    assert not beat.exists()
+
+    scheduler.collect_extras(cfg, ExtrasAdb(), Store(cfg.data_dir), now=NOW)
+
+    assert beat.exists(), "das Lebenszeichen wurde waehrend des Ausflugs nicht aufgefrischt"
+    assert 30 in geschlafen

@@ -327,13 +327,25 @@ Fenster hoch ("Weitere Muenzen verdienen") mit einer scrollbaren Liste. Jede Auf
 Titel, Beschreibung, Muenzwert und einem orangen Knopf **"Und los"** rechts. Die meisten verlangen nur,
 sich rund fuenfzehn Sekunden auf einer Seite aufzuhalten.
 
-**Wann das laeuft** (0.19.2). Der Dienst haengt einen Ausflug an jeden erfolgreichen Lauf
-(`EXTRAS_AFTER_RUN`, Vorgabe an, in der Oberflaeche abschaltbar). Die Coin-Seite wird dafuer eigens noch
+**Wann das laeuft** (0.19.2, ergaenzt 0.19.8). Der Dienst haengt einen Ausflug an jeden
+erfolgreichen Lauf (`EXTRAS_AFTER_RUN`, Vorgabe an, in der Oberflaeche abschaltbar) -- an den
+geplanten **und** an den von Hand ueber den Knopf "Taeglichen Check-in starten". Bis 0.19.8 galt
+das nur fuer die geplanten; der Knopf nahm die Extras nicht mit, obwohl die Einstellung "nach
+jedem erfolgreichen Lauf" sagt. **Immer danach, nie davor:** den Knopf "Mehr Muenzen verdienen"
+zeigt die Coin-Seite erst, wenn der Check-in verbucht ist. Erfolgreich heisst `claimed` oder
+`already_done` -- beide Male ist er da. Die Coin-Seite wird dafuer eigens noch
 einmal geoeffnet, statt sich an den Lauf davor anzuhaengen: der schaltet den Bildschirm hinterher wieder
 aus. Ausserdem gibt es den Auftrag `extras` aus der Oberflaeche -- der Knopf "Extra-Muenzen sammeln" auf
 der Uebersicht, unabhaengig vom Zeitplan. Er ist gesperrt, solange der Check-in des Tages aussteht: den
 Knopf "Mehr Muenzen verdienen" zeigt die Seite vorher gar nicht. Damit sind die beiden Knoepfe genau
 gegenlaeufig -- der eine geht, wenn der andere nicht mehr geht.
+
+**Das Lebenszeichen laeuft waehrend des Ausflugs weiter** (0.19.8). Geschrieben wird es sonst
+nur einmal je Takt, ganz am Anfang. Ein Ausflug darf aber bis `EXTRAS_BUDGET_S` dauern, also
+fuenf Minuten -- genau die Frist, nach der die Oberflaeche den Dienst fuer tot haelt. Mitten im
+Morgenlauf stuende dort darum "Der Dienst laeuft nicht", und beide Knoepfe waeren gesperrt.
+`_beating_sleep` frischt es bei jedem Schlaf in `explore` auf; das kostet nichts, weil dort
+ohnehin staendig gewartet wird.
 
 **Was dabei herauskam, steht in der Datenbank** (0.19.2, Tabelle `tasks`, siehe Abschnitt 5) und auf der
 Uebersicht als Tagesliste: der Check-in als erste Zeile, darunter jede gesehene Aufgabe mit ihrem Zustand
