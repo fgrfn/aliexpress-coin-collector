@@ -113,6 +113,10 @@ class FakeAdb:
     def enter(self) -> None:
         self.calls.append("enter")
 
+    def force_stop(self, package: str) -> None:
+        self.calls.append("force_stop")
+        self.current = b"beendet"
+
 
 @dataclass
 class FakeEyes:
@@ -552,6 +556,53 @@ def test_ohne_suchbegriff_wird_nichts_getippt(cfg) -> None:
 
     assert adb.getippt == []
     assert result.runs == []  # die Karte gilt als unbekannt und wird nicht angefasst
+
+
+def test_liste_darf_sich_zeit_lassen(cfg) -> None:
+    """Der Fehler vom 26.09.2026: die Aufgabe war erledigt, die Muenzen kamen an -- und trotzdem
+    hiess es "Liste nicht wiedergefunden".
+
+    Nach dem Zurueck faehrt das Fenster wieder hoch. Auf dem langsamen Geraet standen nach zwei
+    Sekunden noch keine Karten, und ein einziger Blick reichte darum nicht.
+    """
+    liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
+    leer = S(words=[W("lädt", 300, 600)])
+
+    class Langsam(FakeAdb):
+        nach_back_blicke = 0
+
+        def back(self) -> None:
+            self.calls.append("back")
+            self.current = b"leer"  # das Fenster faehrt erst hoch
+
+        def screenshot(self) -> bytes:
+            png = super().screenshot()
+            if png == b"leer":
+                Langsam.nach_back_blicke += 1
+                if Langsam.nach_back_blicke >= 2:
+                    self.current = b"liste"  # jetzt steht sie
+            return png
+
+    adb = Langsam()
+    eyes = FakeEyes(sheets={b"liste": liste, b"leer": leer}, button=W("verdienen", 200, 560), fallback_coins=140)
+    uhr = Uhr()
+
+    result = extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=True)
+
+    assert [r.ok for r in result.runs] == [True], [r.note for r in result.runs]
+    assert adb.calls.count("back") <= 2, "hoechstens ein zweites Zurueck"
+
+
+def test_am_ende_wird_die_app_beendet(cfg) -> None:
+    """Statt blind zurueckzutippen. Ein Zurueck zu viel landete auf dem Startbildschirm."""
+    liste = S(words=karte(450, "Gesponserte Artikel entdecken"))
+    adb = FakeAdb()
+    eyes = FakeEyes(sheets={b"liste": liste}, button=W("verdienen", 200, 560))
+    uhr = Uhr()
+
+    extras.explore(adb, cfg, eyes, sleep=uhr.sleep, monotonic=uhr.now, act=False)
+
+    assert adb.calls[-1] == "force_stop"
 
 
 def test_abbruch_wenn_die_liste_nach_dem_zurueck_fehlt(cfg) -> None:

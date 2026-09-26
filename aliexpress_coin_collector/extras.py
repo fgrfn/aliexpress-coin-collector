@@ -414,6 +414,9 @@ SCROLL_SETTLE_S = 2
 LIST_TIMEOUT_S = 25
 # So lange darf die Suchseite brauchen, bevor getippt wird.
 SEARCH_LOAD_S = 8
+# So lange darf die Liste brauchen, bis sie nach einem Zurueck wieder da ist. Das Fenster faehrt
+# hoch, und auf einem langsamen Geraet dauert das -- zwei Sekunden reichten nicht.
+BACK_TIMEOUT_S = 20
 
 
 def _await(
@@ -548,7 +551,7 @@ def explore(
 
     if not act or cfg.extras_max == 0:
         result.note = "nur hingesehen, nichts angetippt"
-        _heimweg(adb, eyes, cfg, sleep)
+        _abschluss(adb, eyes, cfg, sleep, shots, result)
         return result
 
     # -- Abarbeiten ----------------------------------------------------------------------------
@@ -563,40 +566,63 @@ def explore(
             log.info("Zusatzaufgaben: %s", result.note)
             break
         begriff = choose(list(cfg.extras_search_terms)) if verdict.search and cfg.extras_search_terms else None
-        lauf = _work(adb, cfg, eyes, sleep, verdict.card, shots, result, begriff)
+        lauf = _work(adb, cfg, eyes, sleep, monotonic, verdict.card, shots, result, begriff)
         result.runs.append(lauf)
         if lauf.note == LOST:
             result.note = "abgebrochen: die Liste war nach dem Zurueck nicht wiederzufinden"
             log.warning("Zusatzaufgaben: %s", result.note)
             break
 
-    # Erst das Fenster schliessen, dann zaehlen: in der Liste ist die Kopfzeile verdeckt.
-    _heimweg(adb, eyes, cfg, sleep)
-    sleep(SCROLL_SETTLE_S)
-    png = adb.screenshot()
-    _save(shots, "99-ende.png", png, result.shots)
-    result.coins_after = eyes.coins(eyes.sheet(png))
+    _abschluss(adb, eyes, cfg, sleep, shots, result)
     log.info("Zusatzaufgaben fertig: %s", result.summary())
     return result
+
+
+def _abschluss(
+    adb: Adb,
+    eyes: Eyes,
+    cfg: Config,
+    sleep: Callable[[float], None],
+    shots: Path | None,
+    result: ExtrasResult,
+) -> None:
+    """Fenster zu, Muenzstand lesen, App beenden.
+
+    Das Zurueck kommt nur, wenn wirklich noch die Liste zu sehen ist. Sonst waere es eines zu
+    viel und traege uns aus der App -- der Fehler, der am 26.09.2026 auf dem Startbildschirm
+    endete. In der Liste ist die Kopfzeile verdeckt, darum wird der Muenzstand erst danach
+    gelesen, und erst nach einem etwaigen Werbefenster.
+    """
+    cards, _blatt, _png = _look(adb, eyes, cfg, sleep)
+    if cards:
+        adb.back()
+        sleep(SCROLL_SETTLE_S)
+        if _dismiss(adb, cfg, eyes.sheet(adb.screenshot()), sleep):
+            sleep(SCROLL_SETTLE_S)
+        png = adb.screenshot()
+        _save(shots, "99-ende.png", png, result.shots)
+        result.coins_after = eyes.coins(eyes.sheet(png))
+    _heimweg(adb, cfg)
 
 
 LOST = "Liste nicht wiedergefunden"
 
 
-def _heimweg(adb: Adb, eyes: Eyes, cfg: Config, sleep: Callable[[float], None]) -> None:
-    """Das Fenster wieder schliessen.
+def _heimweg(adb: Adb, cfg: Config) -> None:
+    """Sauber aufhoeren: die App beenden.
 
-    Das Zurueck loest oft das Werbefenster aus ("Nicht vergessen: morgen einchecken!"). Es bliebe
-    sonst offen auf dem Geraet stehen, darum gleich wegtippen -- mit "Bleiben", nie mit
-    "Verlassen". Misslingt der Rueckweg, ist es kein Beinbruch: der naechste Lauf startet die
-    App ohnehin neu.
+    Frueher wurde zurueckgetippt. Das ging schief, sobald die Liste nicht mehr zu sehen war:
+    das erste Zurueck schloss das Fenster, das zweite die Coin-Seite, das dritte trug uns aus
+    der App. Am Geraet stand danach der Startbildschirm, und es wurde zwischen Home und
+    App-Uebersicht hin und her geschaltet -- genau so gemeldet am 26.09.2026.
+
+    Ein force-stop laesst keinen Zweifel, wo wir landen, und der naechste Lauf startet die App
+    ohnehin neu. Der Check-in ist zu diesem Zeitpunkt laengst verbucht.
     """
     try:
-        adb.back()
-        sleep(SCROLL_SETTLE_S)
-        _dismiss(adb, cfg, eyes.sheet(adb.screenshot()), sleep)
+        adb.force_stop(cfg.app_package)
     except AdbError as exc:  # pragma: no cover - reiner Aufraeumweg
-        log.debug("Zusatzaufgaben: Rueckweg misslungen (%s)", exc)
+        log.debug("Zusatzaufgaben: App liess sich nicht beenden (%s)", exc)
 
 
 def _dismiss(adb: Adb, cfg: Config, sheet: Sheet, sleep: Callable[[float], None]) -> bool:
@@ -632,6 +658,7 @@ def _work(
     cfg: Config,
     eyes: Eyes,
     sleep: Callable[[float], None],
+    monotonic: Callable[[], float],
     wanted: Card,
     shots: Path | None,
     result: ExtrasResult,
@@ -673,15 +700,17 @@ def _work(
         lauf.note = f"gesucht nach {search_term!r}"
     sleep(cfg.extras_dwell_s)
 
+    # Warten, bis die Liste wieder da ist -- nicht einmal hinsehen und aufgeben. Das Fenster
+    # faehrt hoch, und auf dem langsamen Geraet standen nach zwei Sekunden noch keine Karten:
+    # am 26.09.2026 galt die Liste darum als verloren, obwohl sie gleich darauf wieder da war.
     adb.back()
-    sleep(SCROLL_SETTLE_S)
-    cards, zurueck, png = _look(adb, eyes, cfg, sleep)
+    cards, zurueck, png = _await_cards(adb, eyes, cfg, sleep, monotonic, BACK_TIMEOUT_S)
     _save(shots, f"task-{len(result.runs) + 1:02d}.png", png, result.shots)
 
     if not cards:
+        # Genau ein zweites Zurueck. Danach keines mehr: ein drittes traegt uns aus der App.
         adb.back()
-        sleep(SCROLL_SETTLE_S)
-        cards, zurueck, _png = _look(adb, eyes, cfg, sleep)
+        cards, zurueck, _png = _await_cards(adb, eyes, cfg, sleep, monotonic, BACK_TIMEOUT_S)
         if not cards:
             lauf.note = LOST
             return lauf
