@@ -355,6 +355,59 @@ def test_werbefenster_wird_weggetippt(cfg) -> None:
     assert len(result.verdicts) == 1
 
 
+# Doppelt gelesene Karten vom Geraet, 26.09.2026. Beim Blaettern sieht man jede mehrfach, und
+# die Texterkennung liest sie jedes Mal etwas anders.
+DOPPELT = [
+    (
+        "Übersicht über Ihre Münzeinsparungen anzeigen 15s stöbern und sehen, wie viel Sie gespart haben",
+        "Ds Übersicht über Ihre Münzeinsparungen anzeigen 15s stöbern und sehen, wie viel Sie gespart",
+    ),
+    (
+        "Suchen, was Sie lieben Verdienen Sie durch die Nutzung von Schlüsselwörtern +5",
+        "Weitere Münzen verdienen wa> Verdienen Sie durch die Nutzung von Schlüsselwörtern +5",
+    ),
+    (
+        "Artikel ab $0.10 1 x Wasser bei Preisland hinzufügen +5 Y",
+        "Weitere Münzen verdienen Artikel ab $0.10 1 x Wasser bei Preisland hinzufügen +5",
+    ),
+]
+
+# Verschiedene Aufgaben, die sich aehnlich lesen -- die duerfen nicht verschmelzen.
+VERSCHIEDEN = [
+    (
+        "Gesponserte Artikel entdecken Stöbern, shoppen und sparen +5",
+        "In kürzlich angesehenen Artikeln stöbern Münzangebot für zuletzt angesehene Artikel im Warenkorb",
+    ),
+    (
+        "Super Rabatte anzeigen Surfen Sie 15 Sek. auf dieser Seite, um 5 Münzen zu verdienen",
+        "Gutscheine & Einkaufsguthaben für Sie! Stöbern Sie auf dieser Seite 15 Sekunden lang",
+    ),
+]
+
+
+@pytest.mark.parametrize(("eine", "andere"), DOPPELT)
+def test_dieselbe_karte_zweimal_gelesen(eine, andere) -> None:
+    assert extras.same_card(extras.normalize(eine), extras.normalize(andere))
+
+
+@pytest.mark.parametrize(("eine", "andere"), VERSCHIEDEN)
+def test_verschiedene_karten_verschmelzen_nicht(eine, andere) -> None:
+    assert not extras.same_card(extras.normalize(eine), extras.normalize(andere))
+
+
+def test_sift_verwirft_die_zweite_lesung(cfg) -> None:
+    """Sieben "brauchbare" Karten waren am Geraet in Wahrheit fuenf."""
+    cards = [extras.Card(text, 600, i * 100) for i, paar in enumerate(DOPPELT) for text in paar]
+    urteile = extras.sift(cards, cfg.extras_allow, cfg.extras_deny, cfg.extras_search_markers, True)
+    assert len(urteile) == len(DOPPELT)
+
+
+def test_kurze_texte_brauchen_gleichheit() -> None:
+    """Bei zwei Woertern waere ein Anteil Zufall."""
+    assert extras.same_card("rabatte anzeigen", "rabatte anzeigen")
+    assert not extras.same_card("rabatte anzeigen", "rabatte ansehen")
+
+
 def test_sift_zaehlt_jede_karte_nur_einmal(cfg) -> None:
     eine = extras.Card("Super Rabatte anzeigen", 600, 100)
     nochmal = extras.Card("Super Rabatte anzeigen", 600, 900)  # beim Blaettern wieder gesehen
