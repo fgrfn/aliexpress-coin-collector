@@ -7,6 +7,6 @@ paho-mqtt>=2.0
 
 # Weboberflaeche (optionaler zweiter Dienst, siehe README)
 fastapi>=0.110
-uvicorn>=0.27
+uvicorn>=0.54.0
 python-multipart>=0.0.9
 jinja2>=3.1
