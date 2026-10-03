@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aliexpress-coin-collector"
-version = "0.16.2"
+dynamic = ["version"]
 description = "Sammelt den taeglichen AliExpress-Coin-Check-in automatisch ein (Android per ADB + OCR)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,6 +27,10 @@ Issues = "https://github.com/fgrfn/aliexpress-coin-collector/issues"
 
 [project.scripts]
 aliexpress-coin-collector = "aliexpress_coin_collector.__main__:main"
+
+[tool.setuptools.dynamic]
+# Eine einzige Quelle verhindert, dass CLI und gebautes Paket verschiedene Versionen melden.
+version = { attr = "aliexpress_coin_collector.__version__" }
 
 # find statt einer festen Liste: sonst fehlt das Unterpaket web in einer Installation.
 [tool.setuptools.packages.find]
